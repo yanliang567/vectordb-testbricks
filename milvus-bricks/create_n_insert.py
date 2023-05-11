@@ -71,8 +71,8 @@ if __name__ == '__main__':
     dim = int(sys.argv[3])  # collection dimension
     nb = int(sys.argv[4])  # collection insert batch size
     insert_times = int(sys.argv[5])  # collection insert times
-    index = str(sys.argv[6])    # index type
-    metric = str(sys.argv[7])   # metric type, L2 or IP
+    index = str(sys.argv[6]).upper()    # index type
+    metric = str(sys.argv[7]).upper()   # metric type, L2 or IP
     port = 19530
     log_name = f"prepare_{name}"
 
