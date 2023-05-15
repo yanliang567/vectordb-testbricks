@@ -84,7 +84,7 @@ def insert_entities(collection, nb, upsert_rounds):
 
 if __name__ == '__main__':
     host = sys.argv[1]
-    collection_name = sys.argv[2]              # collection mame
+    collection_name = sys.argv[2]            # collection mame
     delete_percent = int(sys.argv[3])        # percent of entities to be deleted
     insert_percent = int(sys.argv[4])        # percent of entities to be inserted
     port = 19530
@@ -139,7 +139,7 @@ if __name__ == '__main__':
     t2 = round(time.time() - t1, 3)
     logging.info(f"load {collection_name}: {t2}")
 
-    if skip_delete:
+    if not skip_delete:
         delete_num = num_entities * delete_percent // 100
         # insert nb if less than nb
         delete_rounds = int(delete_num // nb + 1)
@@ -148,11 +148,11 @@ if __name__ == '__main__':
         delete_entities(collection=c, nb=nb, search_params=search_params,
                         rounds=delete_rounds)
 
-    if skip_insert:
+    if not skip_insert:
         insert_num = num_entities * insert_percent // 100
         # insert nb if less than nb
         insert_rounds = int(insert_num // nb + 1)
-        logging.info(f"{insert_rounds * nb} entities to be upsert in {insert_rounds} rounds")
+        logging.info(f"{insert_rounds * nb} entities to be insert in {insert_rounds} rounds")
         # insert xx% entities
         insert_entities(collection=c, nb=nb, upsert_rounds=insert_rounds)
 
