@@ -97,12 +97,14 @@ if __name__ == '__main__':
 
     conn = connections.connect('default', host=host, port=port)
 
-    if delete_percent < 0 or delete_percent > 100:
-        logging.error(f"delete percent shall be 0-100")
-        exit(0)
-    if insert_percent < 1 or insert_percent > 100:
-        logging.error(f"insert percent shall be 1-100")
-        exit(0)
+    skip_delete = False
+    skip_insert = False
+    if delete_percent <= 0 or delete_percent > 100:
+        logging.error(f"delete percent{delete_percent} shall be 0-100, skip delete")
+        skip_delete = True
+    if insert_percent <= 0 or insert_percent > 100:
+        logging.error(f"insert percent{insert_percent} shall be 1-100, skip insert")
+        skip_insert = True
 
     # check and get the collection info
     if not utility.has_collection(collection_name=collection_name):
@@ -137,22 +139,21 @@ if __name__ == '__main__':
     t2 = round(time.time() - t1, 3)
     logging.info(f"load {collection_name}: {t2}")
 
-    delete_num = num_entities * delete_percent // 100
-    # insert nb if less than nb
-    delete_rounds = int(delete_num // nb + 1)
-    logging.info(f"{delete_rounds * nb} entities to be deleted in {delete_rounds} rounds")
+    if skip_delete:
+        delete_num = num_entities * delete_percent // 100
+        # insert nb if less than nb
+        delete_rounds = int(delete_num // nb + 1)
+        logging.info(f"{delete_rounds * nb} entities to be deleted in {delete_rounds} rounds")
+        # delete xx% entities
+        delete_entities(collection=c, nb=nb, search_params=search_params,
+                        rounds=delete_rounds)
 
-    # delete xx% entities
-    delete_entities(collection=c, nb=nb,
-                    search_params=search_params,
-                    rounds=delete_rounds)
-
-    insert_num = num_entities * insert_percent // 100
-    # insert nb if less than nb
-    insert_rounds = int(insert_num // nb + 1)
-    logging.info(f"{insert_rounds * nb} entities to be upsert in {insert_rounds} rounds")
-
-    # insert xx% entities
-    insert_entities(collection=c, nb=nb, upsert_rounds=insert_rounds)
+    if skip_insert:
+        insert_num = num_entities * insert_percent // 100
+        # insert nb if less than nb
+        insert_rounds = int(insert_num // nb + 1)
+        logging.info(f"{insert_rounds * nb} entities to be upsert in {insert_rounds} rounds")
+        # insert xx% entities
+        insert_entities(collection=c, nb=nb, upsert_rounds=insert_rounds)
 
     logging.info(f"{collection_name} upsert completed")
