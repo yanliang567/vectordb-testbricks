@@ -57,7 +57,6 @@ def search(collection, field_name, search_params, nq, topk, threads_num, timeout
             search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
             t1 = time.time()
             try:
-                # logging.info(f"ignore_growing: {ignore_growing}")
                 collection.search(data=search_vectors, anns_field=field_name,
                                   # output_fields="",
                                   param=search_params, limit=topk
@@ -82,9 +81,10 @@ if __name__ == '__main__':
     name = sys.argv[2]                  # collection mame/alias
     th = int(sys.argv[3])               # search thread num
     timeout = int(sys.argv[4])          # search timeout, permanently if 0
-    ignore_growing = bool(sys.argv[5])  # ignore_growing, default False
+    ignore_growing = str(sys.argv[5]).upper()   # ignore searching growing segments if True
     port = 19530
 
+    ignore_growing = True if ignore_growing == "TRUE" else False
     file_handler = logging.FileHandler(filename=f"/tmp/search_{name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
