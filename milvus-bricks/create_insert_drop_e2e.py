@@ -28,10 +28,8 @@ if __name__ == '__main__':
     insert_times = int(sys.argv[5])  # collection insert times
     index = str(sys.argv[6]).upper()  # index type
     metric = str(sys.argv[7]).upper()  # metric type, L2 or IP
-    rg_num = int(sys.argv[8])  # resource group num == replica num
-    node_num_each_rg = int(sys.argv[9])  # query node num for each rg
     port = 19530
-    log_name = f"prepare_{name}"
+    log_name = f"create_n_drop_e2e_{name}"
 
     file_handler = logging.FileHandler(filename=f"/tmp/{log_name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -43,26 +41,19 @@ if __name__ == '__main__':
     connections.add_connection(default={"host": host, "port": 19530})
     connections.connect('default')
 
-    default_rg_info = utility.describe_resource_group(name=default_rg)
-    if default_rg_info.num_available_node < rg_num * node_num_each_rg:
-        logging.error(f"there is no available nodes in default rg, expected: {rg_num} x {node_num_each_rg}")
-        exit(0)
-
-    prefix = gen_unique_str()
-    rgs = [f"rg_{i}_{prefix}" for i in range(rg_num)]
-    for rg_name in rgs:
-        utility.create_resource_group(name=rg_name)
-        utility.transfer_node(source_group=default_rg, target_group=rg_name, num_nodes=node_num_each_rg)
-        logging.info(f"create and transfer node to resource group {rg_name}")
-
-    # create an insert
+    # create and insert
     create_n_insert.create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
                                     index_type=index, metric_type=metric)
+    # create and drop
+    for i in range(10):
+        # create and insert
+        name = gen_unique_str(name)
+        create_n_insert.create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
+                                        index_type=index, metric_type=metric)
+        # drop the collections
+        collection = Collection(name=name)
+        collection.drop()
+        logging.info(f"collection {name} dropped")
 
-    # load collection
-    c = Collection(name=name)
-    c.load(replica_number=rg_num, _resource_groups=rgs)
-    logging.info(f"collection loaded to resource groups: {rgs}")
-
-    logging.info("collection prepared completed")
+    logging.info("create and drop completed")
 
