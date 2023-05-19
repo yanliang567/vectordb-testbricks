@@ -47,13 +47,13 @@ if __name__ == '__main__':
     # create and drop
     for i in range(10):
         # create and insert
-        name = gen_unique_str(name)
-        create_n_insert.create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
+        tmp_name = gen_unique_str(name)
+        create_n_insert.create_n_insert(collection_name=tmp_name, dim=dim, nb=nb, insert_times=insert_times,
                                         index_type=index, metric_type=metric)
         # drop the collections
-        collection = Collection(name=name)
+        collection = Collection(name=tmp_name)
         collection.drop()
-        logging.info(f"collection {name} dropped")
+        logging.info(f"collection {tmp_name} dropped")
 
     logging.info("create and drop completed")
 
