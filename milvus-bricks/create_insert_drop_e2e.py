@@ -42,7 +42,8 @@ if __name__ == '__main__':
     connections.connect('default')
 
     # create and insert
-    create_n_insert.create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
+    tmp_name = gen_unique_str(name)
+    create_n_insert.create_n_insert(collection_name=tmp_name, dim=dim, nb=nb, insert_times=insert_times,
                                     index_type=index, metric_type=metric)
     # create and drop
     for i in range(10):
