@@ -24,7 +24,7 @@ def normalize(metric_type, X):
 
 
 def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2",
-                    parkey_num=10000, parkey_collection_only=False):
+                    parkey_num=10000, parkey_collection_only=False, parkey_values_evenly=False):
     id_field = FieldSchema(name="id", dtype=DataType.INT64, description="auto primary id")
     category_field = FieldSchema(name="category", dtype=DataType.INT64, description="age")
     embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
@@ -54,7 +54,9 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
 
     for i in range(insert_times):
         # prepare data
-        categories = [random.randint(1, parkey_num) for _ in range(nb)]
+        categories = [(i+1) for _ in range(nb)]
+        if parkey_values_evenly:
+            categories = [random.randint(1, parkey_num) for _ in range(nb)]
         embeddings = [[random.random() for _ in range(dim)] for _ in range(nb)]
         data = [categories, embeddings]
         if not parkey_collection_only:
@@ -107,12 +109,14 @@ if __name__ == '__main__':
     insert_times = int(sys.argv[5])  # collection insert times
     index = str(sys.argv[6]).upper()    # index type
     metric = str(sys.argv[7]).upper()   # metric type, L2 or IP
-    parkey_num = int(sys.argv[8])   # partition key number
+    parkey_num = int(sys.argv[8])   # partition key number for evenly distributed partition keys
     parkey_collection_only = str(sys.argv[9]).upper()   # true if only create partition key collection
+    parkey_values_evenly = str(sys.argv[10]).upper()   # true if partition key values are evenly distributed
     port = 19530
-    log_name = f"prepare_{name}"
+    log_name = f"prepare_parkey_{name}"
 
     parkey_collection_only = True if parkey_collection_only == "TRUE" else False
+    parkey_values_evenly = True if parkey_values_evenly == "TRUE" else False
     file_handler = logging.FileHandler(filename=f"/tmp/{log_name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
@@ -125,7 +129,8 @@ if __name__ == '__main__':
 
     create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
                     index_type=index, metric_type=metric,
-                    parkey_num=parkey_num, parkey_collection_only=parkey_collection_only)
+                    parkey_num=parkey_num, parkey_collection_only=parkey_collection_only,
+                    parkey_values_evenly=parkey_values_evenly)
 
     logging.info("collections prepared completed")
 
