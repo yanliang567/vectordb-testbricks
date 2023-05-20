@@ -140,7 +140,7 @@ if __name__ == '__main__':
     # query(collection, expr=expr, output_fields=output_fields, th=th, timeout=timeout)
     # logging.info(f"search completed ")
 
-    collection_parkey = Collection(name="hnsw_test_parkey")
+    collection_parkey = Collection(name=f"{name}_parkey")
     collection_parkey.load()
 
     total_count = 0
