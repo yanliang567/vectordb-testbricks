@@ -143,13 +143,13 @@ if __name__ == '__main__':
     collection_parkey = Collection(name=f"{name}_parkey")
     collection_parkey.load()
 
-    total_count = 0
-    total_time = 0
-    total_time_parkey = 0
     output_fields_list = [None, ["id", "category"], ["id", "category", "embedding"]]
     round_times = [101, 1001]
     for output_fields in output_fields_list:
         for round_time in round_times:
+            total_count = 0
+            total_time = 0
+            total_time_parkey = 0
             logging.info(f"start {round_time} partition keys, output_fields: {output_fields}")
             for i in range(round_time):
                 t0 = time.time()
@@ -176,7 +176,6 @@ if __name__ == '__main__':
             total_time_parkey = 0
             nq = 1
             search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
-
             for i in range(round_time):
                 t0 = time.time()
                 res = collection.search(data=search_vectors, anns_field="embedding",
