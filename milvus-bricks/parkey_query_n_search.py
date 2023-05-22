@@ -164,7 +164,7 @@ if __name__ == '__main__':
                 total_count += len(res2)
             # parkey search
             if "embedding" in output_fields:
-                logging.info("search does not support retieve embedding in 2.2")
+                logging.info("search does not support retrieve embedding in 2.2")
                 total_time_search_parkey = 1
             else:
                 for i in range(round_time):
@@ -190,7 +190,7 @@ if __name__ == '__main__':
             # non-parkey search
             # parkey search
             if "embedding" in output_fields:
-                logging.info("search does not support retieve embedding in 2.2")
+                logging.info("search does not support retrieve embedding in 2.2")
                 total_time_search = 1
             else:
                 for i in range(round_time):
@@ -204,6 +204,6 @@ if __name__ == '__main__':
                     total_time_search += t3
 
             logging.info(f"total count: {total_count}, query time: {round(total_time_query,4)}, parkey time: {round(total_time_query_parkey,4)}, "
-                         f"saved:{round(total_time_query-total_time_query_parkey,4)} @{round((total_time_query-total_time_query_parkey)/total_time_query/0.01,2)}%")
+                         f"saved:{round(total_time_query-total_time_query_parkey,4)} @{round(total_time_query/total_time_query_parkey/0.01,2)}%")
             logging.info(f"total search time: {round(total_time_search, 4)}, parkey time: {round(total_time_search_parkey, 4)}, "
-                         f"saved:{round(total_time_search - total_time_search_parkey, 4)} @{round((total_time_search - total_time_search_parkey) / total_time_search / 0.01, 2)}%")
+                         f"saved:{round(total_time_search - total_time_search_parkey, 4)} @{round((total_time_search) / total_time_search_parkey / 0.01, 2)}%")
