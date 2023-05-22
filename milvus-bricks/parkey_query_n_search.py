@@ -197,7 +197,7 @@ if __name__ == '__main__':
                 for i in range(round_time):
                     search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
                     t2 = time.time()
-                    res = collection.serach(data=search_vectors, anns_field="embedding",
+                    res = collection.search(data=search_vectors, anns_field="embedding",
                                             param=search_params, limit=10, expr=f"category == {i}",
                                             output_fields=output_fields)
                     t3 = round(time.time() - t2, 4)
