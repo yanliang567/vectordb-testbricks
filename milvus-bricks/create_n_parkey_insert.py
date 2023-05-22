@@ -23,8 +23,29 @@ def normalize(metric_type, X):
     return X
 
 
+def build(collection, index_type, metric_type):
+    index_params_dict = {
+        "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 8, "efConstruction": 96}},
+        "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}}
+    }
+    index_params = index_params_dict.get(index_type.upper(), None)
+    if index_params is None:
+        logging.error(f"index type {index_type} no supported")
+        exit(1)
+
+    if not collection.has_index():
+        t0 = time.time()
+        collection.create_index(field_name="embedding", index_params=index_params)
+        tt = round(time.time() - t0, 3)
+        logging.info(f"{collection.name} build index {index_params} costs {tt}")
+    else:
+        idx = collection.index()
+        logging.info(f"{collection.name} index {idx.params} already exists")
+
+
 def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2",
-                    parkey_num=10000, parkey_collection_only=False, parkey_values_evenly=False, num_partitions=64):
+                    parkey_num=10000, parkey_collection_only=False, parkey_values_evenly=False,
+                    num_partitions=64, pre_load=False):
     id_field = FieldSchema(name="id", dtype=DataType.INT64, description="auto primary id")
     category_field = FieldSchema(name="category", dtype=DataType.INT64, description="age")
     embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
@@ -44,15 +65,21 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
                                    num_partitions=num_partitions)
     logging.info(f"create {collection_parkey_name} successfully")
 
-    index_params_dict = {
-        "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 8, "efConstruction": 96}},
-        "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}}
-    }
-    index_params = index_params_dict.get(index_type.upper(), None)
-    if index_params is None:
-        logging.error(f"index type {index_type} no supported")
-        exit(1)
+    if pre_load:
+        logging.info(f"pre_load: {pre_load}")
+        if not parkey_collection_only:
+            collection.flush()
+            logging.info(f"{collection_name} entities: {collection.num_entities}")
+            build(collection, index_type, metric_type)
+            collection.load()
+            logging.info(f"{collection_name} loaded")
+        collection_parkey.flush()
+        logging.info(f"{collection_parkey_name} entities: {collection_parkey.num_entities}")
+        build(collection_parkey, index_type, metric_type)
+        collection_parkey.load()
+        logging.info(f"{collection_parkey_name} loaded")
 
+    # insert data
     for i in range(insert_times):
         # prepare data
         categories = [(i+1) for _ in range(nb)]
@@ -73,31 +100,13 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
     if not parkey_collection_only:
         collection.flush()
         logging.info(f"{collection_name} entities: {collection.num_entities}")
-    collection_parkey.flush()
-    logging.info(f"{collection_parkey_name} entities: {collection_parkey.num_entities}")
-
-    if not parkey_collection_only:
-        if not collection.has_index():
-            t0 = time.time()
-            collection.create_index(field_name=embedding_field.name, index_params=index_params)
-            tt = round(time.time() - t0, 3)
-            logging.info(f"{collection_name} build index {index_params} costs {tt}")
-        else:
-            idx = collection.index()
-            logging.info(f"{collection_name} index {idx.params} already exists")
-
-    if not collection_parkey.has_index():
-        t0 = time.time()
-        collection_parkey.create_index(field_name=embedding_field.name, index_params=index_params)
-        tt = round(time.time() - t0, 3)
-        logging.info(f"{collection_parkey_name} build index {index_params} costs {tt}")
-    else:
-        idx = collection_parkey.index()
-        logging.info(f"{collection_parkey_name} index {idx.params} already exists")
-
-    if not parkey_collection_only:
+        build(collection, index_type, metric_type)
         collection.load()
         logging.info(f"{collection_name} loaded")
+
+    collection_parkey.flush()
+    logging.info(f"{collection_parkey_name} entities: {collection_parkey.num_entities}")
+    build(collection_parkey, index_type, metric_type)
     collection_parkey.load()
     logging.info(f"{collection_parkey_name} loaded")
 
@@ -114,11 +123,13 @@ if __name__ == '__main__':
     parkey_collection_only = str(sys.argv[9]).upper()   # true if only create partition key collection
     parkey_values_evenly = str(sys.argv[10]).upper()   # true if partition key values are evenly distributed
     num_partitions = int(sys.argv[11])   # number of partitions
+    pre_load = str(sys.argv[12]).upper()   # true if pre load data
     port = 19530
     log_name = f"prepare_parkey_{name}"
 
     parkey_collection_only = True if parkey_collection_only == "TRUE" else False
     parkey_values_evenly = True if parkey_values_evenly == "TRUE" else False
+    pre_load = True if pre_load == "TRUE" else False
     if num_partitions <= 0 or num_partitions > 4096:
         num_partitions = 64
     file_handler = logging.FileHandler(filename=f"/tmp/{log_name}.log")
@@ -134,7 +145,8 @@ if __name__ == '__main__':
     create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
                     index_type=index, metric_type=metric,
                     parkey_num=parkey_num, parkey_collection_only=parkey_collection_only,
-                    parkey_values_evenly=parkey_values_evenly, num_partitions=num_partitions)
+                    parkey_values_evenly=parkey_values_evenly, num_partitions=num_partitions,
+                    pre_load=pre_load)
 
     logging.info("collections prepared completed")
 
