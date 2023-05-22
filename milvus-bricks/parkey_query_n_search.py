@@ -148,49 +148,62 @@ if __name__ == '__main__':
     for output_fields in output_fields_list:
         for round_time in round_times:
             total_count = 0
-            total_time = 0
-            total_time_parkey = 0
+            total_time_query = 0
+            total_time_query_parkey = 0
+            total_time_search = 0
+            total_time_search_parkey = 0
             logging.info(f"start {round_time} partition keys, output_fields: {output_fields}")
+            # parkey query
             for i in range(round_time):
-                t0 = time.time()
-                res = collection.query(expr=f"category == {i}",
-                                       output_fields=output_fields,
-                                       )
-                # embedding = res[0].get("embedding")
-                t1 = round(time.time() - t0, 4)
-                total_time += t1
                 t2 = time.time()
-                res2 = collection_parkey.query(expr=f"category == {i}",
-                                               output_fields=output_fields,
-                                               )
+                res2 = collection_parkey.query(expr=f"category == {i}", output_fields=output_fields)
                 # embedding = res[0].get("embedding")
                 t3 = round(time.time() - t2, 4)
-                total_time_parkey += t3
-                logging.info(f"category {i} query count: {len(res)}. query: {t1}, parkey query: {t3}, "
-                             f"saved:{round(t1-t3,4)} @{round((t1-t3)/t1/0.01,2)}%")
-                total_count += len(res)
-            logging.info(f"total count: {total_count}, query time: {round(total_time,4)}, parkey time: {round(total_time_parkey,4)}, "
-                         f"saved:{round(total_time-total_time_parkey,4)} @{round((total_time-total_time_parkey)/total_time/0.01,2)}%")
+                logging.info(f"category {i}: parkey query: {t3}")
+                total_time_query_parkey += t3
+                total_count += len(res2)
+            # parkey search
+            if "embedding" in output_fields:
+                logging.info("search does not support retieve embedding in 2.2")
+                total_time_search_parkey = 1
+            else:
+                for i in range(round_time):
+                    search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
+                    t2 = time.time()
+                    res = collection_parkey.search(data=search_vectors, anns_field="embedding",
+                                                   param=search_params, limit=10, expr=f"category == {i}",
+                                                   output_fields=output_fields)
+                    t3 = round(time.time() - t2, 4)
+                    logging.info(f"category {i}: parkey search: {t3}")
+                    total_time_search_parkey += t3
 
-            total_time = 0
-            total_time_parkey = 0
-            nq = 1
-            search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
+            # sleep to wait for cpu to cool down
+            time.sleep(120)
+
+            # non-parkey query
             for i in range(round_time):
-                t0 = time.time()
-                res = collection.search(data=search_vectors, anns_field="embedding",
-                                        param=search_params, limit=10, expr=f"category == {i}",
-                                        output_fields=output_fields,
-                                        )
-                t1 = round(time.time() - t0, 4)
-                total_time += t1
                 t2 = time.time()
-                res = collection_parkey.search(data=search_vectors, anns_field="embedding",
-                                               param=search_params, limit=10, expr=f"category == {i}",
-                                               output_fields=output_fields,
-                                               )
+                res2 = collection.query(expr=f"category == {i}", output_fields=output_fields)
                 t3 = round(time.time() - t2, 4)
-                total_time_parkey += t3
-                logging.info(f"category {i}: search: {t1}, parkey search: {t3}, saved:{round(t1-t3,4)} @{round((t1-t3)/t1/0.01,2)}%")
-            logging.info(f"total search time: {round(total_time,4)}, parkey time: {round(total_time_parkey,4)}, "
-                         f"saved:{round(total_time-total_time_parkey,4)} @{round((total_time-total_time_parkey)/total_time/0.01,2)}%")
+                logging.info(f"category {i}: query: {t3}")
+                total_time_query += t3
+            # non-parkey search
+            # parkey search
+            if "embedding" in output_fields:
+                logging.info("search does not support retieve embedding in 2.2")
+                total_time_search = 1
+            else:
+                for i in range(round_time):
+                    search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
+                    t2 = time.time()
+                    res = collection.serach(data=search_vectors, anns_field="embedding",
+                                            param=search_params, limit=10, expr=f"category == {i}",
+                                            output_fields=output_fields)
+                    t3 = round(time.time() - t2, 4)
+                    logging.info(f"category {i}: search: {t3}")
+                    total_time_search += t3
+
+            logging.info(f"total count: {total_count}, query time: {round(total_time_query,4)}, parkey time: {round(total_time_query_parkey,4)}, "
+                         f"saved:{round(total_time_query-total_time_query_parkey,4)} @{round((total_time_query-total_time_query_parkey)/total_time_query/0.01,2)}%")
+            logging.info(f"total search time: {round(total_time_search, 4)}, parkey time: {round(total_time_search_parkey, 4)}, "
+                         f"saved:{round(total_time_search - total_time_search_parkey, 4)} @{round((total_time_search - total_time_search_parkey) / total_time_search / 0.01, 2)}%")
