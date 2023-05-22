@@ -164,7 +164,7 @@ if __name__ == '__main__':
                 total_time_query_parkey += t3
                 total_count += len(res2)
             # parkey search
-            if "embedding" in output_fields:
+            if output_fields is not None and "embedding" in output_fields:
                 logging.info("search does not support retrieve embedding in 2.2")
                 total_time_search_parkey = 1
             else:
@@ -190,7 +190,7 @@ if __name__ == '__main__':
                 total_time_query += t3
             # non-parkey search
             # parkey search
-            if "embedding" in output_fields:
+            if output_fields is not None and "embedding" in output_fields:
                 logging.info("search does not support retrieve embedding in 2.2")
                 total_time_search = 1
             else:
