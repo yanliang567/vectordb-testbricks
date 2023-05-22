@@ -145,6 +145,7 @@ if __name__ == '__main__':
 
     output_fields_list = [None, ["id", "category"], ["id", "category", "embedding"]]
     round_times = [101, 1001]
+    round_times = [500]
     for output_fields in output_fields_list:
         for round_time in round_times:
             total_count = 0
