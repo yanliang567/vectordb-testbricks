@@ -82,11 +82,11 @@ if __name__ == '__main__':
     th = int(sys.argv[3])               # search thread num
     timeout = int(sys.argv[4])          # search timeout, permanently if 0
     ignore_growing = str(sys.argv[5]).upper()   # ignore searching growing segments if True
-    output_fields = str(sys.argv[6]).upper().strip()       # output fields, default is None
+    output_fields = str(sys.argv[6]).strip()       # output fields, default is None
     port = 19530
 
     ignore_growing = True if ignore_growing == "TRUE" else False
-    if output_fields == "None".upper() or output_fields == "":
+    if output_fields in ["None", "none", "NONE"] or output_fields == "":
         output_fields = None
     else:
         output_fields = output_fields.split(",")
