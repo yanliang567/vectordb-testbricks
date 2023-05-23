@@ -134,6 +134,7 @@ if __name__ == '__main__':
 
     logging.info(f"index param: {idx.params}")
     logging.info(f"search_param: {search_params}")
+    logging.info(f"output_fields: {output_fields}")
 
     # flush before indexing
     t1 = time.time()
