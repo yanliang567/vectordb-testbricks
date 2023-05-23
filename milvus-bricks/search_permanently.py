@@ -12,7 +12,7 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
 def search(collection, field_name, search_params, nq, topk, threads_num,
-           output_fields, timeout):
+           output_fields, expr, timeout):
     threads_num = int(threads_num)
     interval_count = 1000
 
@@ -23,10 +23,13 @@ def search(collection, field_name, search_params, nq, topk, threads_num,
         while time.time() < start_time + timeout:
             count += 1
             search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
+            parkey = random.randint(1, 1000)
+            exact_expr = expr+str(parkey)
             t1 = time.time()
             try:
                 col.search(data=search_vectors, anns_field=field_name,
                            param=search_params, limit=topk,
+                           expr=exact_expr,
                            output_fields=output_fields)
             except Exception as e:
                 logging.error(e)
@@ -56,10 +59,12 @@ def search(collection, field_name, search_params, nq, topk, threads_num,
         while time.time() < start_time + timeout:
             count += 1
             search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
+            parkey = random.randint(1, 1000)
+            exact_expr = expr + str(parkey)
             t1 = time.time()
             try:
                 collection.search(data=search_vectors, anns_field=field_name,
-                                  output_fields=output_fields,
+                                  output_fields=output_fields, expr=exact_expr,
                                   param=search_params, limit=topk)
 
             except Exception as e:
@@ -83,6 +88,7 @@ if __name__ == '__main__':
     timeout = int(sys.argv[4])          # search timeout, permanently if 0
     ignore_growing = str(sys.argv[5]).upper()   # ignore searching growing segments if True
     output_fields = str(sys.argv[6]).strip()       # output fields, default is None
+    expr = str(sys.argv[7]).strip()                # search expression, default is None
     port = 19530
 
     ignore_growing = True if ignore_growing == "TRUE" else False
@@ -90,6 +96,8 @@ if __name__ == '__main__':
         output_fields = None
     else:
         output_fields = output_fields.split(",")
+    if expr in ["None", "none", "NONE"] or expr == "":
+        expr = None
     file_handler = logging.FileHandler(filename=f"/tmp/search_{name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
@@ -135,6 +143,7 @@ if __name__ == '__main__':
     logging.info(f"index param: {idx.params}")
     logging.info(f"search_param: {search_params}")
     logging.info(f"output_fields: {output_fields}")
+    logging.info(f"expr: {expr}")
 
     # flush before indexing
     t1 = time.time()
@@ -152,5 +161,5 @@ if __name__ == '__main__':
 
     logging.info(f"search start: nq{nq}_top{topk}_threads{th}")
     search(collection, vector_field_name, search_params, nq, topk, th,
-           output_fields, timeout)
+           output_fields, expr, timeout)
     logging.info(f"search completed")
