@@ -11,7 +11,8 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
-def search(collection, field_name, search_params, nq, topk, threads_num, timeout):
+def search(collection, field_name, search_params, nq, topk, threads_num,
+           output_fields, timeout):
     threads_num = int(threads_num)
     interval_count = 1000
 
@@ -25,8 +26,8 @@ def search(collection, field_name, search_params, nq, topk, threads_num, timeout
             t1 = time.time()
             try:
                 col.search(data=search_vectors, anns_field=field_name,
-                           param=search_params, limit=topk
-                           )
+                           param=search_params, limit=topk,
+                           output_fields=output_fields)
             except Exception as e:
                 logging.error(e)
             t2 = round(time.time() - t1, 4)
@@ -58,9 +59,8 @@ def search(collection, field_name, search_params, nq, topk, threads_num, timeout
             t1 = time.time()
             try:
                 collection.search(data=search_vectors, anns_field=field_name,
-                                  # output_fields="",
-                                  param=search_params, limit=topk
-                                  )
+                                  output_fields=output_fields,
+                                  param=search_params, limit=topk)
 
             except Exception as e:
                 logging.error(e)
@@ -82,9 +82,14 @@ if __name__ == '__main__':
     th = int(sys.argv[3])               # search thread num
     timeout = int(sys.argv[4])          # search timeout, permanently if 0
     ignore_growing = str(sys.argv[5]).upper()   # ignore searching growing segments if True
+    output_fields = str(sys.argv[6]).upper().strip()       # output fields, default is None
     port = 19530
 
     ignore_growing = True if ignore_growing == "TRUE" else False
+    if output_fields == "None".upper() or output_fields == "":
+        output_fields = None
+    else:
+        output_fields = output_fields.split(",")
     file_handler = logging.FileHandler(filename=f"/tmp/search_{name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
@@ -145,5 +150,6 @@ if __name__ == '__main__':
     logging.info(f"assert load {name}: {t2}")
 
     logging.info(f"search start: nq{nq}_top{topk}_threads{th}")
-    search(collection, vector_field_name, search_params, nq, topk, th, timeout)
-    logging.info(f"search completed ")
+    search(collection, vector_field_name, search_params, nq, topk, th,
+           output_fields, timeout)
+    logging.info(f"search completed")
