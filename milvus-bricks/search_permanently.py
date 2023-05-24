@@ -24,7 +24,7 @@ def search(collection, field_name, search_params, nq, topk, threads_num,
             count += 1
             search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
             parkey = random.randint(1, 1000)
-            exact_expr = expr+str(parkey)
+            exact_expr = None if expr is None else expr+str(parkey)
             t1 = time.time()
             try:
                 col.search(data=search_vectors, anns_field=field_name,
@@ -60,7 +60,7 @@ def search(collection, field_name, search_params, nq, topk, threads_num,
             count += 1
             search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
             parkey = random.randint(1, 1000)
-            exact_expr = expr + str(parkey)
+            exact_expr = None if expr is None else expr+str(parkey)
             t1 = time.time()
             try:
                 collection.search(data=search_vectors, anns_field=field_name,
