@@ -28,9 +28,9 @@ if __name__ == '__main__':
     logger = logging.getLogger('LOGGER_NAME')
 
     dim = 768
-    nb = 200
+    nb = 2000
     need_insert = True if need_insert == "TRUE" else False
-    insert_times = 10 if need_insert else 0
+    insert_times = 500 if need_insert else 0
     # check and get the collection info
     if not utility.has_collection(collection_name=f'{c_name}_aa'):
         logging.info(f"creating collection {c_name}_aa")
