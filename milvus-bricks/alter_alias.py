@@ -54,6 +54,7 @@ if __name__ == '__main__':
             next_collection = Collection(next_name)
             next_collection.load()
             utility.alter_alias(collection_name=next_name, alias=alias_name)
+            current_collection = Collection(description)
             current_collection.release()
         else:
             next_name = f"{c_name}_aa"
