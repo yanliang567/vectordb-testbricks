@@ -26,15 +26,16 @@ def normalize(metric_type, X):
 def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2"):
     id_field = FieldSchema(name="id", dtype=DataType.INT64, description="auto primary id")
     age_field = FieldSchema(name="age", dtype=DataType.INT64, description="age")
+    flag_field = FieldSchema(name="flag", dtype=DataType.BOOL, description="flag")
     embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
-    schema = CollectionSchema(fields=[id_field, age_field, embedding_field],
+    schema = CollectionSchema(fields=[id_field, age_field, flag_field, embedding_field],
                               auto_id=auto_id, primary_field=id_field.name,
-                              description=f"{collection_name}")
+                              description=f"{collection_name}")    # do not change the description
     collection = Collection(name=collection_name, schema=schema)
     logging.info(f"create {collection_name} successfully")
 
     index_params_dict = {
-        "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 8, "efConstruction": 96}},
+        "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
         "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}}
     }
     index_params = index_params_dict.get(index_type.upper(), None)
@@ -45,8 +46,9 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
     for i in range(insert_times):
         # prepare data
         ages = [random.randint(1, 100) for _ in range(nb)]
+        flags = [False for _ in range(nb)]
         embeddings = [[random.random() for _ in range(dim)] for _ in range(nb)]
-        data = [ages, embeddings]
+        data = [ages, flags, embeddings]
         t0 = time.time()
         collection.insert(data)
         tt = round(time.time() - t0, 3)
