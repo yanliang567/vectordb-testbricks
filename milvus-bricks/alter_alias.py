@@ -47,17 +47,24 @@ if __name__ == '__main__':
     try:
         aliases = utility.list_aliases(collection_name=alias_name)
         if alias_name in aliases:
-            collection = Collection(alias_name)
-            description = collection.description
+            current_collection = Collection(alias_name)
+            description = current_collection.description
             logging.info(f"collection alias before altered: {description}")
-            collection_name = f"{c_name}_bb" if description == f"{c_name}_aa" else f"{c_name}_aa"
-            utility.alter_alias(collection_name=collection_name, alias=alias_name)
+            next_name = f"{c_name}_bb" if description == f"{c_name}_aa" else f"{c_name}_aa"
+            next_collection = Collection(next_name)
+            next_collection.load()
+            utility.alter_alias(collection_name=next_name, alias=alias_name)
+            current_collection.release()
         else:
-            collection_name = f"{c_name}_aa"
-            utility.create_alias(collection_name=collection_name, alias=alias_name)
+            next_name = f"{c_name}_aa"
+            next_collection = Collection(next_name)
+            next_collection.load()
+            utility.create_alias(collection_name=next_name, alias=alias_name)
     except pymilvus.exceptions.DescribeCollectionException as e:
-        collection_name = f"{c_name}_aa"
-        utility.create_alias(collection_name=collection_name, alias=alias_name)
+        next_name = f"{c_name}_aa"
+        next_collection = Collection(next_name)
+        next_collection.load()
+        utility.create_alias(collection_name=next_name, alias=alias_name)
     collection = Collection(alias_name)
     logging.info(f"collection alias after altered: {collection.description}")
 
