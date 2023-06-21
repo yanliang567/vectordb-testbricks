@@ -45,10 +45,10 @@ if __name__ == '__main__':
 
     # check and get the collection info
     if not utility.has_collection(collection_name=collection_name):
-        dim = 128
+        dim = 512
         logging.info(f"collection {collection_name} not exists, create it")
         create_n_insert.create_n_insert(collection_name=collection_name,
-                                        dim=dim, nb=nb, insert_times=0,
+                                        dim=dim, nb=10000, insert_times=1000,
                                         index_type="HNSW", metric_type="L2")
         collection = Collection(name=collection_name)
         logging.info(f"create {collection_name} successfully")
