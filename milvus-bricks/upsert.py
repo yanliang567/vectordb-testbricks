@@ -84,12 +84,13 @@ def insert_entities(collection, nb, rounds):
         logging.info(f"{collection.name} {r} upsert in {t2}")
 
 
-def get_search_params(collection):
+def get_search_params(collection, nb):
     idx = collection.index()
     metric_type = idx.params.get("metric_type")
     index_type = idx.params.get("index_type")
     if index_type == "HNSW":
-        search_params = {"metric_type": metric_type, "params": {"ef": 64}}
+        ef = max(64, nb)
+        search_params = {"metric_type": metric_type, "params": {"ef": ef}}
     elif index_type in ["IVF_SQ8", "IVF_FLAT"]:
         search_params = {"metric_type": metric_type, "params": {"nprobe": 32}}
     elif index_type == "DISKANN":
@@ -141,7 +142,7 @@ if __name__ == '__main__':
         logging.error(f"collection: {collection_name} has no index")
         exit(0)
 
-    search_params = get_search_params(collection=c)
+    search_params = get_search_params(collection=c, nb=nb)
 
     # load collection
     t1 = time.time()

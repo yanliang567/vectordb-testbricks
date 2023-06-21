@@ -71,7 +71,7 @@ if __name__ == '__main__':
         insert_entities(collection=c, nb=nb, rounds=1)
         t2 = round(time.time() - t1, 3)
         t1 = time.time()
-        delete_entities(collection=c, nb=nb, search_params=get_search_params(c), rounds=1)
+        delete_entities(collection=c, nb=nb, search_params=get_search_params(c, nb), rounds=1)
         t3 = round(time.time() - t1, 3)
         logging.info(f"{c.name} insert slowly in {t2}, delete slowly in {t3}")
         r += 1
