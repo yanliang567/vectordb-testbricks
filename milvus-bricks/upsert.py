@@ -57,7 +57,7 @@ def gen_data_by_collection(collection, nb, r):
         if field.dtype == DataType.FLOAT_VECTOR:
             dim = field.params.get("dim")
             field_values = [[random.random() for _ in range(dim)] for _ in range(nb)]
-        if field.dtype == DataType.INT64:
+        if field.dtype in [DataType.INT64, DataType.INT32, DataType.INT16, DataType.INT8]:
             if field.is_primary:
                 if not auto_id:
                     field_values = [_ for _ in range(start_uid, start_uid + nb)]
@@ -69,17 +69,35 @@ def gen_data_by_collection(collection, nb, r):
             field_values = [str(random.random()) for _ in range(nb)]
         if field.dtype == DataType.FLOAT:
             field_values = [random.random() for _ in range(nb)]
+        if field.dtype == DataType.BOOL:
+            field_values = [False for _ in range(nb)]
         data.append(field_values)
     return data
 
 
-def insert_entities(collection, nb, upsert_rounds):
-    for r in range(upsert_rounds):
+def insert_entities(collection, nb, rounds):
+    for r in range(rounds):
         data = gen_data_by_collection(collection=collection, nb=nb, r=r)
         t1 = time.time()
         collection.insert(data)
         t2 = round(time.time() - t1, 3)
         logging.info(f"{collection.name} {r} upsert in {t2}")
+
+
+def get_search_params(collection):
+    idx = collection.index()
+    metric_type = idx.params.get("metric_type")
+    index_type = idx.params.get("index_type")
+    if index_type == "HNSW":
+        search_params = {"metric_type": metric_type, "params": {"ef": 64}}
+    elif index_type in ["IVF_SQ8", "IVF_FLAT"]:
+        search_params = {"metric_type": metric_type, "params": {"nprobe": 32}}
+    elif index_type == "DISKANN":
+        search_params = {"metric_type": metric_type, "params": {"search_list": 100}}
+    else:
+        logging.error(f"index: {index_type} does not support yet")
+        exit(0)
+    return search_params
 
 
 if __name__ == '__main__':
@@ -122,16 +140,8 @@ if __name__ == '__main__':
     if not c.has_index():
         logging.error(f"collection: {collection_name} has no index")
         exit(0)
-    idx = c.index()
-    metric_type = idx.params.get("metric_type")
-    index_type = idx.params.get("index_type")
-    if index_type == "HNSW":
-        search_params = {"metric_type": metric_type, "params": {"ef": nb}}
-    elif index_type in ["IVF_SQ8", "IVF_FLAT"]:
-        search_params = {"metric_type": metric_type, "params": {"nprobe": 32}}
-    else:
-        logging.error(f"index: {index_type} does not support yet")
-        exit(0)
+
+    search_params = get_search_params(collection=c)
 
     # load collection
     t1 = time.time()
@@ -154,6 +164,6 @@ if __name__ == '__main__':
         insert_rounds = int(insert_num // nb + 1)
         logging.info(f"{insert_rounds * nb} entities to be insert in {insert_rounds} rounds")
         # insert xx% entities
-        insert_entities(collection=c, nb=nb, upsert_rounds=insert_rounds)
+        insert_entities(collection=c, nb=nb, rounds=insert_rounds)
 
     logging.info(f"{collection_name} upsert completed")
