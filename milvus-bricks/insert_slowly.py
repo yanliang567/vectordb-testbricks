@@ -47,15 +47,20 @@ if __name__ == '__main__':
     if not utility.has_collection(collection_name=collection_name):
         dim = 512
         logging.info(f"collection {collection_name} not exists, create it")
-        create_n_insert.create_n_insert(collection_name=collection_name,
-                                        dim=dim, nb=10000, insert_times=1000,
-                                        index_type="HNSW", metric_type="L2")
+        create_n_insert(collection_name=collection_name,
+                        dim=dim, nb=10000, insert_times=1000,
+                        index_type="HNSW", metric_type="L2")
         collection = Collection(name=collection_name)
-        logging.info(f"create {collection_name} successfully")
+        logging.info(f"create {collection_name}  successfully")
 
     c = Collection(name=collection_name)
     num_entities = c.num_entities
     logging.info(f"{collection_name} num_entities {num_entities}")
+
+    t1 = time.time()
+    c.load()
+    t2 = round(time.time() - t1, 3)
+    logging.info(f"{collection_name} load in {t2}")
 
     logging.info(f"start to insert with nb={nb}, interval={insert_interval}, timeout={timeout}")
     start_time = time.time()
