@@ -33,17 +33,17 @@ def delete_entities(collection, nb, search_params, rounds):
     if auto_id:
         for r in range(rounds):
             search_vector = [[random.random() for _ in range(dim)] for _ in range(1)]
-            results = c.search(data=search_vector, anns_field=vector_field_name,
-                               param=search_params, limit=nb)
+            results = collection.search(data=search_vector, anns_field=vector_field_name,
+                                        param=search_params, limit=nb)
             for hits in results:
                 ids = hits.ids
-                c.delete(expr=f"{primary_field_name} in {ids}")
+                collection.delete(expr=f"{primary_field_name} in {ids}")
                 logging.info(f"deleted {len(ids)} entities")
     else:
         for r in range(rounds):
             start_uid = r * nb
             end_uid = start_uid + nb
-            c.delete(expr=f"{primary_field_name} in [{start_uid}, {end_uid}]")
+            collection.delete(expr=f"{primary_field_name} in [{start_uid}, {end_uid}]")
             logging.info(f"deleted entities {start_uid}-{end_uid}")
 
 
