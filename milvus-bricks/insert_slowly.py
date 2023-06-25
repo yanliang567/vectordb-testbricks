@@ -5,19 +5,11 @@ import logging
 from pymilvus import utility, connections, DataType, \
     Collection, FieldSchema, CollectionSchema
 from create_n_insert import create_n_insert
-from upsert import insert_entities, delete_entities, get_search_params
+from common import insert_entities, delete_entities, get_search_params
 
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
-
-
-def get_dim(collection):
-    fields = collection.schema.fields
-    for field in fields:
-        if field.dtype == DataType.FLOAT_VECTOR:
-            dim = field.params.get("dim")
-    return dim
 
 
 if __name__ == '__main__':
