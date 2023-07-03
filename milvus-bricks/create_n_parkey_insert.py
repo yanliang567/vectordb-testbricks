@@ -13,19 +13,9 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 auto_id = True
 
 
-def normalize(metric_type, X):
-    if metric_type == "IP":
-        # logging.info("Set normalize for metric_type: %s" % metric_type)
-        X = sklearn.preprocessing.normalize(X, axis=1, norm="l2")
-        X = X.astype(np.float32)
-    elif metric_type == "L2":
-        X = X.astype(np.float32)
-    return X
-
-
 def build(collection, index_type, metric_type):
     index_params_dict = {
-        "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 8, "efConstruction": 96}},
+        "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
         "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}}
     }
     index_params = index_params_dict.get(index_type.upper(), None)
@@ -43,9 +33,9 @@ def build(collection, index_type, metric_type):
         logging.info(f"{collection.name} index {idx.params} already exists")
 
 
-def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2",
-                    parkey_num=10000, parkey_collection_only=False, parkey_values_evenly=False,
-                    num_partitions=64, pre_load=False):
+def create_n_insert_parkey(collection_name, dim, nb, insert_times, index_type, metric_type="L2",
+                           parkey_num=10000, parkey_collection_only=False, parkey_values_evenly=False,
+                           num_partitions=64, pre_load=False):
     id_field = FieldSchema(name="id", dtype=DataType.INT64, description="auto primary id")
     category_field = FieldSchema(name="category", dtype=DataType.INT64, description="age")
     embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
@@ -142,11 +132,11 @@ if __name__ == '__main__':
     connections.add_connection(default={"host": host, "port": 19530})
     connections.connect('default')
 
-    create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
-                    index_type=index, metric_type=metric,
-                    parkey_num=parkey_num, parkey_collection_only=parkey_collection_only,
-                    parkey_values_evenly=parkey_values_evenly, num_partitions=num_partitions,
-                    pre_load=pre_load)
+    create_n_insert_parkey(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
+                           index_type=index, metric_type=metric,
+                           parkey_num=parkey_num, parkey_collection_only=parkey_collection_only,
+                           parkey_values_evenly=parkey_values_evenly, num_partitions=num_partitions,
+                           pre_load=pre_load)
 
     logging.info("collections prepared completed")
 
