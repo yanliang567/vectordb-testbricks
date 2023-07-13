@@ -49,7 +49,7 @@ if __name__ == '__main__':
         if alias_name in aliases:
             current_collection = Collection(alias_name)
             description = current_collection.description
-            logging.info(f"collection alias before altered: {description}")
+            logging.info(f"collection alias before altered: {description}, num_entities: {current_collection.num_entities}")
             next_name = f"{c_name}_bb" if description == f"{c_name}_aa" else f"{c_name}_aa"
             next_collection = Collection(next_name)
             next_collection.load()
@@ -67,6 +67,6 @@ if __name__ == '__main__':
         next_collection.load()
         utility.create_alias(collection_name=next_name, alias=alias_name)
     collection = Collection(alias_name)
-    logging.info(f"collection alias after altered: {collection.description}")
+    logging.info(f"collection alias after altered: {collection.description}, num_entities: {collection.num_entities}")
 
     logging.info(f"alter alias completed")
