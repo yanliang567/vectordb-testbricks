@@ -5,7 +5,7 @@ import sklearn.preprocessing
 import numpy as np
 import logging
 from pymilvus import connections, DataType, \
-    Collection, FieldSchema, CollectionSchema
+    Collection, FieldSchema, CollectionSchema, utility
 from common import insert_entities
 
 
@@ -14,16 +14,19 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
 def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2", auto_id=True):
-    id_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
-    age_field = FieldSchema(name="age", dtype=DataType.INT64, description="age")
-    flag_field = FieldSchema(name="flag", dtype=DataType.BOOL, description="flag")
-    embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
-    schema = CollectionSchema(fields=[id_field, age_field, flag_field, embedding_field],
-                              auto_id=auto_id, primary_field=id_field.name,
-                              description=f"{collection_name}")    # do not change the description
-    collection = Collection(name=collection_name, schema=schema)
-    logging.info(f"create {collection_name} successfully, auto_id: {auto_id}, dim: {dim}")
-
+    if not utility.has_collection(collection_name=collection_name):
+        id_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
+        age_field = FieldSchema(name="age", dtype=DataType.INT64, description="age")
+        flag_field = FieldSchema(name="flag", dtype=DataType.BOOL, description="flag")
+        embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
+        schema = CollectionSchema(fields=[id_field, age_field, flag_field, embedding_field],
+                                  auto_id=auto_id, primary_field=id_field.name,
+                                  description=f"{collection_name}")    # do not change the description
+        collection = Collection(name=collection_name, schema=schema)
+        logging.info(f"create {collection_name} successfully, auto_id: {auto_id}, dim: {dim}")
+    else:
+        collection = Collection(name=collection_name)
+        logging.info(f"{collection_name} already exists")
     index_params_dict = {
         "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
         "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}}

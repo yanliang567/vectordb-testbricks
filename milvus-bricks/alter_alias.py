@@ -36,12 +36,12 @@ if __name__ == '__main__':
         logging.info(f"creating collection {c_name}_aa")
         create_n_insert.create_n_insert(collection_name=f'{c_name}_aa',
                                         dim=dim, nb=nb, insert_times=insert_times,
-                                        index_type=index_type, metric_type=metric_type)
+                                        index_type=index_type, metric_type=metric_type, auto_id=False)
     if not utility.has_collection(collection_name=f'{c_name}_bb'):
         logging.info(f"creating collection {c_name}_bb")
         create_n_insert.create_n_insert(collection_name=f'{c_name}_bb',
                                         dim=dim, nb=nb, insert_times=insert_times,
-                                        index_type=index_type, metric_type=metric_type)
+                                        index_type=index_type, metric_type=metric_type, auto_id=False)
 
     # alter alias
     try:
