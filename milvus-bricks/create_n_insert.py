@@ -76,7 +76,7 @@ if __name__ == '__main__':
     connections.connect('default')
 
     create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
-                    index_type=index, metric_type=metric)
+                    index_type=index, metric_type=metric, auto_id=auto_id)
 
     # load the collection
     c = Collection(name=name)
