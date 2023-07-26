@@ -16,7 +16,7 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 def query(collection,  threads_num, output_fields, expr, timeout):
     threads_num = int(threads_num)
-    interval_count = 1000
+    interval_count = 100
 
     def query_th(col, thread_no):
         query_latency = []
