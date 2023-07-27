@@ -29,7 +29,7 @@ def query(collection,  threads_num, output_fields, expr, timeout):
                 seed = random.randint(0, 2000)
                 expr_seed = f"{seed-100}<=age<={seed+100}"
             try:
-                res = col.query(expr=expr_seed, output_fields=output_fields)
+                res = col.query(expr=expr_seed, output_fields=output_fields, timeout=5)
             except Exception as e:
                 logging.error(e)
             t2 = round(time.time() - t1, 4)
@@ -62,7 +62,7 @@ def query(collection,  threads_num, output_fields, expr, timeout):
                 seed = random.randint(0, 2000)
                 expr_seed = f"{seed-100}<=age<={seed+100}"
             try:
-                res = collection.query(expr=expr_seed, output_fields=output_fields)
+                res = collection.query(expr=expr_seed, output_fields=output_fields, timeout=3)
                 # logging.info(f"res: {res}")
             except Exception as e:
                 logging.error(e)
