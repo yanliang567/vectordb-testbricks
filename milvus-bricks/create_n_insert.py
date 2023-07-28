@@ -13,7 +13,7 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
-def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2", auto_id=True):
+def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2", auto_id=True, ttl=0):
     if not utility.has_collection(collection_name=collection_name):
         id_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
         age_field = FieldSchema(name="age", dtype=DataType.INT64, description="age")
@@ -22,7 +22,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
         schema = CollectionSchema(fields=[id_field, age_field, flag_field, embedding_field],
                                   auto_id=auto_id, primary_field=id_field.name,
                                   description=f"{collection_name}")    # do not change the description
-        collection = Collection(name=collection_name, schema=schema)
+        collection = Collection(name=collection_name, schema=schema, properties={"collection.ttl.seconds": ttl})
         logging.info(f"create {collection_name} successfully, auto_id: {auto_id}, dim: {dim}")
     else:
         collection = Collection(name=collection_name)
@@ -61,6 +61,7 @@ if __name__ == '__main__':
     index = str(sys.argv[6]).upper()    # index type
     metric = str(sys.argv[7]).upper()   # metric type, L2 or IP
     auto_id = str(sys.argv[8]).upper()     # auto id
+    ttl = int(sys.argv[9])     # ttl for the collection property
     port = 19530
     log_name = f"prepare_{name}"
 
@@ -76,7 +77,7 @@ if __name__ == '__main__':
     connections.connect('default')
 
     create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
-                    index_type=index, metric_type=metric, auto_id=auto_id)
+                    index_type=index, metric_type=metric, auto_id=auto_id, ttl=ttl)
 
     # load the collection
     c = Collection(name=name)
