@@ -1,5 +1,6 @@
 import time
 import sys
+import string
 import random
 import logging
 import numpy as np
@@ -62,13 +63,43 @@ def gen_data_by_collection(collection, nb, r):
                 else:
                     continue
             else:
-                field_values = [_ for _ in range(nb)]
+                field_values = [_ for _ in range(start_uid, start_uid + nb)]
         if field.dtype == DataType.VARCHAR:
-            field_values = [str(random.random()) for _ in range(nb)]
+            max_length = field.params.get("max_length")
+            field_values = [gen_str_by_length(max_length//2) for _ in range(nb)]
         if field.dtype == DataType.FLOAT:
             field_values = [random.random() for _ in range(nb)]
         if field.dtype == DataType.BOOL:
             field_values = [False for _ in range(nb)]
+        data.append(field_values)
+    return data
+
+
+def gen_upsert_data_by_collection(collection, nb):
+    data = []
+    fields = collection.schema.fields
+    auto_id = collection.schema.auto_id
+    num = collection.num_entities
+    for field in fields:
+        field_values = []
+        if field.dtype == DataType.FLOAT_VECTOR:
+            dim = field.params.get("dim")
+            field_values = [[random.random() for _ in range(dim)] for _ in range(nb)]
+        if field.dtype in [DataType.INT64, DataType.INT32, DataType.INT16, DataType.INT8]:
+            if field.is_primary:
+                if not auto_id:
+                    field_values = [random.randint(0, num) for _ in range(nb)]
+                else:
+                    continue
+            else:
+                field_values = [_ for _ in range(nb)]
+        if field.dtype == DataType.VARCHAR:
+            max_length = field.params.get("max_length")
+            field_values = [gen_str_by_length(max_length // 2) for _ in range(nb)]
+        if field.dtype == DataType.FLOAT:
+            field_values = [random.random() for _ in range(nb)]
+        if field.dtype == DataType.BOOL:
+            field_values = [True for _ in range(nb)]        # update to true in upsert
         data.append(field_values)
     return data
 
@@ -102,4 +133,10 @@ def get_search_params(collection, topk):
 def get_index_params(collection):
     idx = collection.index()
     return idx.params
+
+
+def gen_str_by_length(length=8, letters_only=False):
+    if letters_only:
+        return "".join(random.choice(string.ascii_letters) for _ in range(length))
+    return "".join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
 
