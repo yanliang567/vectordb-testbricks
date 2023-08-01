@@ -6,7 +6,7 @@ import numpy as np
 import logging
 from pymilvus import connections, DataType, \
     Collection, FieldSchema, CollectionSchema, utility
-from common import insert_entities
+from common import insert_entities, get_vector_field_name
 
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -44,7 +44,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
 
     if not collection.has_index():
         t0 = time.time()
-        collection.create_index(field_name=embedding_field.name, index_params=index_params)
+        collection.create_index(field_name=get_vector_field_name(collection), index_params=index_params)
         tt = round(time.time() - t0, 3)
         logging.info(f"build index {index_params} costs {tt}")
     else:
