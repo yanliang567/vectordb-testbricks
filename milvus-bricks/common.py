@@ -66,7 +66,7 @@ def gen_data_by_collection(collection, nb, r):
                 field_values = [_ for _ in range(start_uid, start_uid + nb)]
         if field.dtype == DataType.VARCHAR:
             max_length = field.params.get("max_length")
-            field_values = [gen_str_by_length(max_length//2) for _ in range(nb)]
+            field_values = [gen_str_by_length(max_length//10) for _ in range(nb)]
         if field.dtype == DataType.FLOAT:
             field_values = [random.random() for _ in range(nb)]
         if field.dtype == DataType.BOOL:
@@ -75,7 +75,7 @@ def gen_data_by_collection(collection, nb, r):
     return data
 
 
-def gen_upsert_data_by_collection(collection, nb):
+def gen_upsert_data_by_intPK_collection(collection, nb):
     data = []
     fields = collection.schema.fields
     auto_id = collection.schema.auto_id
@@ -95,7 +95,7 @@ def gen_upsert_data_by_collection(collection, nb):
                 field_values = [_ for _ in range(nb)]
         if field.dtype == DataType.VARCHAR:
             max_length = field.params.get("max_length")
-            field_values = [gen_str_by_length(max_length // 2) for _ in range(nb)]
+            field_values = [gen_str_by_length(max_length // 10) for _ in range(nb)]
         if field.dtype == DataType.FLOAT:
             field_values = [random.random() for _ in range(nb)]
         if field.dtype == DataType.BOOL:
@@ -111,6 +111,15 @@ def insert_entities(collection, nb, rounds):
         collection.insert(data)
         t2 = round(time.time() - t1, 3)
         logging.info(f"{collection.name} insert {r} costs {t2}")
+
+
+def upsert_entities(collection, nb, rounds):
+    for r in range(rounds):
+        data = gen_upsert_data_by_intPK_collection(collection=collection, nb=nb)
+        t1 = time.time()
+        collection.upsert(data)
+        t2 = round(time.time() - t1, 3)
+        logging.info(f"{collection.name} upsert2 {r} costs {t2}")
 
 
 def get_search_params(collection, topk):
