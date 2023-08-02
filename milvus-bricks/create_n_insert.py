@@ -12,16 +12,28 @@ from common import insert_entities, get_vector_field_name
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
+id_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
+age_field = FieldSchema(name="age", dtype=DataType.INT64, description="age")
+groupid_field = FieldSchema(name="groupid", dtype=DataType.INT64, description="groupid")
+device_field = FieldSchema(name="device", dtype=DataType.VARCHAR, max_length=500, description="device")
+fname_field = FieldSchema(name="fname", dtype=DataType.VARCHAR, max_length=256, description="fname")
+ext_field = FieldSchema(name="ext", dtype=DataType.VARCHAR, max_length=20, description="ext")
+mtime_field = FieldSchema(name="mtime", dtype=DataType.INT64, description="mtime")
+content_field = FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535, description="content")
+flag_field = FieldSchema(name="flag", dtype=DataType.BOOL, description="flag")
 
-def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2", auto_id=True, ttl=0):
+
+def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2",
+                    auto_id=True, ttl=0, build_index=True):
     if not utility.has_collection(collection_name=collection_name):
-        id_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
-        age_field = FieldSchema(name="age", dtype=DataType.INT64, description="age")
-        flag_field = FieldSchema(name="flag", dtype=DataType.BOOL, description="flag")
         embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
         schema = CollectionSchema(fields=[id_field, age_field, flag_field, embedding_field],
                                   auto_id=auto_id, primary_field=id_field.name,
                                   description=f"{collection_name}")    # do not change the description
+        # schema = CollectionSchema(fields=[id_field, age_field, groupid_field, flag_field, device_field,
+        #                                   fname_field, ext_field, mtime_field, content_field, embedding_field],
+        #                           auto_id=auto_id, primary_field=id_field.name,
+        #                           description=f"{collection_name}")  # do not change the description
         collection = Collection(name=collection_name, schema=schema, properties={"collection.ttl.seconds": ttl})
         logging.info(f"create {collection_name} successfully, auto_id: {auto_id}, dim: {dim}")
     else:
@@ -42,14 +54,17 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
     collection.flush()
     logging.info(f"collection entities: {collection.num_entities}")
 
-    if not collection.has_index():
-        t0 = time.time()
-        collection.create_index(field_name=get_vector_field_name(collection), index_params=index_params)
-        tt = round(time.time() - t0, 3)
-        logging.info(f"build index {index_params} costs {tt}")
+    if build_index:
+        if not collection.has_index():
+            t0 = time.time()
+            collection.create_index(field_name=get_vector_field_name(collection), index_params=index_params)
+            tt = round(time.time() - t0, 3)
+            logging.info(f"build index {index_params} costs {tt}")
+        else:
+            idx = collection.index()
+            logging.info(f"index {idx.params} already exists")
     else:
-        idx = collection.index()
-        logging.info(f"index {idx.params} already exists")
+        logging.info("skip build index")
 
 
 if __name__ == '__main__':
