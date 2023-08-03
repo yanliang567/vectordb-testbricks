@@ -49,10 +49,10 @@ if __name__ == '__main__':
     num_entities = c.num_entities
     logging.info(f"{collection_name} num_entities {num_entities}")
 
-    t1 = time.time()
-    c.load()
-    t2 = round(time.time() - t1, 3)
-    logging.info(f"{collection_name} load in {t2}")
+    # t1 = time.time()
+    # c.load()
+    # t2 = round(time.time() - t1, 3)
+    # logging.info(f"{collection_name} load in {t2}")
 
     logging.info(f"start to insert with nb={nb}, interval={insert_interval}, timeout={timeout}")
     start_time = time.time()
