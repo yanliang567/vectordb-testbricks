@@ -39,14 +39,16 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
     else:
         collection = Collection(name=collection_name)
         logging.info(f"{collection_name} already exists")
-    index_params_dict = {
-        "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
-        "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}}
-    }
-    index_params = index_params_dict.get(index_type.upper(), None)
-    if index_params is None:
-        logging.error(f"index type {index_type} no supported")
-        exit(1)
+
+    if build_index:
+        index_params_dict = {
+            "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
+            "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}}
+        }
+        index_params = index_params_dict.get(index_type.upper(), None)
+        if index_params is None:
+            logging.error(f"index type {index_type} no supported")
+            exit(1)
 
     # insert data
     insert_entities(collection=collection, nb=nb, rounds=insert_times)
@@ -77,10 +79,15 @@ if __name__ == '__main__':
     metric = str(sys.argv[7]).upper()   # metric type, L2 or IP
     auto_id = str(sys.argv[8]).upper()     # auto id
     ttl = int(sys.argv[9])     # ttl for the collection property
+    need_build_index = str(sys.argv[10]).upper()  # build index or not after insert
+    need_load = str(sys.argv[11]).upper()  # load the collection or not at the end
     port = 19530
     log_name = f"prepare_{name}"
 
     auto_id = True if auto_id == "TRUE" else False
+    need_load = True if need_load == "TRUE" else False
+    need_build_index = True if need_build_index == "TRUE" else False
+
     file_handler = logging.FileHandler(filename=f"/tmp/{log_name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
@@ -92,11 +99,12 @@ if __name__ == '__main__':
     connections.connect('default')
 
     create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
-                    index_type=index, metric_type=metric, auto_id=auto_id, ttl=ttl)
+                    index_type=index, metric_type=metric, auto_id=auto_id, ttl=ttl, build_index=need_build_index)
 
     # load the collection
-    c = Collection(name=name)
-    c.load()
+    if need_load:
+        c = Collection(name=name)
+        c.load()
 
-    logging.info("collection prepared completed")
+    logging.info(f"collection prepared completed, create index: {need_build_index}, load collection: {need_load}")
 
