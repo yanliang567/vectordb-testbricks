@@ -48,9 +48,9 @@ if __name__ == '__main__':
     c.load()
     t2 = round(time.time() - t1, 3)
     logging.info(f"load {collection_name}: {t2}")
-
+    max_id = c.query(expr=f"{c.primary_field.name}>=0", output_fields="count(*)")
     # start upsert
-    logging.info(f"{collection_name} upsert2 start: nb={entities_per_round}, rounds={upsert_rounds}")
+    logging.info(f"{collection_name} max_id={max_id}, upsert2 start: nb={entities_per_round}, rounds={upsert_rounds}")
     upsert_entities(collection=c, nb=entities_per_round, rounds=upsert_rounds)
 
     logging.info(f"{collection_name} upsert2 completed")

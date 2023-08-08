@@ -75,11 +75,10 @@ def gen_data_by_collection(collection, nb, r):
     return data
 
 
-def gen_upsert_data_by_intPK_collection(collection, nb):
+def gen_upsert_data_by_intPK_collection(collection, nb, max_id):
     data = []
     fields = collection.schema.fields
     auto_id = collection.schema.auto_id
-    num = collection.num_entities
     for field in fields:
         field_values = []
         if field.dtype == DataType.FLOAT_VECTOR:
@@ -88,7 +87,7 @@ def gen_upsert_data_by_intPK_collection(collection, nb):
         if field.dtype in [DataType.INT64, DataType.INT32, DataType.INT16, DataType.INT8]:
             if field.is_primary:
                 if not auto_id:
-                    field_values = [random.randint(0, num) for _ in range(nb)]
+                    field_values = [random.randint(0, max_id) for _ in range(nb)]
                 else:
                     continue
             else:
@@ -113,9 +112,9 @@ def insert_entities(collection, nb, rounds):
         logging.info(f"{collection.name} insert {r} costs {t2}")
 
 
-def upsert_entities(collection, nb, rounds):
+def upsert_entities(collection, nb, rounds, max_id):
     for r in range(rounds):
-        data = gen_upsert_data_by_intPK_collection(collection=collection, nb=nb)
+        data = gen_upsert_data_by_intPK_collection(collection=collection, nb=nb, max_id=max_id)
         t1 = time.time()
         collection.upsert(data)
         t2 = round(time.time() - t1, 3)
