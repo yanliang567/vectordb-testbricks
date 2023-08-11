@@ -27,7 +27,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
                     auto_id=True, ttl=0, build_index=True):
     if not utility.has_collection(collection_name=collection_name):
         embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
-        schema = CollectionSchema(fields=[id_field, age_field, flag_field, embedding_field],
+        schema = CollectionSchema(fields=[id_field, age_field, flag_field, ext_field, embedding_field],
                                   auto_id=auto_id, primary_field=id_field.name,
                                   description=f"{collection_name}")    # do not change the description
         # schema = CollectionSchema(fields=[id_field, age_field, groupid_field, flag_field, device_field,
