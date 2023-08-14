@@ -54,18 +54,12 @@ if __name__ == '__main__':
     # t2 = round(time.time() - t1, 3)
     # logging.info(f"{collection_name} load in {t2}")
 
-    logging.info(f"start to insert with nb={nb}, interval={insert_interval}, timeout={timeout}")
+    logging.info(f"start to insert slowly with nb={nb}, interval={insert_interval}, timeout={timeout}")
     start_time = time.time()
     r = 0
     while time.time() < start_time + timeout:
         # insert and delete entities
-        t1 = time.time()
         insert_entities(collection=c, nb=nb, rounds=1)
-        t2 = round(time.time() - t1, 3)
-        # t1 = time.time()
-        # delete_entities(collection=c, nb=nb, search_params=get_search_params(c, nb), rounds=1)
-        # t3 = round(time.time() - t1, 3)
-        logging.info(f"{c.name} insert slowly in {t2}")   # , delete slowly in {t3}")
         r += 1
         time.sleep(insert_interval)
 
