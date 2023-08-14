@@ -29,18 +29,18 @@ if __name__ == '__main__':
 
     conn = connections.connect('default', host=host, port=port)
     if insert_interval <= 0:
-        insert_interval = 60
-        logging.info(f"set insert_interval to default: 60s")
+        insert_interval = 10
+        logging.info(f"set insert_interval to default: 10s")
     if nb <= 0:
         nb = 10
         logging.info(f"set insert_ni to default: 10")
 
     # check and get the collection info
     if not utility.has_collection(collection_name=collection_name):
-        dim = 512
-        logging.info(f"collection {collection_name} not exists, create it")
+        dim = 768
+        logging.info(f"collection {collection_name} not exists, create a HNSW-L2 collection with dim={dim}")
         create_n_insert(collection_name=collection_name,
-                        dim=dim, nb=10000, insert_times=1000,
+                        dim=dim, nb=1000, insert_times=10, auto_id=False,
                         index_type="HNSW", metric_type="L2")
         collection = Collection(name=collection_name)
         logging.info(f"create {collection_name}  successfully")
