@@ -13,6 +13,8 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 id_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
+# id_field = FieldSchema(name="id", dtype=DataType.VARCHAR, description="primary id", max_length=100)
+
 age_field = FieldSchema(name="age", dtype=DataType.INT64, description="age")
 groupid_field = FieldSchema(name="groupid", dtype=DataType.INT64, description="groupid")
 device_field = FieldSchema(name="device", dtype=DataType.VARCHAR, max_length=500, description="device")
@@ -27,7 +29,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
                     auto_id=True, ttl=0, build_index=True):
     if not utility.has_collection(collection_name=collection_name):
         embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
-        schema = CollectionSchema(fields=[id_field, age_field, flag_field, ext_field, embedding_field],
+        schema = CollectionSchema(fields=[id_field, age_field, flag_field, ext_field, fname_field, embedding_field],
                                   auto_id=auto_id, primary_field=id_field.name,
                                   description=f"{collection_name}")    # do not change the description
         # schema = CollectionSchema(fields=[id_field, age_field, groupid_field, flag_field, device_field,
@@ -43,6 +45,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
     if build_index:
         index_params_dict = {
             "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
+            "FLAT": {"index_type": "FLAT", "metric_type": metric_type, "params": {}},
             "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}}
         }
         index_params = index_params_dict.get(index_type.upper(), None)
