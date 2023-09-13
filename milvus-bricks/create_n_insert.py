@@ -56,6 +56,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
     # insert data
     insert_entities(collection=collection, nb=nb, rounds=insert_times)
 
+    collection = Collection(name=collection_name)
     collection.flush()
     logging.info(f"collection entities: {collection.num_entities}")
 
