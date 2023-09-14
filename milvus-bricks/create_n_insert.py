@@ -26,7 +26,7 @@ flag_field = FieldSchema(name="flag", dtype=DataType.BOOL, description="flag")
 
 
 def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2",
-                    auto_id=True, ttl=0, build_index=True):
+                    auto_id=True, ttl=0, build_index=True, shards=1):
     if not utility.has_collection(collection_name=collection_name):
         embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
         schema = CollectionSchema(fields=[id_field, age_field, flag_field, ext_field, fname_field, embedding_field],
@@ -36,7 +36,8 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
         #                                   fname_field, ext_field, mtime_field, content_field, embedding_field],
         #                           auto_id=auto_id, primary_field=id_field.name,
         #                           description=f"{collection_name}")  # do not change the description
-        collection = Collection(name=collection_name, schema=schema, properties={"collection.ttl.seconds": ttl})
+        collection = Collection(name=collection_name, schema=schema,
+                                shards_num=shards, properties={"collection.ttl.seconds": ttl})
         logging.info(f"create {collection_name} successfully, auto_id: {auto_id}, dim: {dim}")
     else:
         collection = Collection(name=collection_name)
@@ -78,13 +79,14 @@ if __name__ == '__main__':
     name = str(sys.argv[2])  # collection name
     dim = int(sys.argv[3])  # collection dimension
     nb = int(sys.argv[4])  # collection insert batch size
-    insert_times = int(sys.argv[5])  # collection insert times
-    index = str(sys.argv[6]).upper()    # index type
-    metric = str(sys.argv[7]).upper()   # metric type, L2 or IP
-    auto_id = str(sys.argv[8]).upper()     # auto id
-    ttl = int(sys.argv[9])     # ttl for the collection property
-    need_build_index = str(sys.argv[10]).upper()  # build index or not after insert
-    need_load = str(sys.argv[11]).upper()  # load the collection or not at the end
+    shards = int(sys.argv[5])    # collection shared number
+    insert_times = int(sys.argv[6])  # collection insert times
+    index = str(sys.argv[7]).upper()    # index type
+    metric = str(sys.argv[8]).upper()   # metric type, L2 or IP
+    auto_id = str(sys.argv[9]).upper()     # auto id
+    ttl = int(sys.argv[10])     # ttl for the collection property
+    need_build_index = str(sys.argv[11]).upper()  # build index or not after insert
+    need_load = str(sys.argv[12]).upper()  # load the collection or not at the end
     port = 19530
     log_name = f"prepare_{name}"
 
@@ -102,8 +104,8 @@ if __name__ == '__main__':
     connections.add_connection(default={"host": host, "port": 19530})
     connections.connect('default')
 
-    create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
-                    index_type=index, metric_type=metric, auto_id=auto_id, ttl=ttl, build_index=need_build_index)
+    create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times, index_type=index,
+                    metric_type=metric, auto_id=auto_id, ttl=ttl, build_index=need_build_index, shards=shards)
 
     # load the collection
     if need_load:
