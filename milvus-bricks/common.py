@@ -65,8 +65,15 @@ def gen_data_by_collection(collection, nb, r):
             else:
                 field_values = [_ for _ in range(start_uid, start_uid + nb)]
         if field.dtype == DataType.VARCHAR:
-            max_length = field.params.get("max_length")
-            field_values = [gen_str_by_length(max_length//10) for _ in range(nb)]
+            if field.is_primary:
+                if not auto_id:
+                    field_values = [str(j) + "_" + gen_str_by_length(10) for j in range(start_uid, start_uid + nb)]
+                else:
+                    logging.error(f"varchar pk shall not be auto_id.")
+                    return None
+            else:
+                max_length = field.params.get("max_length")
+                field_values = [gen_str_by_length(max_length//10) for _ in range(nb)]
         if field.dtype == DataType.JSON:
             field_values = [{"number": i, "float": i * 1.0} for i in range(start_uid, start_uid + nb)]
         if field.dtype == DataType.FLOAT:
