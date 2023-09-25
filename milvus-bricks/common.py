@@ -67,6 +67,8 @@ def gen_data_by_collection(collection, nb, r):
         if field.dtype == DataType.VARCHAR:
             max_length = field.params.get("max_length")
             field_values = [gen_str_by_length(max_length//10) for _ in range(nb)]
+        if field.dtype == DataType.JSON:
+            field_values = [{"number": i, "float": i * 1.0} for i in range(start_uid, start_uid + nb)]
         if field.dtype == DataType.FLOAT:
             field_values = [random.random() for _ in range(nb)]
         if field.dtype == DataType.BOOL:
