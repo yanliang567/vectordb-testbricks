@@ -47,6 +47,8 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
         index_params_dict = {
             "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
             "FLAT": {"index_type": "FLAT", "metric_type": metric_type, "params": {}},
+            "IVF_FLAT": {"index_type": "IVF_FLAT", "metric_type": metric_type, "params": {"nlist": 1024}},
+            "IVF_SQ8": {"index_type": "IVF_SQ8", "metric_type": metric_type, "params": {"nlist": 1024}},
             "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}}
         }
         index_params = index_params_dict.get(index_type.upper(), None)
