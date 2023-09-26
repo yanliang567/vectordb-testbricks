@@ -3,6 +3,7 @@ import sys
 import string
 import random
 import logging
+import json
 import numpy as np
 from pymilvus import utility, connections, DataType, \
     Collection, FieldSchema, CollectionSchema
@@ -48,6 +49,11 @@ def delete_entities(collection, nb, search_params, rounds):
 
 def gen_data_by_collection(collection, nb, r):
     data = []
+    s = '{"glossary": {"title": "example glossary", "GlossDiv": {"title": "S", "GlossList": ' \
+        '{"GlossEntry": {"ID": "SGML","SortAs": "SGML","GlossTerm": ' \
+        '"Standard Generalized Markup Language","GlossDef": ' \
+        '{"para": "A meta-markup language, used to create markup languages such as DocBook.",' \
+        '"GlossSeeAlso": ["GML", "XML"]},"GlossSee": "markup"}}}}}'
     start_uid = r * nb
     fields = collection.schema.fields
     auto_id = collection.schema.auto_id
@@ -74,8 +80,10 @@ def gen_data_by_collection(collection, nb, r):
             else:
                 max_length = field.params.get("max_length")
                 field_values = [gen_str_by_length(max_length//10) for _ in range(nb)]
+                # field_values = [json.dumps(s) for _ in range(start_uid, start_uid + nb)]
         if field.dtype == DataType.JSON:
-            field_values = [{"number": i, "float": i * 1.0} for i in range(start_uid, start_uid + nb)]
+            # field_values = [{"number": i, "float": i * 1.0} for i in range(start_uid, start_uid + nb)]
+            field_values = [json.loads(s) for _ in range(start_uid, start_uid + nb)]
         if field.dtype == DataType.FLOAT:
             field_values = [random.random() for _ in range(nb)]
         if field.dtype == DataType.BOOL:
