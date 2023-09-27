@@ -41,6 +41,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
         collection = Collection(name=collection_name)
         logging.info(f"{collection_name} already exists")
 
+    logging.info(f"{collection_name} collection schema: {collection.schema}")
     if build_index:
         index_params_dict = {
             "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
