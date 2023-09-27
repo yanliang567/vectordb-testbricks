@@ -92,9 +92,13 @@ def gen_data_by_collection(collection, nb, r):
     return data
 
 
-def gen_upsert_data_by_intPK_collection(collection, nb, r):
+def gen_upsert_data_by_intpk_collection(collection, nb, maxid):
     data = []
-    start_uid = r * nb
+    s = '{"glossary": {"title": "example glossary", "GlossDiv": {"title": "S", "GlossList": ' \
+        '{"GlossEntry": {"ID": "SGML","SortAs": "SGML","GlossTerm": ' \
+        '"Standard Generalized Markup Language","GlossDef": ' \
+        '{"para": "A meta-markup language, used to create markup languages such as DocBook.",' \
+        '"GlossSeeAlso": ["GML", "XML"]},"GlossSee": "markup"}}}}}'
     fields = collection.schema.fields
     auto_id = collection.schema.auto_id
     for field in fields:
@@ -105,7 +109,8 @@ def gen_upsert_data_by_intPK_collection(collection, nb, r):
         if field.dtype in [DataType.INT64, DataType.INT32, DataType.INT16, DataType.INT8]:
             if field.is_primary:
                 if not auto_id:
-                    field_values = [_ for _ in range(start_uid, start_uid + nb)]
+                    pop = list(range(0, maxid))
+                    field_values = random.sample(pop, nb)
                 else:
                     continue
             else:
@@ -113,6 +118,8 @@ def gen_upsert_data_by_intPK_collection(collection, nb, r):
         if field.dtype == DataType.VARCHAR:
             max_length = field.params.get("max_length")
             field_values = [gen_str_by_length(max_length // 10) for _ in range(nb)]
+        if field.dtype == DataType.JSON:
+            field_values = [json.loads(s) for _ in range(nb)]
         if field.dtype == DataType.FLOAT:
             field_values = [random.random() for _ in range(nb)]
         if field.dtype == DataType.BOOL:
@@ -130,9 +137,9 @@ def insert_entities(collection, nb, rounds):
         logging.info(f"{collection.name} insert {r} costs {t2}")
 
 
-def upsert_entities(collection, nb, rounds):
+def upsert_entities(collection, nb, rounds, maxid):
     for r in range(rounds):
-        data = gen_upsert_data_by_intPK_collection(collection=collection, nb=nb, r=rounds)
+        data = gen_upsert_data_by_intpk_collection(collection=collection, nb=nb, maxid=maxid)
         t1 = time.time()
         collection.upsert(data)
         t2 = round(time.time() - t1, 3)

@@ -23,19 +23,17 @@ ext_field = FieldSchema(name="ext", dtype=DataType.VARCHAR, max_length=20, descr
 mtime_field = FieldSchema(name="mtime", dtype=DataType.INT64, description="mtime")
 content_field = FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535, description="content")
 flag_field = FieldSchema(name="flag", dtype=DataType.BOOL, description="flag")
+json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=65535, description="json content")
 
 
 def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2",
                     auto_id=True, ttl=0, build_index=True, shards=1):
     if not utility.has_collection(collection_name=collection_name):
         embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
-        schema = CollectionSchema(fields=[id_field, age_field, flag_field, ext_field, fname_field, embedding_field],
+        schema = CollectionSchema(fields=[id_field, age_field, flag_field, ext_field, fname_field,
+                                          embedding_field, json_field],
                                   auto_id=auto_id, primary_field=id_field.name,
                                   description=f"{collection_name}")    # do not change the description
-        # schema = CollectionSchema(fields=[id_field, age_field, groupid_field, flag_field, device_field,
-        #                                   fname_field, ext_field, mtime_field, content_field, embedding_field],
-        #                           auto_id=auto_id, primary_field=id_field.name,
-        #                           description=f"{collection_name}")  # do not change the description
         collection = Collection(name=collection_name, schema=schema,
                                 shards_num=shards, properties={"collection.ttl.seconds": ttl})
         logging.info(f"create {collection_name} successfully, auto_id: {auto_id}, dim: {dim}, shards: {shards}")
