@@ -79,7 +79,7 @@ def gen_data_by_collection(collection, nb, r):
                     return None
             else:
                 max_length = field.params.get("max_length")
-                field_values = ["aa_" + gen_str_by_length(max_length//10) for _ in range(nb)]
+                field_values = ["bb_" + gen_str_by_length(max_length//10) for _ in range(nb)]
                 # field_values = [json.dumps(s) for _ in range(start_uid, start_uid + nb)]
         if field.dtype == DataType.JSON:
             # field_values = [{"number": i, "float": i * 1.0} for i in range(start_uid, start_uid + nb)]
