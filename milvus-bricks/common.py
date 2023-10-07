@@ -111,6 +111,7 @@ def gen_upsert_data_by_intpk_collection(collection, nb, maxid):
                 if not auto_id:
                     pop = list(range(0, maxid))
                     field_values = random.sample(pop, nb)
+                    logging.info(f"ids to be upsert: {field_values}")
                 else:
                     continue
             else:
