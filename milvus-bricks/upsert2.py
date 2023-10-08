@@ -55,15 +55,17 @@ if __name__ == '__main__':
     c.flush()
     new_max_id = c.query(expr=f"{c.primary_field.name}>=0", output_fields=["count(*)"])[0].get("count(*)")
 
-    logging.info(f"{collection_name} upsert2 completed, new max id: {new_max_id}")
+    logging.info(f"{collection_name} upsert2 completed, max_id: {max_id}, new_max_id: {new_max_id}")
 
-    for i in range(max_id):
-        res = c.query(expr=f"id=={i}", output_fields=["count(*)"])
-        count = res[0]["count(*)"]
-        if count == 1:
-            pass
-        else:
-            logging.info(f"id {i} found {count} entities")
+    if max_id != new_max_id:
+        logging.info(f"start checking the difference between max_id and new_max_id...")
+        for i in range(max_id):
+            res = c.query(expr=f"id=={i}", output_fields=["count(*)"])
+            count = res[0]["count(*)"]
+            if count == 1:
+                pass
+            else:
+                logging.info(f"id {i} found {count} entities")
 
-    logging.info(f"{collection_name} upsert2 completed, new max id: {new_max_id}")
+        logging.info(f"check difference completed")
 
