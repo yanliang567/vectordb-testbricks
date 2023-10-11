@@ -58,6 +58,7 @@ if __name__ == '__main__':
     logging.info(f"{collection_name} upsert2 completed, max_id: {max_id}, new_max_id: {new_max_id}")
 
     if max_id != new_max_id:
+        dup_count = 0
         logging.info(f"start checking the difference between max_id and new_max_id...")
         for i in range(max_id):
             res = c.query(expr=f"id=={i}", output_fields=["count(*)"])
@@ -65,7 +66,8 @@ if __name__ == '__main__':
             if count == 1:
                 pass
             else:
+                dup_count += 1
                 logging.info(f"id {i} found {count} entities")
 
-        logging.info(f"check difference completed")
+        logging.info(f"check difference completed, dup_count: {dup_count}")
 
