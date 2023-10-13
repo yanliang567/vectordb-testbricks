@@ -57,7 +57,8 @@ if __name__ == '__main__':
 
     logging.info(f"{collection_name} upsert2 completed, max_id: {max_id}, new_max_id: {new_max_id}")
 
-    if max_id != new_max_id:
+    check_diff = False
+    if max_id != new_max_id and check_diff:
         dup_count = 0
         logging.info(f"start checking the difference between max_id and new_max_id...")
         for i in range(max_id):
