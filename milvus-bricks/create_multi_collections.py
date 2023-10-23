@@ -51,8 +51,8 @@ if __name__ == '__main__':
             logging.info(f"{collection_name} already exists")
 
         c = Collection(collection_name)
-        for _ in range(partition_num):
-            partition_name = f"partition_{i}"
+        for j in range(partition_num):
+            partition_name = f"partition_{j}"
             p = Partition(collection=c, name=partition_name)
             for r in range(insert_times):
                 data = gen_data_by_collection(collection=c, nb=1000, r=r)
