@@ -15,13 +15,13 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 if __name__ == '__main__':
     host = sys.argv[1]
     collection_name = sys.argv[2]                   # collection mame
-    numbers = int(sys.argv[3])                      # how many partitions to create
+    partition_num = int(sys.argv[3])                      # how many partitions to create
     need_build_index = str(sys.argv[4]).upper()     # build index or not after insert
     need_load = str(sys.argv[5]).upper()            # load the collection or not at the end
 
     port = 19530
 
-    file_handler = logging.FileHandler(filename=f"/tmp/create_{numbers}_partitions.log")
+    file_handler = logging.FileHandler(filename=f"/tmp/create_{partition_num}_partitions.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
@@ -44,8 +44,8 @@ if __name__ == '__main__':
         logging.info(f"create {collection_name}  successfully")
 
     c = Collection(collection_name)
-    logging.info(f"start to create {numbers} partitions")
-    for i in range(numbers):
+    logging.info(f"start to create {partition_num} partitions")
+    for i in range(partition_num):
         partition_name = f"partition_{i}"
         p = Partition(collection=c, name=partition_name)
         for r in range(insert_times):
