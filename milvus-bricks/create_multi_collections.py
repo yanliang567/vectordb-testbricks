@@ -55,7 +55,7 @@ if __name__ == '__main__':
             partition_name = f"partition_{j}"
             p = Partition(collection=c, name=partition_name)
             for r in range(insert_times):
-                data = gen_data_by_collection(collection=c, nb=1000, r=r)
+                data = gen_data_by_collection(collection=c, nb=200, r=r)
                 t1 = time.time()
                 p.insert(data)
                 t2 = round(time.time() - t1, 3)
