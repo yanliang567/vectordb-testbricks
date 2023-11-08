@@ -20,6 +20,7 @@ if __name__ == '__main__':
     need_insert = str(sys.argv[5]).upper()          # insert or not, if yes, it inserts random number of entities
     need_build_index = str(sys.argv[6]).upper()     # build index or not after insert
     need_load = str(sys.argv[7]).upper()            # load the collection or not at the end
+    api_key = str(sys.argv[8])                      # api key to connect to milvus
 
     port = 19530
 
@@ -29,7 +30,10 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     logger = logging.getLogger('LOGGER_NAME')
 
-    conn = connections.connect('default', host=host, port=port)
+    if api_key is None or api_key == "":
+        conn = connections.connect('default', host=host, port=port)
+    else:
+        conn = connections.connect('default', uri=host, api_key=api_key)
 
     need_insert = True if need_insert == "TRUE" else False
     need_build_index = True if need_build_index == "TRUE" else False
