@@ -2,7 +2,7 @@
 requests==2.26.0
 scikit-learn==1.1.3
 ujson==5.5.0
-pymilvus==2.3.0.post1.dev13
+pymilvus==2.3.2
 git+https://github.com/Projectplace/pytest-tags
 kubernetes==17.17.0
 

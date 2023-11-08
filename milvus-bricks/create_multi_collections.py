@@ -33,7 +33,7 @@ if __name__ == '__main__':
     if api_key is None or api_key == "":
         conn = connections.connect('default', host=host, port=port)
     else:
-        conn = connections.connect('default', uri=host, api_key=api_key)
+        conn = connections.connect('default', uri=host, token=api_key)
 
     need_insert = True if need_insert == "TRUE" else False
     need_build_index = True if need_build_index == "TRUE" else False
