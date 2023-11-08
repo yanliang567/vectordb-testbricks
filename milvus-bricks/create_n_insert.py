@@ -6,7 +6,7 @@ import numpy as np
 import logging
 from pymilvus import connections, DataType, \
     Collection, FieldSchema, CollectionSchema, utility
-from common import insert_entities, get_vector_field_name
+from common import insert_entities, get_vector_field_name, get_default_params_by_index_type
 
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -43,17 +43,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
 
     logging.info(f"{collection_name} collection schema: {collection.schema}")
     if build_index:
-        index_params_dict = {
-            "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
-            "FLAT": {"index_type": "FLAT", "metric_type": metric_type, "params": {}},
-            "IVF_FLAT": {"index_type": "IVF_FLAT", "metric_type": metric_type, "params": {"nlist": 1024}},
-            "IVF_SQ8": {"index_type": "IVF_SQ8", "metric_type": metric_type, "params": {"nlist": 1024}},
-            "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}}
-        }
-        index_params = index_params_dict.get(index_type.upper(), None)
-        if index_params is None:
-            logging.error(f"index type {index_type} no supported")
-            exit(1)
+        index_params = get_default_params_by_index_type(index_type.upper(), metric_type)
 
     # insert data
     insert_entities(collection=collection, nb=nb, rounds=insert_times)

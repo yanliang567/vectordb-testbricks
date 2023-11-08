@@ -45,7 +45,7 @@ if __name__ == '__main__':
             auto_id = random.choice([True, False])
             create_n_insert(collection_name=collection_name,
                             dim=dim, nb=1000, insert_times=insert_times, auto_id=auto_id,
-                            index_type="HNSW", metric_type="L2", build_index=need_build_index)
+                            index_type="AUTOINDEX", metric_type="L2", build_index=need_build_index)
             logging.info(f"create {collection_name}  successfully")
         else:
             logging.info(f"{collection_name} already exists")

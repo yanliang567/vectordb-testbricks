@@ -158,10 +158,28 @@ def get_search_params(collection, topk):
         search_params = {"metric_type": metric_type, "params": {"nprobe": 32}}
     elif index_type == "DISKANN":
         search_params = {"metric_type": metric_type, "params": {"search_list": 100}}
+    elif index_type == "AUTOINDEX":
+        search_params = {"metric_type": metric_type, "params": {}}
     else:
         logging.error(f"index: {index_type} does not support yet")
         exit(0)
     return search_params
+
+
+def get_default_params_by_index_type(index_type, metric_type):
+    index_params_dict = {
+            "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
+            "FLAT": {"index_type": "FLAT", "metric_type": metric_type, "params": {}},
+            "IVF_FLAT": {"index_type": "IVF_FLAT", "metric_type": metric_type, "params": {"nlist": 1024}},
+            "IVF_SQ8": {"index_type": "IVF_SQ8", "metric_type": metric_type, "params": {"nlist": 1024}},
+            "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}},
+            "AUTOINDEX": {"index_type": "AUTOINDEX", "metric_type": metric_type, "params": {}},
+    }
+    index_params = index_params_dict.get(index_type.upper(), None)
+    if index_params is None:
+        logging.error(f"index type {index_type} no supported")
+        exit(1)
+    return index_params
 
 
 def get_index_params(collection):

@@ -6,6 +6,8 @@ import numpy as np
 import logging
 from pymilvus import connections, DataType, \
     Collection, FieldSchema, CollectionSchema
+from common import get_default_params_by_index_type
+
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
@@ -14,14 +16,8 @@ auto_id = True
 
 
 def build(collection, index_type, metric_type):
-    index_params_dict = {
-        "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
-        "DISKANN": {"index_type": "DISKANN", "metric_type": metric_type, "params": {}}
-    }
-    index_params = index_params_dict.get(index_type.upper(), None)
-    if index_params is None:
-        logging.error(f"index type {index_type} no supported")
-        exit(1)
+
+    index_params = get_default_params_by_index_type(index_type.upper(), metric_type)
 
     if not collection.has_index():
         t0 = time.time()

@@ -40,7 +40,7 @@ if __name__ == '__main__':
         dim = 768
         create_n_insert(collection_name=collection_name,
                         dim=dim, nb=nb, insert_times=insert_times, auto_id=False,
-                        index_type="HNSW", metric_type="L2", build_index=need_build_index)
+                        index_type="AUTOINDEX", metric_type="L2", build_index=need_build_index)
         logging.info(f"create {collection_name}  successfully")
 
     c = Collection(collection_name)

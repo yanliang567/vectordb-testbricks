@@ -6,6 +6,7 @@ import threading
 import logging
 from pymilvus import utility, connections, DataType, \
     Collection, FieldSchema, CollectionSchema
+from common import get_default_params_by_index_type, get_index_params, get_search_params
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
@@ -106,20 +107,11 @@ if __name__ == '__main__':
     if not collection.has_index():
         logging.error(f"collection: {name} has no index")
         exit(0)
-    idx = collection.index()
-    metric_type = idx.params.get("metric_type")
-    index_type = idx.params.get("index_type")
-    if index_type == "HNSW":
-        search_params = {"metric_type": metric_type, "params": {"ef": ef}}
-    elif index_type in ["IVF_SQ8", "IVF_FLAT"]:
-        search_params = {"metric_type": metric_type, "params": {"nprobe": nprobe}}
-    elif index_type == "DISKANN":
-        search_params = {"metric_type": metric_type, "params": {"search_list": 100}}
-    else:
-        logging.error(f"index: {index_type} does not support yet")
-        exit(0)
-
-    logging.info(f"index param: {idx.params}")
+    index_params = get_index_params(collection)
+    metric_type = index_params.get("metric_type")
+    index_type = index_params.get("index_type")
+    search_params = get_search_params(collection, topk)
+    logging.info(f"index param: {index_params}")
     logging.info(f"search_param: {search_params}")
 
     # flush before indexing

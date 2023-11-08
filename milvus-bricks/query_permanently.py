@@ -105,7 +105,7 @@ if __name__ == '__main__':
     if not utility.has_collection(collection_name=name):
         logging.error(f"collection: {name} does not exit, create 10m-128d as default")
         create_n_insert(collection_name=name, dim=128, nb=20000, insert_times=50,
-                        index_type="HNSW", metric_type="L2")
+                        index_type="AUTOINDEX", metric_type="L2")
 
     collection = Collection(name=name)
     dim = get_dim(collection)

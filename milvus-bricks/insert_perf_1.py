@@ -65,7 +65,7 @@ if __name__ == '__main__':
     if not utility.has_collection(collection_name=collection_name):
         logging.error(f"collection: {collection_name} does not exit, create an empty one as default")
         create_n_insert(collection_name=collection_name, dim=dim, nb=nb, insert_times=0,
-                        index_type="HNSW", metric_type="L2", build_index=False)
+                        index_type="AUTOINDEX", metric_type="L2", build_index=False)
 
     c = Collection(collection_name)
     # insert

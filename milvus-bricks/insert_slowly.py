@@ -41,7 +41,7 @@ if __name__ == '__main__':
         logging.info(f"collection {collection_name} not exists, create a HNSW-L2 collection with dim={dim}")
         create_n_insert(collection_name=collection_name,
                         dim=dim, nb=1000, insert_times=10, auto_id=False,
-                        index_type="HNSW", metric_type="L2")
+                        index_type="AUTOINDEX", metric_type="L2")
         collection = Collection(name=collection_name)
         logging.info(f"create {collection_name}  successfully")
 
