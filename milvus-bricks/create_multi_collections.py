@@ -47,9 +47,10 @@ if __name__ == '__main__':
         if not utility.has_collection(collection_name=collection_name):
             dim = random.randint(100, 1000)
             auto_id = random.choice([True, False])
+            metric_type = random.choice(["COSINE", "L2", "IP"])
             create_n_insert(collection_name=collection_name,
                             dim=dim, nb=1000, insert_times=insert_times, auto_id=auto_id,
-                            index_type="AUTOINDEX", metric_type="L2", build_index=need_build_index)
+                            index_type="AUTOINDEX", metric_type=metric_type, build_index=need_build_index)
             logging.info(f"create {collection_name}  successfully")
         else:
             logging.info(f"{collection_name} already exists")
@@ -58,8 +59,8 @@ if __name__ == '__main__':
         for j in range(partition_num):
             partition_name = f"partition_{j}"
             p = Partition(collection=c, name=partition_name)
-            for r in range(insert_times):
-                data = gen_data_by_collection(collection=c, nb=200, r=r)
+            for r in range(4):
+                data = gen_data_by_collection(collection=c, nb=20, r=r)
                 t1 = time.time()
                 p.insert(data)
                 t2 = round(time.time() - t1, 3)
