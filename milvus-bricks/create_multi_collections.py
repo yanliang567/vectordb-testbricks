@@ -43,13 +43,13 @@ if __name__ == '__main__':
     logging.info(f"start to create {collection_num} collections")
     for i in range(collection_num):
         collection_name = f"{collection_prefix}_{i}"
-        insert_times = random.randint(2, 10) if need_insert else 0
+        insert_times = 1    # random.randint(2, 10) if need_insert else 0
         if not utility.has_collection(collection_name=collection_name):
-            dim = random.randint(100, 1000)
+            dim = 768  # random.randint(100, 1000)
             auto_id = random.choice([True, False])
             metric_type = random.choice(["COSINE", "L2", "IP"])
             create_n_insert(collection_name=collection_name,
-                            dim=dim, nb=1000, insert_times=insert_times, auto_id=auto_id,
+                            dim=dim, nb=125, insert_times=insert_times, auto_id=auto_id,
                             index_type="AUTOINDEX", metric_type=metric_type, build_index=need_build_index)
             logging.info(f"create {collection_name}  successfully")
         else:
@@ -59,8 +59,8 @@ if __name__ == '__main__':
         for j in range(partition_num):
             partition_name = f"partition_{j}"
             p = Partition(collection=c, name=partition_name)
-            for r in range(4):
-                data = gen_data_by_collection(collection=c, nb=20, r=r)
+            for r in range(1):
+                data = gen_data_by_collection(collection=c, nb=125, r=r)
                 t1 = time.time()
                 p.insert(data)
                 t2 = round(time.time() - t1, 3)
