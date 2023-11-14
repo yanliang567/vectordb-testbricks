@@ -48,8 +48,10 @@ if __name__ == '__main__':
             dim = 768  # random.randint(100, 1000)
             auto_id = random.choice([True, False])
             metric_type = random.choice(["COSINE", "L2", "IP"])
+            nb = 1000 if partition_num == 0 else 125
+            insert_times = 16 if partition_num == 0 else 1
             create_n_insert(collection_name=collection_name,
-                            dim=dim, nb=125, insert_times=insert_times, auto_id=auto_id,
+                            dim=dim, nb=nb, insert_times=insert_times, auto_id=auto_id,
                             index_type="AUTOINDEX", metric_type=metric_type, build_index=need_build_index)
             logging.info(f"create {collection_name}  successfully")
         else:
