@@ -40,6 +40,10 @@ if __name__ == '__main__':
     need_insert = True if need_insert == "TRUE" else False
     need_build_index = True if need_build_index == "TRUE" else False
     need_load = True if need_load == "TRUE" else False
+    if partition_key_field is None or partition_key_field == "":
+        partition_key_enabled = False
+    else:
+        partition_key_enabled = True
 
     # check and get the collection info
     logging.info(f"start to create {collection_num} collections")
@@ -50,9 +54,9 @@ if __name__ == '__main__':
             dim = 768  # random.randint(100, 1000)
             auto_id = random.choice([True, False])
             metric_type = random.choice(["COSINE", "L2", "IP"])
-            nb = 1000 if partition_num == 0 else 125
-            insert_times = 16 if partition_num == 0 else 1
-            if partition_key_field is None or partition_key_field == "":
+            nb = 1000 if partition_key_enabled else 125
+            insert_times = 16 if partition_key_enabled else 1
+            if not partition_key_enabled:
                 create_n_insert(collection_name=collection_name,
                                 dim=dim, nb=nb, insert_times=insert_times, auto_id=auto_id,
                                 index_type="AUTOINDEX", metric_type=metric_type, build_index=need_build_index)
@@ -69,7 +73,7 @@ if __name__ == '__main__':
             logging.info(f"{collection_name} already exists")
 
         c = Collection(collection_name)
-        if partition_key_field is None or partition_key_field == "":
+        if not partition_key_enabled:
             for j in range(partition_num):
                 partition_name = f"partition_{j}"
                 p = Partition(collection=c, name=partition_name)
