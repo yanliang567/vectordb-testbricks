@@ -58,12 +58,12 @@ if __name__ == '__main__':
                                 index_type="AUTOINDEX", metric_type=metric_type, build_index=need_build_index)
             else:
                 num_partitions = 64 if partition_num == 0 else partition_num
-                collection_name = f"{collection_name}_parkey"
                 create_n_insert_parkey(collection_name=collection_name, dim=dim, nb=nb, insert_times=insert_times,
                                        index_type="AUTOINDEX", metric_type=metric_type,
                                        parkey_collection_only=True,
                                        parkey_values_evenly=True, num_partitions=num_partitions,
                                        pre_load=False)
+                collection_name = f"{collection_name}_parkey"
             logging.info(f"create {collection_name}  successfully")
         else:
             logging.info(f"{collection_name} already exists")
