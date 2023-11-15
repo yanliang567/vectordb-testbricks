@@ -69,15 +69,16 @@ if __name__ == '__main__':
             logging.info(f"{collection_name} already exists")
 
         c = Collection(collection_name)
-        for j in range(partition_num):
-            partition_name = f"partition_{j}"
-            p = Partition(collection=c, name=partition_name)
-            for r in range(1):
-                data = gen_data_by_collection(collection=c, nb=125, r=r)
-                t1 = time.time()
-                p.insert(data)
-                t2 = round(time.time() - t1, 3)
-                logging.info(f"{partition_name} insert {r} costs {t2}")
+        if partition_key_field is None or partition_key_field == "":
+            for j in range(partition_num):
+                partition_name = f"partition_{j}"
+                p = Partition(collection=c, name=partition_name)
+                for r in range(1):
+                    data = gen_data_by_collection(collection=c, nb=125, r=r)
+                    t1 = time.time()
+                    p.insert(data)
+                    t2 = round(time.time() - t1, 3)
+                    logging.info(f"{partition_name} insert {r} costs {t2}")
 
         if need_load:
             c = Collection(name=collection_name)
