@@ -21,7 +21,8 @@ if __name__ == '__main__':
     need_insert = str(sys.argv[5]).upper()          # insert or not, if yes, it inserts random number of entities
     need_build_index = str(sys.argv[6]).upper()     # build index or not after insert
     need_load = str(sys.argv[7]).upper()            # load the collection or not at the end
-    partition_key_field = str(sys.argv[8]).strip()          # partition key field name
+    partition_key_field = str(sys.argv[8])          # partition key field name
+    print(partition_key_field)
     api_key = str(sys.argv[9])                      # api key to connect to milvus
 
     port = 19530
