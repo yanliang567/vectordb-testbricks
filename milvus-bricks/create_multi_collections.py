@@ -21,8 +21,7 @@ if __name__ == '__main__':
     need_insert = str(sys.argv[5]).upper()          # insert or not, if yes, it inserts random number of entities
     need_build_index = str(sys.argv[6]).upper()     # build index or not after insert
     need_load = str(sys.argv[7]).upper()            # load the collection or not at the end
-    partition_key_field = str(sys.argv[8])          # partition key field name
-    print(partition_key_field)
+    partition_key_field = str(sys.argv[8]).upper()          # partition key field name, set None to disable it
     api_key = str(sys.argv[9])                      # api key to connect to milvus
 
     port = 19530
@@ -41,7 +40,7 @@ if __name__ == '__main__':
     need_insert = True if need_insert == "TRUE" else False
     need_build_index = True if need_build_index == "TRUE" else False
     need_load = True if need_load == "TRUE" else False
-    if partition_key_field is None or partition_key_field == "":
+    if partition_key_field == "" or partition_key_field == "NONE":
         partition_key_enabled = False
     else:
         partition_key_enabled = True
