@@ -58,7 +58,7 @@ if __name__ == '__main__':
             insert_times = 16 if partition_key_enabled else 1
             if not partition_key_enabled:
                 create_n_insert(collection_name=collection_name,
-                                dim=dim, nb=nb, insert_times=insert_times, auto_id=auto_id,
+                                dim=dim, nb=nb, insert_times=insert_times, auto_id=auto_id, shards=8,
                                 index_type="AUTOINDEX", metric_type=metric_type, build_index=need_build_index)
             else:
                 num_partitions = 64 if partition_num == 0 else partition_num
