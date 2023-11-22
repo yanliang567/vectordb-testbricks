@@ -7,7 +7,8 @@ from pymilvus import utility, connections, DataType, \
 from create_n_insert import create_n_insert
 from create_n_parkey_insert import create_n_insert_parkey
 from common import gen_data_by_collection
-
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
@@ -23,6 +24,8 @@ if __name__ == '__main__':
     need_load = str(sys.argv[7]).upper()            # load the collection or not at the end
     partition_key_field = str(sys.argv[8]).upper()          # partition key field name, set None to disable it
     api_key = str(sys.argv[9])                      # api key to connect to milvus
+    # pool_size = int(sys.argv[10])
+    pool_size = 10
 
     port = 19530
 
@@ -45,10 +48,11 @@ if __name__ == '__main__':
     else:
         partition_key_enabled = True
 
-    # check and get the collection info
-    logging.info(f"start to create {collection_num} collections")
-    for i in range(collection_num):
-        collection_name = f"{collection_prefix}_{i}"
+
+    pool = ThreadPoolExecutor(max_workers=pool_size)
+
+
+    def execute(collection_name):
         insert_times = 1    # random.randint(2, 10) if need_insert else 0
         if not utility.has_collection(collection_name=collection_name):
             dim = 768  # random.randint(100, 1000)
@@ -90,5 +94,15 @@ if __name__ == '__main__':
             c.load()
             t2 = round(time.time() - t1, 3)
             logging.info(f"{collection_name} load in {t2}")
+
+    # check and get the collection info
+    logging.info(f"start to create {collection_num} collections")
+    futures=[]
+    for i in range(collection_num):
+        collection_name = f"{collection_prefix}_{i}"
+        future=pool.submit(execute, collection_name)
+        futures.append(future)
+    for fu in futures:
+        fu.result()
 
     logging.info(f"create multi collections and partitions completed")
