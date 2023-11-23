@@ -13,6 +13,10 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
 if __name__ == '__main__':
+    """
+    if there already exists entities in the collection, this script will do upsert with exisiting entities' PK
+    if there is no entities in the collection, this script will do upsert as insert(unqiue PKs in one request)
+    """
     host = sys.argv[1]
     collection_name = sys.argv[2]            # collection mame
     upsert_rounds = int(sys.argv[3])            # upsert time
