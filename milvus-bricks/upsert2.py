@@ -30,7 +30,7 @@ if __name__ == '__main__':
     # check and get the collection info
     if not utility.has_collection(collection_name=collection_name):
         logging.error(f"collection: {collection_name} does not exit, create 10m-128d as default")
-        create_n_insert(collection_name=collection_name, dim=128, nb=20000, insert_times=50,
+        create_n_insert(collection_name=collection_name, dim=768, nb=1000, insert_times=0, auto_id=False,
                         index_type="AUTOINDEX", metric_type="L2")
 
     c = Collection(name=collection_name)
@@ -49,6 +49,9 @@ if __name__ == '__main__':
     t2 = round(time.time() - t1, 3)
     logging.info(f"load {collection_name}: {t2}")
     max_id = c.query(expr=f"{c.primary_field.name}>=0", output_fields=["count(*)"])[0].get("count(*)")
+    if max_id == 0:
+        max_id = upsert_rounds * entities_per_round
+        logging.info(f"{collection_name} is empty, set max_id=upsert_rounds * entities_per_round")
     # start upsert
     logging.info(f"{collection_name} max_id={max_id}, upsert2 start: nb={entities_per_round}, rounds={upsert_rounds}")
     upsert_entities(collection=c, nb=entities_per_round, rounds=upsert_rounds, maxid=max_id)
