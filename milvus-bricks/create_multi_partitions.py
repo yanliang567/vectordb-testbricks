@@ -15,9 +15,10 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 if __name__ == '__main__':
     host = sys.argv[1]
     collection_name = sys.argv[2]                   # collection mame
-    partition_num = int(sys.argv[3])                      # how many partitions to create
-    need_build_index = str(sys.argv[4]).upper()     # build index or not after insert
-    need_load = str(sys.argv[5]).upper()            # load the collection or not at the end
+    partition_num = int(sys.argv[3])                # how many partitions to create
+    shards_num = int(sys.argv[4])                    # how many shards to create a collection
+    need_build_index = str(sys.argv[5]).upper()     # build index or not after insert
+    need_load = str(sys.argv[6]).upper()            # load the collection or not at the end
 
     port = 19530
 
@@ -31,16 +32,18 @@ if __name__ == '__main__':
 
     need_build_index = True if need_build_index == "TRUE" else False
     need_load = True if need_load == "TRUE" else False
+    shards_num = 1 if shards_num <= 0 else shards_num
 
     # check and get the collection info
     nb = 100
-    insert_times = 5
+    insert_times = 1
     if not utility.has_collection(collection_name=collection_name):
         logging.info(f"start to create default collection")
         dim = 768
         create_n_insert(collection_name=collection_name,
                         dim=dim, nb=nb, insert_times=insert_times, auto_id=False,
-                        index_type="AUTOINDEX", metric_type="L2", build_index=need_build_index)
+                        index_type="AUTOINDEX", metric_type="L2", build_index=need_build_index,
+                        shards_num=shards_num)
         logging.info(f"create {collection_name}  successfully")
 
     c = Collection(collection_name)
