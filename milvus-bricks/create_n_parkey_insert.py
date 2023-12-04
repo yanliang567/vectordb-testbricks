@@ -31,7 +31,7 @@ def build(collection, index_type, metric_type):
 
 def create_n_insert_parkey(collection_name, dim, nb, insert_times, index_type, metric_type="L2",
                            parkey_num=10000, parkey_collection_only=False, parkey_values_evenly=False,
-                           num_partitions=64, pre_load=False):
+                           num_partitions=64, pre_load=False, shards_num=1):
     id_field = FieldSchema(name="id", dtype=DataType.INT64, description="auto primary id")
     category_field = FieldSchema(name="category", dtype=DataType.INT64, description="age")
     embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
@@ -39,7 +39,7 @@ def create_n_insert_parkey(collection_name, dim, nb, insert_times, index_type, m
         schema = CollectionSchema(fields=[id_field, category_field, embedding_field],
                                   auto_id=auto_id, primary_field=id_field.name,
                                   description=f"{collection_name}")
-        collection = Collection(name=collection_name, schema=schema)
+        collection = Collection(name=collection_name, schema=schema, shards_num=shards_num)
         logging.info(f"create {collection_name} successfully")
 
     collection_parkey_name = f"{collection_name}_parkey"
@@ -47,7 +47,7 @@ def create_n_insert_parkey(collection_name, dim, nb, insert_times, index_type, m
                               auto_id=auto_id, primary_field=id_field.name,
                               partition_key_field=category_field.name,
                               description=f"{collection_parkey_name} partition key field: category")
-    collection_parkey = Collection(name=collection_parkey_name, schema=schema,
+    collection_parkey = Collection(name=collection_parkey_name, schema=schema, shards_num=shards_num,
                                    num_partitions=num_partitions)
     logging.info(f"create {collection_parkey_name} successfully")
 

@@ -19,13 +19,13 @@ if __name__ == '__main__':
     collection_prefix = sys.argv[2]                 # collection mame prefix
     collection_num = int(sys.argv[3])               # how many collections to create
     partition_num = int(sys.argv[4])                # how many customized partitions to create
-    need_insert = str(sys.argv[5]).upper()          # insert or not, if yes, it inserts random number of entities
-    need_build_index = str(sys.argv[6]).upper()     # build index or not after insert
-    need_load = str(sys.argv[7]).upper()            # load the collection or not at the end
-    partition_key_field = str(sys.argv[8]).upper()          # partition key field name, set None to disable it
-    api_key = str(sys.argv[9])                      # api key to connect to milvus
-    # pool_size = int(sys.argv[10])
-    pool_size = 10
+    shards_num = int(sys.argv[5])                    # how many shards to create
+    need_insert = str(sys.argv[6]).upper()          # insert or not, if yes, it inserts random number of entities
+    need_build_index = str(sys.argv[7]).upper()     # build index or not after insert
+    need_load = str(sys.argv[8]).upper()            # load the collection or not at the end
+    partition_key_field = str(sys.argv[9]).upper()          # partition key field name, set None to disable it
+    api_key = str(sys.argv[10])                      # api key to connect to milvus
+    pool_size = int(sys.argv[11])                   # thread pool size
 
     port = 19530
 
@@ -35,11 +35,12 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     logger = logging.getLogger('LOGGER_NAME')
 
-    if api_key is None or api_key == "":
+    if api_key is None or api_key == "" or api_key.upper() == "NONE":
         conn = connections.connect('default', host=host, port=port)
     else:
         conn = connections.connect('default', uri=host, token=api_key)
 
+    shards_num = 1 if shards_num == 0 else shards_num
     need_insert = True if need_insert == "TRUE" else False
     need_build_index = True if need_build_index == "TRUE" else False
     need_load = True if need_load == "TRUE" else False
@@ -47,7 +48,6 @@ if __name__ == '__main__':
         partition_key_enabled = False
     else:
         partition_key_enabled = True
-
 
     pool = ThreadPoolExecutor(max_workers=pool_size)
 
@@ -63,14 +63,15 @@ if __name__ == '__main__':
             if not partition_key_enabled:
                 create_n_insert(collection_name=collection_name,
                                 dim=dim, nb=nb, insert_times=insert_times, auto_id=auto_id, 
-                                index_type="AUTOINDEX", metric_type=metric_type, build_index=need_build_index)
+                                index_type="AUTOINDEX", metric_type=metric_type, build_index=need_build_index,
+                                shards_num=shards_num)
             else:
                 num_partitions = 64 if partition_num == 0 else partition_num
                 create_n_insert_parkey(collection_name=collection_name, dim=dim, nb=nb, insert_times=insert_times,
                                        index_type="AUTOINDEX", metric_type=metric_type,
                                        parkey_collection_only=True,
                                        parkey_values_evenly=True, num_partitions=num_partitions,
-                                       pre_load=False)
+                                       pre_load=False, shards_num=shards_num)
                 collection_name = f"{collection_name}_parkey"
             logging.info(f"create {collection_name}  successfully")
         else:
