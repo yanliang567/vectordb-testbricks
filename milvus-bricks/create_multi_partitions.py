@@ -58,10 +58,10 @@ if __name__ == '__main__':
             t2 = round(time.time() - t1, 3)
             logging.info(f"{partition_name} insert {r} costs {t2}")
 
-        if need_load:
-            t1 = time.time()
-            p.load()
-            t2 = round(time.time() - t1, 3)
-            logging.info(f"{partition_name} load in {t2}")
+    if need_load:
+        t1 = time.time()
+        c.load()
+        t2 = round(time.time() - t1, 3)
+        logging.info(f"collection {collection_name} load in {t2}")
 
     logging.info(f"create multi partitions completed")
