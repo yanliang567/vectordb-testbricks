@@ -35,7 +35,7 @@ if __name__ == '__main__':
     shards_num = 1 if shards_num <= 0 else shards_num
 
     # check and get the collection info
-    nb = 500
+    nb = 1500
     insert_times = 2
     if not utility.has_collection(collection_name=collection_name):
         logging.info(f"start to create default collection")
