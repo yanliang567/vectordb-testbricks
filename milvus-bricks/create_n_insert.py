@@ -96,7 +96,7 @@ if __name__ == '__main__':
     connections.connect('default')
 
     create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times, index_type=index,
-                    metric_type=metric, auto_id=auto_id, ttl=ttl, build_index=need_build_index, shards=shards)
+                    metric_type=metric, auto_id=auto_id, ttl=ttl, build_index=need_build_index, shards_num=shards)
 
     # load the collection
     if need_load:
