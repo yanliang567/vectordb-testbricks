@@ -58,6 +58,7 @@ def search(collection, search_params, nq, topk, threads_num,
         for t in threads:
             t.join()
     else:
+        interval_count = 100
         search_latency = []
         count = 0
         start_time = time.time()
