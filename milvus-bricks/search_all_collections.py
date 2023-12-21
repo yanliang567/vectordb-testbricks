@@ -56,9 +56,9 @@ if __name__ == '__main__':
         tt = time.time()
         for name in utility.list_collections():
             collection = Collection(name=name)
-            logging.info(f"collection: {name}")
+            # logging.info(f"collection: {name}")
             num = collection.num_entities
-            logging.info(f"collection {name} flushed num_entities {num}")
+            # logging.info(f"collection {name} flushed num_entities {num}")
             if not collection.has_index():
                 logging.info(f"collection: {name} has no index")
                 no_index += 1
@@ -70,8 +70,8 @@ if __name__ == '__main__':
             dim = get_dim(collection)
             index_params = get_index_params(collection)
             search_params = get_search_params(collection, topk)
-            logging.info(f"index param: {index_params}")
-            logging.info(f"search_param: {search_params}")
+            # logging.info(f"index param: {index_params}")
+            # logging.info(f"search_param: {search_params}")
             vector_field_name = get_vector_field_name(collection)
             search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
             parkey = random.randint(1, 1000)
@@ -86,7 +86,7 @@ if __name__ == '__main__':
                 search_fail += 1
                 logging.error(e)
             t2 = round(time.time() - t1, 4)
-            logging.info(f"collection {name} search cost {t2}")
+            # logging.info(f"collection {name} search cost {t2}")
         tt2 = round(time.time() - tt, 4)
         logging.info(f"complete {num_collections} collections in {tt2}, search_succ: {search_succ}, "
                      f"search_fail: {search_fail}，no_index: {no_index}, not_loaded: {not_loaded}")
