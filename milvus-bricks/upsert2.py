@@ -4,6 +4,7 @@ import random
 import logging
 from pymilvus import utility, connections, DataType, \
     Collection, FieldSchema, CollectionSchema
+from pymilvus.orm.types import CONSISTENCY_STRONG
 from common import upsert_entities
 from create_n_insert import create_n_insert
 
@@ -60,7 +61,8 @@ if __name__ == '__main__':
     logging.info(f"{collection_name} max_id={max_id}, upsert2 start: nb={entities_per_round}, rounds={upsert_rounds}")
     upsert_entities(collection=c, nb=entities_per_round, rounds=upsert_rounds, maxid=max_id)
     c.flush()
-    new_max_id = c.query(expr=f"{c.primary_field.name}>=0", output_fields=["count(*)"])[0].get("count(*)")
+    new_max_id = c.query(expr=f"{c.primary_field.name}>=0", output_fields=["count(*)"],
+                         consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
 
     logging.info(f"{collection_name} upsert2 completed, max_id: {max_id}, new_max_id: {new_max_id}")
 
@@ -69,7 +71,7 @@ if __name__ == '__main__':
         dup_count = 0
         logging.info(f"start checking the difference between max_id and new_max_id...")
         for i in range(max_id):
-            res = c.query(expr=f"id=={i}", output_fields=["count(*)"])
+            res = c.query(expr=f"id=={i}", output_fields=["count(*)"], consistency_level=CONSISTENCY_STRONG)
             count = res[0]["count(*)"]
             if count == 1:
                 pass
