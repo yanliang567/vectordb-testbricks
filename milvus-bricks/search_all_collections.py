@@ -48,6 +48,8 @@ if __name__ == '__main__':
     logging.info(f"nq: {nq}, topk: {topk}, output_fields: {output_fields}, expr: {expr}")
 
     start_time = time.time()
+    had_failure = False
+    fail_st = 0
     while time.time() < start_time + timeout:
         no_index = 0
         not_loaded = 0
@@ -90,3 +92,11 @@ if __name__ == '__main__':
         tt2 = round(time.time() - tt, 4)
         logging.info(f"complete {num_collections} collections in {tt2}, search_succ: {search_succ}, "
                      f"search_fail: {search_fail}，no_index: {no_index}, not_loaded: {not_loaded}")
+        if search_fail > 0 and had_failure is False:
+            had_failure = True
+            fail_st = time.time()
+        if search_fail == 0 and had_failure is True:
+            had_failure = False
+            recover_t = round(time.time() - fail_st, 4)
+            logging.info(f"recover time for {num_collections} collections is {recover_t}")
+

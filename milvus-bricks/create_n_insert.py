@@ -4,6 +4,7 @@ import random
 import sklearn.preprocessing
 import numpy as np
 import logging
+from pymilvus.orm.types import CONSISTENCY_STRONG
 from pymilvus import connections, DataType, \
     Collection, FieldSchema, CollectionSchema, utility
 from common import insert_entities, get_vector_field_name, get_default_params_by_index_type
@@ -34,7 +35,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
                                           embedding_field, json_field],
                                   auto_id=auto_id, primary_field=id_field.name,
                                   description=f"{collection_name}")    # do not change the description
-        collection = Collection(name=collection_name, schema=schema,
+        collection = Collection(name=collection_name, schema=schema, consistency_level=CONSISTENCY_STRONG,
                                 shards_num=shards_num, properties={"collection.ttl.seconds": ttl})
         logging.info(f"create {collection_name} successfully, auto_id: {auto_id}, dim: {dim}, shards: {shards_num}")
     else:
