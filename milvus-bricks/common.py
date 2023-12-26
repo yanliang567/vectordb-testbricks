@@ -138,13 +138,14 @@ def insert_entities(collection, nb, rounds):
         logging.info(f"{collection.name} insert {r} costs {t2}")
 
 
-def upsert_entities(collection, nb, rounds, maxid):
+def upsert_entities(collection, nb, rounds, maxid, interval=0):
     for r in range(rounds):
         data = gen_upsert_data_by_intpk_collection(collection=collection, nb=nb, maxid=maxid)
         t1 = time.time()
         collection.upsert(data)
         t2 = round(time.time() - t1, 3)
         logging.info(f"{collection.name} upsert2 {r} costs {t2}")
+        time.sleep(interval)
 
 
 def get_search_params(collection, topk):
