@@ -5,4 +5,5 @@ ujson==5.5.0
 pymilvus==2.3.3
 git+https://github.com/Projectplace/pytest-tags
 kubernetes==17.17.0
+urllib3>=2.1.0
 
