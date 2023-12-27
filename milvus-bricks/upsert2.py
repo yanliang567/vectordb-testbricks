@@ -22,6 +22,7 @@ if __name__ == '__main__':
     collection_name = sys.argv[2]            # collection mame
     upsert_rounds = int(sys.argv[3])            # upsert time
     entities_per_round = int(sys.argv[4])        # entities to be upsert per round
+    interval = int(sys.argv[5])                 # interval between upsert rounds
     port = 19530
 
     file_handler = logging.FileHandler(filename=f"/tmp/upsert2_{collection_name}.log")
@@ -59,7 +60,7 @@ if __name__ == '__main__':
         logging.info(f"{collection_name} is empty, set max_id=upsert_rounds * entities_per_round")
     # start upsert
     logging.info(f"{collection_name} max_id={max_id}, upsert2 start: nb={entities_per_round}, rounds={upsert_rounds}")
-    upsert_entities(collection=c, nb=entities_per_round, rounds=upsert_rounds, maxid=max_id, interval=1)
+    upsert_entities(collection=c, nb=entities_per_round, rounds=upsert_rounds, maxid=max_id, interval=interval)
     c.flush()
     new_max_id = c.query(expr=f"{c.primary_field.name}>=0", output_fields=["count(*)"],
                          consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
