@@ -16,19 +16,19 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 if __name__ == '__main__':
     host = sys.argv[1]
-    collection_prefix = sys.argv[2]                 # collection mame prefix
-    collection_num = int(sys.argv[3])               # how many collections to create
-    partition_num = int(sys.argv[4])                # how many customized partitions to create
-    shards_num = int(sys.argv[5])                    # how many shards to create
-    dim = int(sys.argv[6])                          # dim for vector
-    nb = int(sys.argv[7])                           # how many entities to insert each time
-    insert_times_per_partition = int(sys.argv[8])                 # how many times to insert for each partition
-    need_insert = str(sys.argv[9]).upper()          # insert or not, if yes, it inserts random number of entities
-    need_build_index = str(sys.argv[10]).upper()     # build index or not after insert
-    need_load = str(sys.argv[11]).upper()            # load the collection or not at the end
-    partition_key_field = str(sys.argv[12]).upper()          # partition key field name, set None to disable it
-    api_key = str(sys.argv[13])                      # api key to connect to milvus
-    pool_size = int(sys.argv[14])                   # thread pool size
+    collection_prefix = sys.argv[2]                     # collection mame prefix
+    collection_num = int(sys.argv[3])                   # how many collections to create
+    partition_num = int(sys.argv[4])                    # how many customized partitions(except _default) to create
+    shards_num = int(sys.argv[5])                       # how many shards to create
+    dim = int(sys.argv[6])                              # dim for vectors
+    nb = int(sys.argv[7])                               # how many entities to insert each time
+    insert_times_per_partition = int(sys.argv[8])       # how many times to insert for each partition
+    need_insert = str(sys.argv[9]).upper()              # insert or not, if yes, it inserts random vectors
+    need_build_index = str(sys.argv[10]).upper()        # build index or not after insert
+    need_load = str(sys.argv[11]).upper()               # load the collection or not at the end
+    partition_key_field = str(sys.argv[12]).upper()     # partition key field name, set None to disable it
+    api_key = str(sys.argv[13])                         # api key to connect to milvus
+    pool_size = int(sys.argv[14])                       # thread pool size
 
     port = 19530
 
