@@ -20,12 +20,15 @@ if __name__ == '__main__':
     collection_num = int(sys.argv[3])               # how many collections to create
     partition_num = int(sys.argv[4])                # how many customized partitions to create
     shards_num = int(sys.argv[5])                    # how many shards to create
-    need_insert = str(sys.argv[6]).upper()          # insert or not, if yes, it inserts random number of entities
-    need_build_index = str(sys.argv[7]).upper()     # build index or not after insert
-    need_load = str(sys.argv[8]).upper()            # load the collection or not at the end
-    partition_key_field = str(sys.argv[9]).upper()          # partition key field name, set None to disable it
-    api_key = str(sys.argv[10])                      # api key to connect to milvus
-    pool_size = int(sys.argv[11])                   # thread pool size
+    dim = int(sys.argv[6])                          # dim for vector
+    nb = int(sys.argv[7])                           # how many entities to insert each time
+    insert_times_per_partition = int(sys.argv[8])                 # how many times to insert for each partition
+    need_insert = str(sys.argv[9]).upper()          # insert or not, if yes, it inserts random number of entities
+    need_build_index = str(sys.argv[10]).upper()     # build index or not after insert
+    need_load = str(sys.argv[11]).upper()            # load the collection or not at the end
+    partition_key_field = str(sys.argv[12]).upper()          # partition key field name, set None to disable it
+    api_key = str(sys.argv[13])                      # api key to connect to milvus
+    pool_size = int(sys.argv[14])                   # thread pool size
 
     port = 19530
 
@@ -53,21 +56,17 @@ if __name__ == '__main__':
 
 
     def execute(collection_name):
-        insert_times = 1    # random.randint(2, 10) if need_insert else 0
         if not utility.has_collection(collection_name=collection_name):
-            dim = 768  # random.randint(100, 1000)
             auto_id = random.choice([True, False])
             metric_type = random.choice(["COSINE", "L2", "IP"])
-            nb = 1000 if partition_key_enabled else 125
-            insert_times = 16 if partition_key_enabled else 1
             if not partition_key_enabled:
                 create_n_insert(collection_name=collection_name,
-                                dim=dim, nb=nb, insert_times=insert_times, auto_id=auto_id, 
+                                dim=dim, nb=nb, insert_times=insert_times_per_partition, auto_id=auto_id,
                                 index_type="AUTOINDEX", metric_type=metric_type, build_index=need_build_index,
                                 shards_num=shards_num)
             else:
                 num_partitions = 64 if partition_num == 0 else partition_num
-                create_n_insert_parkey(collection_name=collection_name, dim=dim, nb=nb, insert_times=insert_times,
+                create_n_insert_parkey(collection_name=collection_name, dim=dim, nb=nb, insert_times=insert_times_per_partition,
                                        index_type="AUTOINDEX", metric_type=metric_type,
                                        parkey_collection_only=True,
                                        parkey_values_evenly=True, num_partitions=num_partitions,
@@ -82,8 +81,8 @@ if __name__ == '__main__':
             for j in range(partition_num):
                 partition_name = f"partition_{j}"
                 p = Partition(collection=c, name=partition_name)
-                for r in range(1):
-                    data = gen_data_by_collection(collection=c, nb=125, r=r)
+                for r in range(insert_times_per_partition):
+                    data = gen_data_by_collection(collection=c, nb=nb, r=r)
                     t1 = time.time()
                     p.insert(data)
                     t2 = round(time.time() - t1, 3)
