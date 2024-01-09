@@ -29,6 +29,7 @@ if __name__ == '__main__':
     partition_key_field = str(sys.argv[12]).upper()     # partition key field name, set None to disable it
     api_key = str(sys.argv[13])                         # api key to connect to milvus
     pool_size = int(sys.argv[14])                       # thread pool size
+    index_type = str(sys.argv[15])                      # index type
 
     port = 19530
 
@@ -62,12 +63,12 @@ if __name__ == '__main__':
             if not partition_key_enabled:
                 create_n_insert(collection_name=collection_name,
                                 dim=dim, nb=nb, insert_times=insert_times_per_partition, auto_id=auto_id,
-                                index_type="AUTOINDEX", metric_type=metric_type, build_index=need_build_index,
+                                index_type=index_type, metric_type=metric_type, build_index=need_build_index,
                                 shards_num=shards_num)
             else:
                 num_partitions = 64 if partition_num == 0 else partition_num
                 create_n_insert_parkey(collection_name=collection_name, dim=dim, nb=nb, insert_times=insert_times_per_partition,
-                                       index_type="AUTOINDEX", metric_type=metric_type,
+                                       index_type=index_type, metric_type=metric_type,
                                        parkey_collection_only=True,
                                        parkey_values_evenly=True, num_partitions=num_partitions,
                                        pre_load=False, shards_num=shards_num)
