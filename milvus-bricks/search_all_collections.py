@@ -85,6 +85,9 @@ if __name__ == '__main__':
                                   param=search_params, limit=topk)
                 search_succ += 1
             except Exception as e:
+                if had_failure is False:
+                    fail_st = t1
+                    had_failure = True
                 search_fail += 1
                 logging.error(e)
             t2 = round(time.time() - t1, 4)
@@ -92,9 +95,6 @@ if __name__ == '__main__':
         tt2 = round(time.time() - tt, 4)
         logging.info(f"complete {num_collections} collections in {tt2}, search_succ: {search_succ}, "
                      f"search_fail: {search_fail}，no_index: {no_index}, not_loaded: {not_loaded}")
-        if search_fail > 0 and had_failure is False:
-            had_failure = True
-            fail_st = time.time()
         if search_fail == 0 and had_failure is True:
             had_failure = False
             recover_t = round(time.time() - fail_st, 4)
