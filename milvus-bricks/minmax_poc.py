@@ -61,7 +61,7 @@ def create_n_insert_parkey(collection_name, dim, nb, index_type, metric_type="IP
             # prepare data
             index_names = [str(i) for _ in range(nb)]
             indexes = [float(i) for _ in range(nb)]
-            document = ["doc_" + str(i) for _ in range(nb)]
+            document = ["doc_" + str(j) for _ in range(nb)]
             embeddings = [[random.random() for _ in range(dim)] for _ in range(nb)]
             embeddings = normalize_data(metric_type, embeddings)
             data = [index_names, indexes, document, embeddings]
