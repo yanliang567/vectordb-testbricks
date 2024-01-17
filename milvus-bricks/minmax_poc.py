@@ -45,7 +45,7 @@ def create_n_insert_parkey(collection_name, dim, nb, index_type, metric_type="IP
     index_field = FieldSchema(name="index", dtype=DataType.FLOAT, description="index")
     document_field = FieldSchema(name="document", dtype=DataType.VARCHAR, max_length=255, description="document name")
     embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
-    collection_parkey_name = f"{collection_name}_parkey"
+    collection_parkey_name = f"{collection_name}"
     schema = CollectionSchema(fields=[pk_field, index_name_field, index_field, document_field, embedding_field],
                               auto_id=auto_id, primary_field=pk_field.name,
                               partition_key_field=index_name_field.name,
