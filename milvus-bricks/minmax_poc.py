@@ -56,7 +56,7 @@ def create_n_insert_parkey(collection_name, dim, nb, index_type, metric_type="IP
 
     # insert data tenant by tenant
     insert_times = rows_per_tenant // nb
-    for i in range(parkey_num):
+    for i in range(500, parkey_num):
         for j in range(insert_times):
             # prepare data
             index_names = [str(i) for _ in range(nb)]
