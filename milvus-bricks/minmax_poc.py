@@ -39,7 +39,7 @@ def build(collection, index_type, metric_type):
 
 
 def create_n_insert_parkey(collection_name, dim, nb, index_type, metric_type="IP",
-                           parkey_num=10000, rows_per_tenant=100000, num_partitions=64, shards_num=1):
+                           parkey_num=10000, tenants_startid=0, rows_per_tenant=100000, num_partitions=64, shards_num=1):
     pk_field = FieldSchema(name="id", dtype=DataType.INT64, description="auto primary id")
     index_name_field = FieldSchema(name="index_name", dtype=DataType.VARCHAR, max_length=255, description="user id")
     index_field = FieldSchema(name="index", dtype=DataType.FLOAT, description="index")
@@ -56,7 +56,7 @@ def create_n_insert_parkey(collection_name, dim, nb, index_type, metric_type="IP
 
     # insert data tenant by tenant
     insert_times = rows_per_tenant // nb
-    for i in range(500, parkey_num):
+    for i in range(tenants_startid, tenants_startid+parkey_num):
         for j in range(insert_times):
             # prepare data
             index_names = [str(i) for _ in range(nb)]
@@ -86,9 +86,10 @@ if __name__ == '__main__':
     index = str(sys.argv[6]).upper()    # index type
     metric = str(sys.argv[7]).upper()   # metric type, L2 or IP
     tenants_num = int(sys.argv[8])      # tenants number means partition key number
-    rows_per_tenant = int(sys.argv[9])  # avg entities per tenant
-    num_partitions = int(sys.argv[10])   # number of partitions
-    api_key = str(sys.argv[11])          # api key to connect to milvus
+    tenants_startid = int(sys.argv[9])  # start id for tenants
+    rows_per_tenant = int(sys.argv[10])  # avg entities per tenant
+    num_partitions = int(sys.argv[11])   # number of partitions
+    api_key = str(sys.argv[12])          # api key to connect to milvus
 
     port = 19530
     log_name = f"prepare_parkey_{name}"
@@ -109,7 +110,8 @@ if __name__ == '__main__':
 
     create_n_insert_parkey(collection_name=name, dim=dim, nb=nb,
                            index_type=index, metric_type=metric, shards_num=shards,
-                           parkey_num=tenants_num, rows_per_tenant=rows_per_tenant,
+                           parkey_num=tenants_num, tenants_startid=tenants_startid,
+                           rows_per_tenant=rows_per_tenant,
                            num_partitions=num_partitions)
 
     logging.info("collections prepared completed")
