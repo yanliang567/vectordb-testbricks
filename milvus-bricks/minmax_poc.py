@@ -69,6 +69,11 @@ def create_n_insert_parkey(collection_name, dim, nb, index_type, metric_type="IP
             collection_parkey.insert(data)
             tt = round(time.time() - t0, 3)
             logging.info(f"{collection_parkey_name} tanant {i} insert {j} costs {tt}")
+        if i % 5 == 0:      # flush every 5 tenants
+            t0 = time.time()
+            collection_parkey.flush()
+            tt = round(time.time() - t0, 3)
+            logging.info(f"flush every 5 tenants cost {tt}")
 
     collection_parkey.flush()
     logging.info(f"{collection_parkey_name} entities: {collection_parkey.num_entities}")
