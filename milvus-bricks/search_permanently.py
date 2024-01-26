@@ -97,6 +97,7 @@ if __name__ == '__main__':
     expr = str(sys.argv[7]).strip()                # search expression, default is None
     nq = int(sys.argv[8])               # search nq
     topk = int(sys.argv[9])             # search topk
+    api_key = str(sys.argv[10])         # api key for cloud instances
     port = 19530
 
     ignore_growing = True if ignore_growing == "TRUE" else False
@@ -112,7 +113,10 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     logger = logging.getLogger('LOGGER_NAME')
 
-    conn = connections.connect('default', host=host, port=port)
+    if api_key is None or api_key == "" or api_key.upper() == "NONE":
+        conn = connections.connect('default', host=host, port=port)
+    else:
+        conn = connections.connect('default', uri=host, token=api_key)
 
     # check and get the collection info
     if not utility.has_collection(collection_name=name):
