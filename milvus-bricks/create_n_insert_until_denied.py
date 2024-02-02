@@ -5,7 +5,7 @@ import sklearn.preprocessing
 import numpy as np
 import logging
 from pymilvus import connections, DataType, \
-    Collection, FieldSchema, CollectionSchema, utility
+    Collection, FieldSchema, CollectionSchema, utility, MilvusException
 from common import insert_entities, get_vector_field_name, get_default_params_by_index_type, gen_data_by_collection
 
 
@@ -102,23 +102,23 @@ if __name__ == '__main__':
     # insert data
     deny_times = 0
     r = 0
-    while True and deny_times < 3:
+    while True and deny_times < 1:
         data = gen_data_by_collection(collection=c, nb=nb, r=r)
         try:
             t1 = time.time()
             c.insert(data)
             t2 = round(time.time() - t1, 3)
             logging.info(f"{c.name} insert {r} costs {t2}")
-        except Exception as e:
-            if "limitWriting.forceDeny" in str(e):
+            time.sleep(1)
+        except MilvusException as e:
+            if "memory quota exceeded" in str(e.message):
                 logging.error(f"insert expected error: {e}")
                 deny_times += 1
                 logging.error(f"wait for 15 minutes and try again, deny times: {deny_times}")
                 time.sleep(900)
             else:
                 logging.error(f"insert error: {e}")
-                deny_times += 1
-                time.sleep(900)
+                break
         r += 1
 
     logging.info(f"collection prepared completed, collection entities: {c.num_entities}")
