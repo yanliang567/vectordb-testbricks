@@ -106,12 +106,12 @@ if __name__ == '__main__':
         data = gen_data_by_collection(collection=c, nb=nb, r=r)
         try:
             t1 = time.time()
-            c.insert(data)
+            c.insert(data, timout=5)
             t2 = round(time.time() - t1, 3)
             logging.info(f"{c.name} insert {r} costs {t2}")
-            time.sleep(1)
-        except MilvusException as e:
-            if "memory quota exceeded" in str(e.message):
+            # time.sleep(1)
+        except Exception as e:
+            if "memory quota exceeded" in str(e):
                 logging.error(f"insert expected error: {e}")
                 deny_times += 1
                 logging.error(f"wait for 15 minutes and try again, deny times: {deny_times}")
