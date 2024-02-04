@@ -113,43 +113,45 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     logger = logging.getLogger('LOGGER_NAME')
 
-    if api_key is None or api_key == "" or api_key.upper() == "NONE":
-        conn = connections.connect('default', host=host, port=port)
-    else:
-        conn = connections.connect('default', uri=host, token=api_key)
+    logging.info(f"searching collection: {name}, host: {host}, thread: {th}, timeout: {timeout}, ignore_growing: {ignore_growing}, output_fields: {output_fields}, expr: {expr}, nq: {nq}, topk: {topk}, api_key: {api_key}")
 
-    # check and get the collection info
-    if not utility.has_collection(collection_name=name):
-        logging.error(f"collection: {name} does not exit, create 10m-128d as default")
-        create_n_insert(collection_name=name, dim=128, nb=20000, insert_times=50,
-                        index_type="HNSW", metric_type="L2")
-
-    collection = Collection(name=name)
-    if not collection.has_index():
-        logging.error(f"collection: {name} has no index")
-        exit(0)
-
-    index_params = get_index_params(collection)
-    search_params = get_search_params(collection, topk)
-    logging.info(f"index param: {index_params}")
-    logging.info(f"search_param: {search_params}")
-    logging.info(f"output_fields: {output_fields}")
-    logging.info(f"expr: {expr}")
-
-    # flush before indexing
-    t1 = time.time()
-    num = collection.num_entities
-    t2 = round(time.time() - t1, 3)
-    logging.info(f"assert {name} flushed num_entities {num}: {t2}")
-
-    logging.info(utility.index_building_progress(name))
-
-    # load collection
-    t1 = time.time()
-    collection.load()
-    t2 = round(time.time() - t1, 3)
-    logging.info(f"assert load {name}: {t2}")
-
-    logging.info(f"search start: nq{nq}_top{topk}_threads{th}")
-    search(collection, search_params, nq, topk, th, output_fields, expr, timeout)
+    # if api_key is None or api_key == "" or api_key.upper() == "NONE":
+    #     conn = connections.connect('default', host=host, port=port)
+    # else:
+    #     conn = connections.connect('default', uri=host, token=api_key)
+    #
+    # # check and get the collection info
+    # if not utility.has_collection(collection_name=name):
+    #     logging.error(f"collection: {name} does not exit, create 10m-128d as default")
+    #     create_n_insert(collection_name=name, dim=128, nb=20000, insert_times=50,
+    #                     index_type="HNSW", metric_type="L2")
+    #
+    # collection = Collection(name=name)
+    # if not collection.has_index():
+    #     logging.error(f"collection: {name} has no index")
+    #     exit(0)
+    #
+    # index_params = get_index_params(collection)
+    # search_params = get_search_params(collection, topk)
+    # logging.info(f"index param: {index_params}")
+    # logging.info(f"search_param: {search_params}")
+    # logging.info(f"output_fields: {output_fields}")
+    # logging.info(f"expr: {expr}")
+    #
+    # # flush before indexing
+    # t1 = time.time()
+    # num = collection.num_entities
+    # t2 = round(time.time() - t1, 3)
+    # logging.info(f"assert {name} flushed num_entities {num}: {t2}")
+    #
+    # logging.info(utility.index_building_progress(name))
+    #
+    # # load collection
+    # t1 = time.time()
+    # collection.load()
+    # t2 = round(time.time() - t1, 3)
+    # logging.info(f"assert load {name}: {t2}")
+    #
+    # logging.info(f"search start: nq{nq}_top{topk}_threads{th}")
+    # search(collection, search_params, nq, topk, th, output_fields, expr, timeout)
     logging.info(f"search completed")

@@ -88,42 +88,45 @@ if __name__ == '__main__':
     logger = logging.getLogger('LOGGER_NAME')
 
     logging.info("start")
-    if api_key is None or api_key == "" or api_key.upper() == "NONE":
-        conn = connections.connect('default', host=host, port=port)
-    else:
-        conn = connections.connect('default', uri=host, token=api_key)
 
-    create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=0, index_type=index,
-                    metric_type=metric, auto_id=auto_id, build_index=True, shards_num=shards)
+    logging.info(f"host: {host}, name: {name}, dim: {dim}, nb: {nb}, shards: {shards}, index: {index}, metric: {metric}, auto_id: {auto_id}, max_deny_times: {max_deny_times}, api_key: {api_key}")
 
-    # load the collection
-    c = Collection(name=name)
-    c.load()
-
-    # insert data
-    if max_deny_times < 1:
-        max_deny_times = 1
-        logging.info(f"set max_deny_times by default: {max_deny_times}")
-    deny_times = 0
-    r = 0
-    while True and deny_times < max_deny_times:
-        data = gen_data_by_collection(collection=c, nb=nb, r=r)
-        try:
-            t1 = time.time()
-            c.insert(data, timout=5)
-            t2 = round(time.time() - t1, 3)
-            logging.info(f"{c.name} insert {r} costs {t2}")
-            # time.sleep(1)
-        except Exception as e:
-            if "memory quota exceeded" in str(e):
-                logging.error(f"insert expected error: {e}")
-                deny_times += 1
-                logging.error(f"wait for 15 minutes and retry, deny times: {deny_times}")
-                time.sleep(900)
-            else:
-                logging.error(f"insert error: {e}")
-                break
-        r += 1
+    # if api_key is None or api_key == "" or api_key.upper() == "NONE":
+    #     conn = connections.connect('default', host=host, port=port)
+    # else:
+    #     conn = connections.connect('default', uri=host, token=api_key)
+    #
+    # create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=0, index_type=index,
+    #                 metric_type=metric, auto_id=auto_id, build_index=True, shards_num=shards)
+    #
+    # # load the collection
+    # c = Collection(name=name)
+    # c.load()
+    #
+    # # insert data
+    # if max_deny_times < 1:
+    #     max_deny_times = 1
+    #     logging.info(f"set max_deny_times by default: {max_deny_times}")
+    # deny_times = 0
+    # r = 0
+    # while True and deny_times < max_deny_times:
+    #     data = gen_data_by_collection(collection=c, nb=nb, r=r)
+    #     try:
+    #         t1 = time.time()
+    #         c.insert(data, timout=5)
+    #         t2 = round(time.time() - t1, 3)
+    #         logging.info(f"{c.name} insert {r} costs {t2}")
+    #         # time.sleep(1)
+    #     except Exception as e:
+    #         if "memory quota exceeded" in str(e):
+    #             logging.error(f"insert expected error: {e}")
+    #             deny_times += 1
+    #             logging.error(f"wait for 15 minutes and retry, deny times: {deny_times}")
+    #             time.sleep(900)
+    #         else:
+    #             logging.error(f"insert error: {e}")
+    #             break
+    #     r += 1
 
     logging.info(f"collection {name} prepared completed, max_deny_times: {max_deny_times}, collection entities: {c.num_entities}")
 
