@@ -74,7 +74,8 @@ if __name__ == '__main__':
     index = str(sys.argv[6]).upper()        # index type
     metric = str(sys.argv[7]).upper()       # metric type, L2 or IP
     auto_id = str(sys.argv[8]).upper()      # auto id
-    api_key = str(sys.argv[9])              # api key for uri connections on cloud instances
+    max_deny_times = int(sys.argv[9])       # how many times of deny before stopping insert
+    api_key = str(sys.argv[10])             # api key for uri connections on cloud instances
     port = 19530
     log_name = f"prepare_{name}"
 
@@ -100,9 +101,12 @@ if __name__ == '__main__':
     c.load()
 
     # insert data
+    if max_deny_times < 1:
+        max_deny_times = 1
+        logging.info(f"set max_deny_times by default: {max_deny_times}")
     deny_times = 0
     r = 0
-    while True and deny_times < 1:
+    while True and deny_times < max_deny_times:
         data = gen_data_by_collection(collection=c, nb=nb, r=r)
         try:
             t1 = time.time()
@@ -114,12 +118,12 @@ if __name__ == '__main__':
             if "memory quota exceeded" in str(e):
                 logging.error(f"insert expected error: {e}")
                 deny_times += 1
-                logging.error(f"wait for 15 minutes and try again, deny times: {deny_times}")
+                logging.error(f"wait for 15 minutes and retry, deny times: {deny_times}")
                 time.sleep(900)
             else:
                 logging.error(f"insert error: {e}")
                 break
         r += 1
 
-    logging.info(f"collection prepared completed, collection entities: {c.num_entities}")
+    logging.info(f"collection {name} prepared completed, max_deny_times: {max_deny_times}, collection entities: {c.num_entities}")
 
