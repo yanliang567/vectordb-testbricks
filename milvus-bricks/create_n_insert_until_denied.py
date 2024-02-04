@@ -128,5 +128,5 @@ if __name__ == '__main__':
     #             break
     #     r += 1
 
-    logging.info(f"collection {name} prepared completed, max_deny_times: {max_deny_times}, collection entities: {c.num_entities}")
+    # logging.info(f"collection {name} prepared completed, max_deny_times: {max_deny_times}, collection entities: {c.num_entities}")
 
