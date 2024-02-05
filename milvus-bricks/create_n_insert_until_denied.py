@@ -101,10 +101,8 @@ if __name__ == '__main__':
 
     if api_key is None or api_key == "" or api_key.upper() == "NONE":
         conn = connections.connect('default', host=host, port=port)
-        msg = "memory quota exceeded"
     else:
         conn = connections.connect('default', uri=host, token=api_key)
-        msg = "cu quota exhausted"
 
     create_scalar = False
     if with_scalar == "TRUE" or with_scalar == "YES":
@@ -123,6 +121,8 @@ if __name__ == '__main__':
         logging.info(f"set max_deny_times by default: {max_deny_times}")
     deny_times = 0
     r = 0
+    msg = "memory quota exceeded"
+    msg_cloud = "cu quota exhausted"
     while True and deny_times < max_deny_times:
         data = gen_data_by_collection(collection=c, nb=nb, r=r)
         try:
@@ -132,7 +132,7 @@ if __name__ == '__main__':
             logging.info(f"{c.name} insert {r} costs {t2}")
             # time.sleep(1)
         except Exception as e:
-            if msg in str(e):
+            if msg in str(e) or msg_cloud in str(e):
                 logging.error(f"insert expected error: {e}")
                 deny_times += 1
                 logging.error(f"wait for 15 minutes and retry, deny times: {deny_times}")
