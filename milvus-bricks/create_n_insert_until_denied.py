@@ -101,8 +101,10 @@ if __name__ == '__main__':
 
     if api_key is None or api_key == "" or api_key.upper() == "NONE":
         conn = connections.connect('default', host=host, port=port)
+        msg = "memory quota exceeded"
     else:
         conn = connections.connect('default', uri=host, token=api_key)
+        msg = "cu quota exhausted"
 
     create_scalar = False
     if with_scalar == "TRUE" or with_scalar == "YES":
@@ -130,7 +132,7 @@ if __name__ == '__main__':
             logging.info(f"{c.name} insert {r} costs {t2}")
             # time.sleep(1)
         except Exception as e:
-            if "memory quota exceeded" in str(e):
+            if msg in str(e):
                 logging.error(f"insert expected error: {e}")
                 deny_times += 1
                 logging.error(f"wait for 15 minutes and retry, deny times: {deny_times}")
