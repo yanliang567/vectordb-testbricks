@@ -27,16 +27,21 @@ json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=6553
 
 
 def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2",
-                    auto_id=True, ttl=0, build_index=True, shards_num=1):
+                    auto_id=True, ttl=0, build_index=True, shards_num=1, create_scalar=True):
     if not utility.has_collection(collection_name=collection_name):
         embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
-        schema = CollectionSchema(fields=[id_field, age_field, flag_field, ext_field, fname_field,
-                                          embedding_field, json_field],
-                                  auto_id=auto_id, primary_field=id_field.name,
-                                  description=f"{collection_name}")    # do not change the description
+        if not create_scalar:
+            schema = CollectionSchema(fields=[id_field, embedding_field],
+                                      auto_id=auto_id, primary_field=id_field.name,
+                                      description=f"{collection_name}")
+        else:
+            schema = CollectionSchema(fields=[id_field, age_field, flag_field, ext_field, fname_field,
+                                              embedding_field, json_field],
+                                      auto_id=auto_id, primary_field=id_field.name,
+                                      description=f"{collection_name}")    # do not change the description
         collection = Collection(name=collection_name, schema=schema,
                                 shards_num=shards_num, properties={"collection.ttl.seconds": ttl})
-        logging.info(f"create {collection_name} successfully, auto_id: {auto_id}, dim: {dim}, shards: {shards_num}")
+        logging.info(f"create {collection_name} successfully, auto_id: {auto_id}, create scalar:{create_scalar}, dim: {dim}, shards: {shards_num}")
     else:
         collection = Collection(name=collection_name)
         logging.info(f"{collection_name} already exists")
@@ -74,8 +79,9 @@ if __name__ == '__main__':
     index = str(sys.argv[6]).upper()        # index type
     metric = str(sys.argv[7]).upper()       # metric type, L2 or IP
     auto_id = str(sys.argv[8]).upper()      # auto id
-    max_deny_times = int(sys.argv[9])       # how many times of deny before stopping insert
-    api_key = str(sys.argv[10])             # api key for uri connections on cloud instances
+    with_scalar = str(sys.argv[9]).upper()  # create with scalar fields or not
+    max_deny_times = int(sys.argv[10])       # how many times of deny before stopping insert
+    api_key = str(sys.argv[11])             # api key for uri connections on cloud instances
     port = 19530
     log_name = f"prepare_{name}"
 
@@ -89,15 +95,21 @@ if __name__ == '__main__':
 
     logging.info("start")
 
-    logging.info(f"host: {host}, name: {name}, dim: {dim}, nb: {nb}, shards: {shards}, index: {index}, metric: {metric}, auto_id: {auto_id}, max_deny_times: {max_deny_times}, api_key: {api_key}")
+    logging.info(f"host:{host}, name:{name}, dim:{dim}, nb:{nb}, shards: {shards}, index: {index}, "
+                 f"metric:{metric}, auto_id:{auto_id}, with_scalar:{with_scalar}, "
+                 f"max_deny_times:{max_deny_times}, api_key: {api_key}")
 
     if api_key is None or api_key == "" or api_key.upper() == "NONE":
         conn = connections.connect('default', host=host, port=port)
     else:
         conn = connections.connect('default', uri=host, token=api_key)
 
+    create_scalar = False
+    if with_scalar == "TRUE" or with_scalar == "YES":
+        create_scalar = True
+
     create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=0, index_type=index,
-                    metric_type=metric, auto_id=auto_id, build_index=True, shards_num=shards)
+                    metric_type=metric, auto_id=auto_id, build_index=True, shards_num=shards, create_scalar=create_scalar)
 
     # load the collection
     c = Collection(name=name)
