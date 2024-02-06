@@ -14,13 +14,14 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 if __name__ == '__main__':
-    host = sys.argv[1]
-    timeout = int(sys.argv[2])          # search timeout, permanently if 0
-    ignore_growing = str(sys.argv[3]).upper()   # ignore searching growing segments if True
-    output_fields = str(sys.argv[4]).strip()       # output fields, default is None
-    expr = str(sys.argv[5]).strip()                # search expression, default is None
-    nq = int(sys.argv[6])               # search nq
-    topk = int(sys.argv[7])             # search topk
+    host = sys.argv[1]                              # milvus host or cloud instance uri
+    timeout = int(sys.argv[2])                      # search timeout, permanently if 0
+    ignore_growing = str(sys.argv[3]).upper()       # ignore searching growing segments if True
+    output_fields = str(sys.argv[4]).strip()        # output fields, default is None
+    expr = str(sys.argv[5]).strip()                 # search expression, default is None
+    nq = int(sys.argv[6])                           # search nq
+    topk = int(sys.argv[7])                         # search topk
+    api_key = str(sys.argv[8] )                     # cloud api key or token
     port = 19530
 
     ignore_growing = True if ignore_growing == "TRUE" else False
@@ -36,8 +37,13 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     logger = logging.getLogger('LOGGER_NAME')
 
-    conn = connections.connect('default', host=host, port=port)
-
+    logging.info(f"host: {host}, timeout: {timeout}, ignore_growing: {ignore_growing}, output_fields: {output_fields},"
+                 f" expr: {expr}, nq: {nq}, topk: {topk}, api_key: {api_key}")
+    
+    if api_key is None or api_key == "" or api_key.upper() == "NONE":
+        conn = connections.connect('default', host=host, port=port)
+    else:
+        conn = connections.connect('default', uri=host, token=api_key)
     # check and get the collection info
     num_collections = len(utility.list_collections())
     if num_collections == 0:
