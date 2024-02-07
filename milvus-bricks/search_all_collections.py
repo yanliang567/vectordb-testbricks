@@ -105,4 +105,6 @@ if __name__ == '__main__':
             had_failure = False
             recover_t = round(time.time() - fail_st, 4)
             logging.info(f"recover time for {num_collections} collections is {recover_t}")
+        if tt2 <= 1:
+            time.sleep(1.1)       # sleep to avoid too frequent requests on cloud instances
 
