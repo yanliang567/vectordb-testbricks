@@ -39,7 +39,7 @@ if __name__ == '__main__':
 
     logging.info(f"host: {host}, timeout: {timeout}, ignore_growing: {ignore_growing}, output_fields: {output_fields},"
                  f" expr: {expr}, nq: {nq}, topk: {topk}, api_key: {api_key}")
-    
+
     if api_key is None or api_key == "" or api_key.upper() == "NONE":
         conn = connections.connect('default', host=host, port=port)
     else:
