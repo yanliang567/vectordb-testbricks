@@ -135,9 +135,9 @@ if __name__ == '__main__':
             if msg in str(e) or msg_cloud in str(e):
                 logging.error(f"insert expected error: {e}")
                 deny_times += 1
-                logging.error(f"wait for 15 minutes and retry, deny times: {deny_times}")
                 if deny_times >= max_deny_times:
                     break
+                logging.error(f"wait for 15 minutes and retry, deny times: {deny_times}")
                 time.sleep(900)
             else:
                 logging.error(f"insert error: {e}")
