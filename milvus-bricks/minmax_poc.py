@@ -12,8 +12,6 @@ from common import get_default_params_by_index_type
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
-auto_id = True
-
 
 def normalize_data(similarity_metric_type, vectors):
     if similarity_metric_type == "IP":
@@ -38,7 +36,7 @@ def build(collection, index_type, metric_type):
         logging.info(f"{collection.name} index {idx.params} already exists")
 
 
-def create_n_insert_parkey(collection_name, dim, nb, index_type, metric_type="IP",
+def create_n_insert_parkey(collection_name, dim, nb, index_type, metric_type="IP", auto_id=True, use_upsert=False,
                            parkey_num=10000, tenants_startid=0, rows_per_tenant=100000, num_partitions=64, shards_num=1):
     pk_field = FieldSchema(name="id", dtype=DataType.INT64, description="auto primary id")
     index_name_field = FieldSchema(name="index_name", dtype=DataType.VARCHAR, max_length=255, description="user id")
@@ -54,6 +52,10 @@ def create_n_insert_parkey(collection_name, dim, nb, index_type, metric_type="IP
                                    num_partitions=num_partitions)
     logging.info(f"create {collection_parkey_name} successfully")
 
+    if auto_id is False:
+        pk_start_from = collection_parkey.num_entities
+        logging.info(f"{collection_parkey_name} auto_id is False, pk_values start from {pk_start_from}")
+
     # insert data tenant by tenant
     insert_times = rows_per_tenant // nb
     for i in range(tenants_startid, tenants_startid+parkey_num):
@@ -63,10 +65,17 @@ def create_n_insert_parkey(collection_name, dim, nb, index_type, metric_type="IP
             indexes = [float(i) for _ in range(nb)]
             document = ["doc_" + str(j) for _ in range(nb)]
             embeddings = [[random.random() for _ in range(dim)] for _ in range(nb)]
-            embeddings = normalize_data(metric_type, embeddings)
+            # embeddings = normalize_data(metric_type, embeddings)
             data = [index_names, indexes, document, embeddings]
+            if auto_id is False:
+                pk_values = [_ for _ in range(pk_start_from, pk_start_from + nb)]
+                pk_start_from += nb
+                data = [pk_values, index_names, indexes, document, embeddings]
             t0 = time.time()
-            collection_parkey.insert(data)
+            if use_upsert is True:
+                collection_parkey.upsert(data)
+            else:
+                collection_parkey.insert(data)
             tt = round(time.time() - t0, 3)
             logging.info(f"{collection_parkey_name} tanant {i} insert {j} costs {tt}")
         if i % 5 == 0:      # flush every 5 tenants
@@ -94,7 +103,9 @@ if __name__ == '__main__':
     tenants_startid = int(sys.argv[9])  # start id for tenants
     rows_per_tenant = int(sys.argv[10])  # avg entities per tenant
     num_partitions = int(sys.argv[11])   # number of partitions
-    api_key = str(sys.argv[12])          # api key to connect to milvus
+    auto_id = str(sys.argv[12]).upper()        # auto id or not
+    use_upsert = str(sys.argv[13]).upper()       # use upsert or not
+    api_key = str(sys.argv[14])          # api key to connect to milvus
 
     port = 19530
     log_name = f"prepare_parkey_{name}"
@@ -113,8 +124,10 @@ if __name__ == '__main__':
     else:
         conn = connections.connect('default', uri=host, token=api_key)
 
-    create_n_insert_parkey(collection_name=name, dim=dim, nb=nb,
-                           index_type=index, metric_type=metric, shards_num=shards,
+    use_upsert = True if use_upsert == "TRUE" else False
+    auto_id = True if auto_id == "TRUE" else False
+    create_n_insert_parkey(collection_name=name, dim=dim, nb=nb, index_type=index,
+                           metric_type=metric, auto_id=auto_id, use_upsert=use_upsert, shards_num=shards,
                            parkey_num=tenants_num, tenants_startid=tenants_startid,
                            rows_per_tenant=rows_per_tenant,
                            num_partitions=num_partitions)
