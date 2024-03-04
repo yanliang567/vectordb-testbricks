@@ -58,37 +58,55 @@ def gen_data_by_collection(collection, nb, r):
     fields = collection.schema.fields
     auto_id = collection.schema.auto_id
     for field in fields:
-        field_values = []
         if field.dtype == DataType.FLOAT_VECTOR:
             dim = field.params.get("dim")
-            field_values = [[random.random() for _ in range(dim)] for _ in range(nb)]
-        if field.dtype in [DataType.INT64, DataType.INT32, DataType.INT16, DataType.INT8]:
+            data.append([[random.random() for _ in range(dim)] for _ in range(nb)])
+            continue
+        if field.dtype == DataType.INT64:
             if field.is_primary:
                 if not auto_id:
-                    field_values = [_ for _ in range(start_uid, start_uid + nb)]
+                    data.append([_ for _ in range(start_uid, start_uid + nb)])
+                    continue
                 else:
                     continue
             else:
-                field_values = [_ for _ in range(start_uid, start_uid + nb)]
+                data.append([_ for _ in range(start_uid, start_uid + nb)])
+                continue
+        if field.dtype == DataType.INT8:
+            data.append([random.randint(-128, 127) for _ in range(nb)])
+            continue
+        if field.dtype == DataType.INT16:
+            data.append([random.randint(-32768, 32767) for _ in range(nb)])
+            continue
+        if field.dtype == DataType.INT32:
+            data.append([random.randint(-2147483648, 2147483647) for _ in range(nb)])
+            continue
         if field.dtype == DataType.VARCHAR:
             if field.is_primary:
                 if not auto_id:
-                    field_values = [str(j) + "_" + gen_str_by_length(10) for j in range(start_uid, start_uid + nb)]
+                    data.append([str(j) + "_" + gen_str_by_length(10) for j in range(start_uid, start_uid + nb)])
+                    continue
                 else:
                     logging.error(f"varchar pk shall not be auto_id.")
                     return None
             else:
                 max_length = field.params.get("max_length")
-                field_values = ["bb_" + gen_str_by_length(max_length//10) for _ in range(nb)]
-                # field_values = [json.dumps(s) for _ in range(start_uid, start_uid + nb)]
+                data.append(["bb_" + gen_str_by_length(max_length//10) for _ in range(nb)])
+                # data.append([json.dumps(s) for _ in range(start_uid, start_uid + nb)])
+                continue
         if field.dtype == DataType.JSON:
-            # field_values = [{"number": i, "float": i * 1.0} for i in range(start_uid, start_uid + nb)]
-            field_values = [json.loads(s) for _ in range(start_uid, start_uid + nb)]
-        if field.dtype == DataType.FLOAT:
-            field_values = [random.random() for _ in range(nb)]
+            # data.append([{"number": i, "float": i * 1.0} for i in range(start_uid, start_uid + nb)])
+            data.append([json.loads(s) for _ in range(start_uid, start_uid + nb)])
+            continue
+        if field.dtype in [DataType.FLOAT, DataType.DOUBLE]:
+            data.append([random.random() for _ in range(nb)])
+            continue
         if field.dtype == DataType.BOOL:
-            field_values = [False for _ in range(nb)]
-        data.append(field_values)
+            data.append([False for _ in range(nb)])
+            continue
+        else:
+            logging.error(f"found undefined datatype: {field.dtype} in field {field.name} in collection {collection.name}")
+            exit(0)
     return data
 
 
@@ -102,30 +120,44 @@ def gen_upsert_data_by_intpk_collection(collection, nb, maxid):
     fields = collection.schema.fields
     auto_id = collection.schema.auto_id
     for field in fields:
-        field_values = []
         if field.dtype == DataType.FLOAT_VECTOR:
             dim = field.params.get("dim")
-            field_values = [[random.random() for _ in range(dim)] for _ in range(nb)]
-        if field.dtype in [DataType.INT64, DataType.INT32, DataType.INT16, DataType.INT8]:
+            data.append([[random.random() for _ in range(dim)] for _ in range(nb)])
+            continue
+        if field.dtype in [DataType.INT64]:
             if field.is_primary:
                 if not auto_id:
                     pop = list(range(0, maxid))
-                    field_values = random.sample(pop, nb)
+                    data.append(random.sample(pop, nb))
                     logging.info(f"ids to be upsert: {field_values}")
+                    continue
                 else:
                     continue
             else:
-                field_values = [_ for _ in range(nb)]
+                data.append([_ for _ in range(nb)])
+                continue
+        if field.dtype == DataType.INT8:
+            data.append([random.randint(-128, 127) for _ in range(nb)])
+            continue
+        if field.dtype == DataType.INT16:
+            data.append([random.randint(-32768, 32767) for _ in range(nb)])
+            continue
+        if field.dtype == DataType.INT32:
+            data.append([random.randint(-2147483648, 2147483647) for _ in range(nb)])
+            continue
         if field.dtype == DataType.VARCHAR:
             max_length = field.params.get("max_length")
-            field_values = [gen_str_by_length(max_length // 10) for _ in range(nb)]
+            data.append([gen_str_by_length(max_length // 10) for _ in range(nb)])
+            continue
         if field.dtype == DataType.JSON:
-            field_values = [json.loads(s) for _ in range(nb)]
-        if field.dtype == DataType.FLOAT:
-            field_values = [random.random() for _ in range(nb)]
+            data.append([json.loads(s) for _ in range(nb)])
+            continue
+        if field.dtype in [DataType.FLOAT, DataType.DOUBLE]:
+            data.append([random.random() for _ in range(nb)])
+            continue
         if field.dtype == DataType.BOOL:
-            field_values = [True for _ in range(nb)]        # update to true in upsert
-        data.append(field_values)
+            data.append([True for _ in range(nb)])       # update to true in upsert
+            continue
     return data
 
 

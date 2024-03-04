@@ -44,12 +44,12 @@ def do_insert(collection, threads_num, ins_times_per_thread):
 
 
 if __name__ == '__main__':
-    host = sys.argv[1]  # host address
-    collection_name = sys.argv[2]  # collection name
-    dim = int(sys.argv[3])  # vector dimension
-    nb = int(sys.argv[4])  # number of vectors per insert request
-    num_threads = int(sys.argv[5])  # insert thread num
-    ins_per_thread = int(sys.argv[6])  # insert times per thread
+    host = sys.argv[1]                          # host address
+    collection_name = sys.argv[2]               # collection name
+    dim = int(sys.argv[3])                      # vector dimension
+    nb = int(sys.argv[4])                       # number of vectors per insert request
+    num_threads = int(sys.argv[5])              # insert thread num
+    ins_per_thread = int(sys.argv[6])           # insert times per thread
     port = 19530
 
     file_handler = logging.FileHandler(filename=f"/tmp/insert_perf_{collection_name}.log")
@@ -59,6 +59,8 @@ if __name__ == '__main__':
     logger = logging.getLogger('LOGGER_NAME')
 
     conn = connections.connect('default', host=host, port=port)
+    logging.info(f"host={host}, collection_name={collection_name}, dim={dim}, "
+                 f"nb={nb}, num_threads={num_threads}, ins_times_per_thread={ins_per_thread}")
     logging.info("Insert perf start... ...")
 
     # check and get the collection info
