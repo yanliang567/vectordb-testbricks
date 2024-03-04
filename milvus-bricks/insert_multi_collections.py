@@ -41,19 +41,19 @@ if __name__ == '__main__':
 
     pool = ThreadPoolExecutor(max_workers=pool_size)
 
-    def do_insert(c_names):
+    def do_insert(c_names, i):
         collection_name = collection_names[random.randint(0, len(c_names) - 1)]
         c = Collection(collection_name)
         data = gen_data_by_collection(c, nb, i)
         t1 = time.time()
         c.insert(data)
         t2 = round(time.time() - t1, 3)
-        logging.info(f"insert into collection {c.name} costs {t2}")
+        logging.info(f"insert times: {i}, into collection {c.name} costs {t2}")
 
     futures = []
     t1 = time.time()
     for i in range(ins_times):
-        future = pool.submit(do_insert, collection_names)
+        future = pool.submit(do_insert, collection_names, i)
         futures.append(future)
     for fu in futures:
         fu.result()
