@@ -31,7 +31,7 @@ if __name__ == '__main__':
 
     conn = connections.connect('default', host=host, port=port)
     flush = True if flush_after_insert == "TRUE" else False
-    logging.info(f"host={host}, nb={nb}, pool_size={pool_size}, ins_times={ins_times}, flush={flush_after_insert}")
+    logging.info(f"host={host}, nb={nb}, pool_size={pool_size}, ins_times={ins_times}, flush={flush}")
 
     # check and get the collection info
     collection_names = utility.list_collections()
@@ -43,7 +43,7 @@ if __name__ == '__main__':
 
     pool = ThreadPoolExecutor(max_workers=pool_size)
 
-    def do_insert(c_names, i):
+    def do_insert(c_names, i, flush):
         collection_name = collection_names[random.randint(0, len(c_names) - 1)]
         c = Collection(collection_name)
         data = gen_data_by_collection(c, nb, i)
@@ -60,7 +60,7 @@ if __name__ == '__main__':
     futures = []
     t1 = time.time()
     for i in range(ins_times):
-        future = pool.submit(do_insert, collection_names, i)
+        future = pool.submit(do_insert, collection_names, i, flush)
         futures.append(future)
     for fu in futures:
         fu.result()
