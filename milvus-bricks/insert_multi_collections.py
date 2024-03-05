@@ -16,10 +16,11 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
 if __name__ == '__main__':
-    host = sys.argv[1]                          # host address
-    nb = int(sys.argv[2])                       # number of vectors per insert request
-    pool_size = int(sys.argv[3])                # insert thread pool size
-    ins_times = int(sys.argv[4])                # total insert times for all collections
+    host = sys.argv[1]                                  # host address
+    nb = int(sys.argv[2])                               # number of vectors per insert request
+    pool_size = int(sys.argv[3])                        # insert thread pool size
+    ins_times = int(sys.argv[4])                        # total insert times for all collections
+    flush_after_insert = str(sys.argv[5]).upper()       # if flush after every insert request
     port = 19530
 
     file_handler = logging.FileHandler(filename=f"/tmp/insert_multi_collections_concurrently.log")
@@ -29,7 +30,8 @@ if __name__ == '__main__':
     logger = logging.getLogger('LOGGER_NAME')
 
     conn = connections.connect('default', host=host, port=port)
-    logging.info(f"host={host}, nb={nb}, pool_size={pool_size}, ins_times={ins_times}")
+    flush = True if flush_after_insert == "TRUE" else False
+    logging.info(f"host={host}, nb={nb}, pool_size={pool_size}, ins_times={ins_times}, flush={flush_after_insert}")
 
     # check and get the collection info
     collection_names = utility.list_collections()
@@ -49,6 +51,11 @@ if __name__ == '__main__':
         c.insert(data)
         t2 = round(time.time() - t1, 3)
         logging.info(f"insert times: {i}, into collection {c.name} costs {t2}")
+        if flush is True
+            t1 = time.time()
+            c.flush()
+            t2 = round(time.time() - t1, 3)
+            logging.info(f"insert times: {i},  collection {c.name} flush costs {t2}")
 
     futures = []
     t1 = time.time()
