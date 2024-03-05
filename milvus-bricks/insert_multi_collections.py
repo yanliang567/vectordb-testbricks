@@ -43,7 +43,7 @@ if __name__ == '__main__':
 
     pool = ThreadPoolExecutor(max_workers=pool_size)
 
-    def do_insert(c_names, i, flush):
+    def do_insert(c_names, i, do_flush):
         collection_name = collection_names[random.randint(0, len(c_names) - 1)]
         c = Collection(collection_name)
         data = gen_data_by_collection(c, nb, i)
@@ -51,7 +51,7 @@ if __name__ == '__main__':
         c.insert(data)
         t2 = round(time.time() - t1, 3)
         logging.info(f"insert times: {i}, into collection {c.name} costs {t2}")
-        if flush is True
+        if do_flush is True:
             t1 = time.time()
             c.flush()
             t2 = round(time.time() - t1, 3)
