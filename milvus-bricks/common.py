@@ -128,8 +128,9 @@ def gen_upsert_data_by_intpk_collection(collection, nb, maxid):
             if field.is_primary:
                 if not auto_id:
                     pop = list(range(0, maxid))
-                    data.append(random.sample(pop, nb))
-                    logging.info(f"ids to be upsert: {field_values}")
+                    ids = random.sample(pop, nb)
+                    data.append(ids)
+                    logging.info(f"ids to be upsert: {ids}")
                     continue
                 else:
                     continue
