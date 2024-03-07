@@ -19,10 +19,10 @@ if __name__ == '__main__':
     if there is no entities in the collection, this script will do upsert as insert(unqiue PKs in one request)
     """
     host = sys.argv[1]
-    collection_name = sys.argv[2]            # collection mame
-    upsert_rounds = int(sys.argv[3])            # upsert time
-    entities_per_round = int(sys.argv[4])        # entities to be upsert per round
-    interval = int(sys.argv[5])                 # interval between upsert rounds
+    collection_name = sys.argv[2]                   # collection mame
+    upsert_rounds = int(sys.argv[3])                # upsert time
+    entities_per_round = int(sys.argv[4])           # entities to be upsert per round
+    interval = int(sys.argv[5])                     # interval between upsert rounds
     port = 19530
 
     file_handler = logging.FileHandler(filename=f"/tmp/upsert2_{collection_name}.log")
@@ -35,8 +35,8 @@ if __name__ == '__main__':
 
     # check and get the collection info
     if not utility.has_collection(collection_name=collection_name):
-        logging.error(f"collection: {collection_name} does not exit, create 10m-128d as default")
-        create_n_insert(collection_name=collection_name, dim=768, nb=1000, insert_times=0, auto_id=False,
+        logging.error(f"collection: {collection_name} does not exit, create empty collection as default")
+        create_n_insert(collection_name=collection_name, dim=128, nb=1000, insert_times=0, auto_id=False,
                         index_type="AUTOINDEX", metric_type="L2")
 
     c = Collection(name=collection_name)
@@ -78,7 +78,8 @@ if __name__ == '__main__':
                 pass
             else:
                 dup_count += 1
-                logging.info(f"id {i} found {count} entities")
+                logging.error(f"id {i} found {count} entities")
+                break
 
         logging.info(f"check difference completed, dup_count: {dup_count}")
 
