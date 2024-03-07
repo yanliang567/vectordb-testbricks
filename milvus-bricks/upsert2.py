@@ -23,6 +23,7 @@ if __name__ == '__main__':
     upsert_rounds = int(sys.argv[3])                # upsert time
     entities_per_round = int(sys.argv[4])           # entities to be upsert per round
     interval = int(sys.argv[5])                     # interval between upsert rounds
+    check_diff = str(sys.argv[5]).upper()           # if check dup entity
     port = 19530
 
     file_handler = logging.FileHandler(filename=f"/tmp/upsert2_{collection_name}.log")
@@ -32,6 +33,7 @@ if __name__ == '__main__':
     logger = logging.getLogger('LOGGER_NAME')
 
     conn = connections.connect('default', host=host, port=port)
+    check_diff = True if check_diff == "TRUE" else False
 
     # check and get the collection info
     if not utility.has_collection(collection_name=collection_name):
@@ -67,7 +69,6 @@ if __name__ == '__main__':
 
     logging.info(f"{collection_name} upsert2 completed, max_id: {max_id}, new_max_id: {new_max_id}")
 
-    check_diff = False
     if max_id != new_max_id and check_diff:
         dup_count = 0
         logging.info(f"start checking the difference between max_id and new_max_id...")

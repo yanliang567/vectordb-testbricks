@@ -130,7 +130,7 @@ def gen_upsert_data_by_intpk_collection(collection, nb, maxid):
                     pop = list(range(0, maxid))
                     ids = random.sample(pop, nb)
                     data.append(ids)
-                    logging.info(f"ids to be upsert: {ids}")
+                    # logging.info(f"ids to be upsert: {ids}")
                     continue
                 else:
                     continue
