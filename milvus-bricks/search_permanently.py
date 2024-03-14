@@ -15,7 +15,7 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
 def search(collection, search_params, nq, topk, threads_num,
-           output_fields, expr, timeout):
+           output_fields, expr, group_by_field, timeout):
     threads_num = int(threads_num)
     interval_count = 1000
     dim = get_dim(collection)
@@ -34,7 +34,7 @@ def search(collection, search_params, nq, topk, threads_num,
             try:
                 col.search(data=search_vectors, anns_field=vector_field_name,
                            param=search_params, limit=topk,
-                           expr=exact_expr,
+                           expr=exact_expr, group_by_field=group_by_field,
                            output_fields=output_fields)
             except Exception as e:
                 logging.error(e)
@@ -71,6 +71,7 @@ def search(collection, search_params, nq, topk, threads_num,
             try:
                 collection.search(data=search_vectors, anns_field=vector_field_name,
                                   output_fields=output_fields, expr=exact_expr,
+                                  group_by_field=group_by_field,
                                   param=search_params, limit=topk)
 
             except Exception as e:
@@ -89,15 +90,16 @@ def search(collection, search_params, nq, topk, threads_num,
 
 if __name__ == '__main__':
     host = sys.argv[1]
-    name = sys.argv[2]                  # collection mame/alias
-    th = int(sys.argv[3])               # search thread num
-    timeout = int(sys.argv[4])          # search timeout, permanently if 0
-    ignore_growing = str(sys.argv[5]).upper()   # ignore searching growing segments if True
-    output_fields = str(sys.argv[6]).strip()       # output fields, default is None
-    expr = str(sys.argv[7]).strip()                # search expression, default is None
-    nq = int(sys.argv[8])               # search nq
-    topk = int(sys.argv[9])             # search topk
-    api_key = str(sys.argv[10])         # api key for cloud instances
+    name = sys.argv[2]                              # collection mame/alias
+    th = int(sys.argv[3])                           # search thread num
+    timeout = int(sys.argv[4])                      # search timeout, permanently if 0
+    ignore_growing = str(sys.argv[5]).upper()       # ignore searching growing segments if True
+    output_fields = str(sys.argv[6]).strip()        # output fields, default is None
+    expr = str(sys.argv[7]).strip()                 # search expression, default is None
+    nq = int(sys.argv[8])                           # search nq
+    topk = int(sys.argv[9])                         # search topk
+    group_by_field = str(sys.argv[10]).strip()      # group by field, default is None
+    api_key = str(sys.argv[11])                     # api key for cloud instances
     port = 19530
 
     ignore_growing = True if ignore_growing == "TRUE" else False
@@ -107,13 +109,17 @@ if __name__ == '__main__':
         output_fields = output_fields.split(",")
     if expr in ["None", "none", "NONE"] or expr == "":
         expr = None
+    if group_by_field in ["None", "none", "NONE"] or group_by_field == "":
+        group_by_field = None
     file_handler = logging.FileHandler(filename=f"/tmp/search_{name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     logger = logging.getLogger('LOGGER_NAME')
 
-    logging.info(f"searching collection: {name}, host: {host}, thread: {th}, timeout: {timeout}, ignore_growing: {ignore_growing}, output_fields: {output_fields}, expr: {expr}, nq: {nq}, topk: {topk}, api_key: {api_key}")
+    logging.info(f"searching collection={name}, host={host}, thread={th}, timeout={timeout}, "
+                 f"ignore_growing={ignore_growing}, output_fields={output_fields}, expr={expr}, nq={nq}, "
+                 f"topk={topk}, group_by_filed={group_by_field}, api_key={api_key}")
 
     if api_key is None or api_key == "" or api_key.upper() == "NONE":
         conn = connections.connect('default', host=host, port=port)
@@ -153,5 +159,5 @@ if __name__ == '__main__':
     logging.info(f"assert load {name}: {t2}")
 
     logging.info(f"search start: nq{nq}_top{topk}_threads{th}")
-    search(collection, search_params, nq, topk, th, output_fields, expr, timeout)
+    search(collection, search_params, nq, topk, th, output_fields, expr, group_by_field, timeout)
     logging.info(f"search completed")
