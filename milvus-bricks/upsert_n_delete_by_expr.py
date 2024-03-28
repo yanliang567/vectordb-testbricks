@@ -17,7 +17,9 @@ if __name__ == '__main__':
     """
     if there already exists entities in the collection, this script will do upsert with existing entities' PK
     if there is no entities in the collection, this script will do upsert as insert(unqiue PKs in one request)
-    1. upsert M entities from versionN to new version
+    1. upsert M entities from versionN to versionN+1
+    2. delete all the entities with versionN
+    3. check the number of versionN+1 is M
     """
     host = sys.argv[1]
     collection_name = sys.argv[2]                   # collection mame
@@ -62,6 +64,7 @@ if __name__ == '__main__':
     logging.info(f"load {collection_name}: {t2}")
     max_id = c.query(expr="", output_fields=["count(*)"],
                      consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
+    old_version = c.query(expr="", limit=1, output_fields=["version"])[0].get("version")
     if max_id == 0:
         max_id = upsert_rounds * entities_per_round
         logging.info(f"{collection_name} is empty, set max_id=upsert_rounds * entities_per_round")
@@ -72,21 +75,15 @@ if __name__ == '__main__':
     c.flush()
     new_max_id = c.query(expr="", output_fields=["count(*)"],
                          consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
-
     logging.info(f"{collection_name} upsert2 completed, max_id: {max_id}, new_max_id: {new_max_id}")
 
-    if max_id != new_max_id and check_diff:
-        dup_count = 0
-        logging.info(f"start checking the difference between max_id and new_max_id...")
-        for i in range(max_id):
-            res = c.query(expr=f"id=={i}", output_fields=["count(*)"], consistency_level=CONSISTENCY_STRONG)
-            count = res[0]["count(*)"]
-            if count == 1:
-                pass
-            else:
-                dup_count += 1
-                logging.error(f"id {i} found {count} entities")
-                break
-
-        logging.info(f"check difference completed, dup_count: {dup_count}")
+    # delete all the old version data
+    c.delete(expr=f"version=={old_version}")
+    count_after_delete = c.query(expr="", output_fields=["count(*)"],
+                                 consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
+    logging.info(f"{collection_name} delete by expr completed, count(*) after delete: {count_after_delete}")
+    c.flush()
+    count_after_flush = c.query(expr="", output_fields=["count(*)"],
+                                consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
+    logging.info(f"{collection_name} flush, count(*) after flush: {count_after_flush}")
 

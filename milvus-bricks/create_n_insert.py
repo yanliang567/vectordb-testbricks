@@ -20,7 +20,7 @@ groupid_field = FieldSchema(name="groupid", dtype=DataType.INT64, description="g
 device_field = FieldSchema(name="device", dtype=DataType.VARCHAR, max_length=500, description="device")
 fname_field = FieldSchema(name="fname", dtype=DataType.VARCHAR, max_length=256, description="fname")
 ext_field = FieldSchema(name="ext", dtype=DataType.VARCHAR, max_length=20, description="ext")
-mtime_field = FieldSchema(name="mtime", dtype=DataType.INT64, description="mtime")
+ver_field = FieldSchema(name="version", dtype=DataType.INT32, description="data version")
 content_field = FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535, description="content")
 flag_field = FieldSchema(name="flag", dtype=DataType.BOOL, description="flag")
 json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=65535, description="json content")
@@ -31,7 +31,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
     if not utility.has_collection(collection_name=collection_name):
         embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
         id_field = strpk_field if use_str_pk else intpk_field
-        schema = CollectionSchema(fields=[id_field, age_field, flag_field, ext_field, fname_field,
+        schema = CollectionSchema(fields=[id_field, age_field, flag_field, ver_field, fname_field,
                                           embedding_field, json_field],
                                   auto_id=auto_id, primary_field=id_field.name,
                                   description=f"{collection_name}")    # do not change the description

@@ -112,7 +112,7 @@ def gen_data_by_collection(collection, nb, r):
     return data
 
 
-def gen_upsert_data_by_pk_collection(collection, nb, maxid):
+def gen_upsert_data_by_pk_collection(collection, nb, start=0, end=0, new_version=0):
     data = []
     s = '{"glossary": {"title": "example glossary", "GlossDiv": {"title": "S", "GlossList": ' \
         '{"GlossEntry": {"ID": "SGML","SortAs": "SGML","GlossTerm": ' \
@@ -129,7 +129,7 @@ def gen_upsert_data_by_pk_collection(collection, nb, maxid):
         if field.dtype in [DataType.INT64]:
             if field.is_primary:
                 if not auto_id:
-                    pop = list(range(0, maxid))
+                    pop = list(range(start, end))
                     ids = random.sample(pop, nb)
                     data.append(ids)
                     # logging.info(f"ids to be upsert: {ids}")
@@ -146,8 +146,11 @@ def gen_upsert_data_by_pk_collection(collection, nb, maxid):
             data.append([random.randint(-32768, 32767) for _ in range(nb)])
             continue
         if field.dtype == DataType.INT32:
-            data.append([random.randint(-2147483648, 2147483647) for _ in range(nb)])
-            continue
+            if field.name == "version":
+                data.append([new_version for _ in range(nb)])
+            else:
+                data.append([random.randint(-2147483648, 2147483647) for _ in range(nb)])
+                continue
         if field.dtype == DataType.VARCHAR:
             if not field.is_primary:
                 max_length = field.params.get("max_length")
@@ -155,7 +158,7 @@ def gen_upsert_data_by_pk_collection(collection, nb, maxid):
                 continue
             else:
                 if not auto_id:
-                    pop = list(range(0, maxid))
+                    pop = list(range(start, end))
                     ids = random.sample(pop, nb)
                     data.append([pk_prefix + str(j) for j in ids])
                 else:
@@ -181,14 +184,22 @@ def insert_entities(collection, nb, rounds):
         logging.info(f"{collection.name} insert {r} costs {t2}")
 
 
-def upsert_entities(collection, nb, rounds, maxid, interval=0):
+def upsert_entities(collection, nb, rounds, maxid, new_version=0, unique_in_requests=False, interval=0):
+    start = 0
+    sample_n = maxid // rounds
     for r in range(rounds):
-        data = gen_upsert_data_by_pk_collection(collection=collection, nb=nb, maxid=maxid)
+        if unique_in_requests:
+            end = start+sample_n
+        else:
+            start = 0
+            end = maxid
+        data = gen_upsert_data_by_pk_collection(collection=collection, nb=nb, start=start, end=end, new_version=new_version)
         t1 = time.time()
         collection.upsert(data)
         t2 = round(time.time() - t1, 3)
         logging.info(f"{collection.name} upsert2 {r} costs {t2}")
         time.sleep(interval)
+        start += sample_n
 
 
 def get_search_params(collection, topk):
