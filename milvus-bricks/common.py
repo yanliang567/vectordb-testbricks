@@ -8,6 +8,8 @@ import numpy as np
 from pymilvus import utility, connections, DataType, \
     Collection, FieldSchema, CollectionSchema
 
+pk_prefix = "iamprimarykey_"
+
 
 def get_dim(collection):
     fields = collection.schema.fields
@@ -84,7 +86,7 @@ def gen_data_by_collection(collection, nb, r):
         if field.dtype == DataType.VARCHAR:
             if field.is_primary:
                 if not auto_id:
-                    data.append([str(j) + "_" + gen_str_by_length(10) for j in range(start_uid, start_uid + nb)])
+                    data.append([pk_prefix + str(j) for j in range(start_uid, start_uid + nb)])
                     continue
                 else:
                     logging.error(f"varchar pk shall not be auto_id.")
@@ -110,7 +112,7 @@ def gen_data_by_collection(collection, nb, r):
     return data
 
 
-def gen_upsert_data_by_intpk_collection(collection, nb, maxid):
+def gen_upsert_data_by_pk_collection(collection, nb, maxid):
     data = []
     s = '{"glossary": {"title": "example glossary", "GlossDiv": {"title": "S", "GlossList": ' \
         '{"GlossEntry": {"ID": "SGML","SortAs": "SGML","GlossTerm": ' \
@@ -147,9 +149,17 @@ def gen_upsert_data_by_intpk_collection(collection, nb, maxid):
             data.append([random.randint(-2147483648, 2147483647) for _ in range(nb)])
             continue
         if field.dtype == DataType.VARCHAR:
-            max_length = field.params.get("max_length")
-            data.append([gen_str_by_length(max_length // 10) for _ in range(nb)])
-            continue
+            if not field.is_primary:
+                max_length = field.params.get("max_length")
+                data.append([gen_str_by_length(max_length // 10) for _ in range(nb)])
+                continue
+            else:
+                if not auto_id:
+                    pop = list(range(0, maxid))
+                    ids = random.sample(pop, nb)
+                    data.append([pk_prefix + str(j) for j in ids])
+                else:
+                    continue
         if field.dtype == DataType.JSON:
             data.append([json.loads(s) for _ in range(nb)])
             continue
@@ -173,7 +183,7 @@ def insert_entities(collection, nb, rounds):
 
 def upsert_entities(collection, nb, rounds, maxid, interval=0):
     for r in range(rounds):
-        data = gen_upsert_data_by_intpk_collection(collection=collection, nb=nb, maxid=maxid)
+        data = gen_upsert_data_by_pk_collection(collection=collection, nb=nb, maxid=maxid)
         t1 = time.time()
         collection.upsert(data)
         t2 = round(time.time() - t1, 3)

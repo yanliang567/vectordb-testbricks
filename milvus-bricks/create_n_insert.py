@@ -12,8 +12,8 @@ from common import insert_entities, get_vector_field_name, get_default_params_by
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
-id_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
-# id_field = FieldSchema(name="id", dtype=DataType.VARCHAR, description="primary id", max_length=100)
+intpk_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
+strpk_field = FieldSchema(name="id", dtype=DataType.VARCHAR, description="primary id", max_length=100)
 
 age_field = FieldSchema(name="age", dtype=DataType.INT64, description="age")
 groupid_field = FieldSchema(name="groupid", dtype=DataType.INT64, description="groupid")
@@ -27,9 +27,10 @@ json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=6553
 
 
 def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2",
-                    auto_id=True, ttl=0, build_index=True, shards_num=1):
+                    auto_id=True, use_str_pk=False, ttl=0, build_index=True, shards_num=1):
     if not utility.has_collection(collection_name=collection_name):
         embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
+        id_field = strpk_field if use_str_pk else intpk_field
         schema = CollectionSchema(fields=[id_field, age_field, flag_field, ext_field, fname_field,
                                           embedding_field, json_field],
                                   auto_id=auto_id, primary_field=id_field.name,
@@ -66,24 +67,28 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
 
 
 if __name__ == '__main__':
-    host = sys.argv[1]  # host address
-    name = str(sys.argv[2])  # collection name
-    dim = int(sys.argv[3])  # collection dimension
-    nb = int(sys.argv[4])  # collection insert batch size
-    shards = int(sys.argv[5])    # collection shared number
-    insert_times = int(sys.argv[6])  # collection insert times
-    index = str(sys.argv[7]).upper()    # index type
-    metric = str(sys.argv[8]).upper()   # metric type, L2 or IP
-    auto_id = str(sys.argv[9]).upper()     # auto id
-    ttl = int(sys.argv[10])     # ttl for the collection property
-    need_build_index = str(sys.argv[11]).upper()  # build index or not after insert
-    need_load = str(sys.argv[12]).upper()  # load the collection or not at the end
+    host = sys.argv[1]                              # host address
+    name = str(sys.argv[2])                         # collection name
+    dim = int(sys.argv[3])                          # collection dimension
+    nb = int(sys.argv[4])                           # collection insert batch size
+    shards = int(sys.argv[5])                       # collection shared number
+    insert_times = int(sys.argv[6])                 # collection insert times
+    index = str(sys.argv[7]).upper()                # index type
+    metric = str(sys.argv[8]).upper()               # metric type, L2 or IP
+    auto_id = str(sys.argv[9]).upper()              # auto id
+    use_str_pk = str(sys.argv[10]).upper()          # use varchar as pk type or not
+    ttl = int(sys.argv[11])                         # ttl for the collection property
+    need_build_index = str(sys.argv[12]).upper()    # build index or not after insert
+    need_load = str(sys.argv[13]).upper()           # load the collection or not at the end
+    api_key = str(sys.argv[14])                     # api key to connect to milvus
+
     port = 19530
     log_name = f"prepare_{name}"
 
     auto_id = True if auto_id == "TRUE" else False
     need_load = True if need_load == "TRUE" else False
     need_build_index = True if need_build_index == "TRUE" else False
+    use_str_pk = True if use_str_pk == "TRUE" else False
 
     file_handler = logging.FileHandler(filename=f"/tmp/{log_name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -92,11 +97,14 @@ if __name__ == '__main__':
     logger = logging.getLogger('LOGGER_NAME')
 
     logging.info("start")
-    connections.add_connection(default={"host": host, "port": 19530})
-    connections.connect('default')
+    if api_key is None or api_key == "" or api_key.upper() == "NONE":
+        conn = connections.connect('default', host=host, port=port)
+    else:
+        conn = connections.connect('default', uri=host, token=api_key)
 
     create_n_insert(collection_name=name, dim=dim, nb=nb, insert_times=insert_times, index_type=index,
-                    metric_type=metric, auto_id=auto_id, ttl=ttl, build_index=need_build_index, shards_num=shards)
+                    metric_type=metric, auto_id=auto_id, use_str_pk=use_str_pk, ttl=ttl,
+                    build_index=need_build_index, shards_num=shards)
 
     # load the collection
     if need_load:
