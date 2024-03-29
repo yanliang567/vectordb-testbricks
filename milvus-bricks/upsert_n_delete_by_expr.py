@@ -38,6 +38,11 @@ if __name__ == '__main__':
     logger = logging.getLogger('LOGGER_NAME')
 
     conn = connections.connect('default', host=host, port=port)
+
+    logging.info(f"host={host}, collection_name={collection_name}, upsert_rounds={upsert_rounds}, "
+                 f"entities_per_round={entities_per_round}, new_version={new_version}, "
+                 f"unique_in_requests={unique_in_requests}, interval={interval}")
+
     if not utility.has_collection(collection_name):
         logging.error(f"collection: {collection_name} not found")
         exit(-1)
@@ -52,12 +57,16 @@ if __name__ == '__main__':
     t2 = round(time.time() - t1, 3)
     logging.info(f"load {collection_name}: {t2}")
     old_version = c.query(expr="", limit=1, output_fields=["version"])[0].get("version")
+    logging.info(f"{collection_name} version old value: {old_version}")
 
     # doing upsert: update the version to new value
+    logging.info(f"start doing upsert to update the old version to new version")
     os.system(f"python3.8 upsert2.py {host} {collection_name} {upsert_rounds} {entities_per_round} "
               f"{new_version} {unique_in_requests} {interval} false")
+    logging.info(f"upsert with new versions done")
 
     # delete all the old version data
+    logging.info(f"start to delete all the entities with old version")
     c.delete(expr=f"version=={old_version}")
     count_after_delete = c.query(expr="", output_fields=["count(*)"],
                                  consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
