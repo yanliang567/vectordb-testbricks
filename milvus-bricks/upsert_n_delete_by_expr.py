@@ -29,7 +29,6 @@ if __name__ == '__main__':
     new_version = int(sys.argv[5])                  # the new value for version field in upsert requests
     unique_in_requests = str(sys.argv[6]).upper()   # if gen unique pk in all upsert requests
     interval = int(sys.argv[7])                     # interval between upsert rounds
-    check_diff = str(sys.argv[8]).upper()           # if check dup entity
     port = 19530
 
     file_handler = logging.FileHandler(filename=f"/tmp/upsert_n_deletebyexpr_{collection_name}.log")
@@ -55,7 +54,7 @@ if __name__ == '__main__':
 
     # doing upsert: update the version to new value
     os.system(f"upsert2.py {host} {collection_name} {upsert_rounds} {entities_per_round} "
-              f"{new_version} {unique_in_requests} {interval} {check_diff}")
+              f"{new_version} {unique_in_requests} {interval} false")
 
     # delete all the old version data
     c.delete(expr=f"version=={old_version}")
