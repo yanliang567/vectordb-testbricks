@@ -81,8 +81,11 @@ def gen_data_by_collection(collection, nb, r):
             data.append([random.randint(-32768, 32767) for _ in range(nb)])
             continue
         if field.dtype == DataType.INT32:
-            data.append([random.randint(-2147483648, 2147483647) for _ in range(nb)])
-            continue
+            if field.name == "version":
+                data.append([0 for _ in range(nb)])
+            else:
+                data.append([random.randint(-2147483648, 2147483647) for _ in range(nb)])
+                continue
         if field.dtype == DataType.VARCHAR:
             if field.is_primary:
                 if not auto_id:
