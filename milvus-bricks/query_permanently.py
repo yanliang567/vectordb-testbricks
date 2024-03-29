@@ -112,7 +112,7 @@ if __name__ == '__main__':
 
     if not collection.has_index():
         logging.error(f"collection: {name} has no index")
-        exit(0)
+        exit(-1)
 
     index_params = get_index_params(collection)
     logging.info(f"index param: {index_params}")

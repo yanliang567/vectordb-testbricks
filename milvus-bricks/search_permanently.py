@@ -135,7 +135,7 @@ if __name__ == '__main__':
     collection = Collection(name=name)
     if not collection.has_index():
         logging.error(f"collection: {name} has no index")
-        exit(0)
+        exit(-1)
 
     index_params = get_index_params(collection)
     search_params = get_search_params(collection, topk)

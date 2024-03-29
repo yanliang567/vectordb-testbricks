@@ -40,12 +40,12 @@ if __name__ == '__main__':
     conn = connections.connect('default', host=host, port=port)
     if not utility.has_collection(collection_name):
         logging.error(f"collection: {collection_name} not found")
-        exit(0)
+        exit(-1)
 
     c = Collection(name=collection_name)
     if not c.has_index():
         logging.error(f"collection: {collection_name} has no index")
-        exit(0)
+        exit(-1)
 
     t1 = time.time()
     c.load()
@@ -54,7 +54,7 @@ if __name__ == '__main__':
     old_version = c.query(expr="", limit=1, output_fields=["version"])[0].get("version")
 
     # doing upsert: update the version to new value
-    os.system(f"upsert2.py {host} {collection_name} {upsert_rounds} {entities_per_round} "
+    os.system(f"python3.8 upsert2.py {host} {collection_name} {upsert_rounds} {entities_per_round} "
               f"{new_version} {unique_in_requests} {interval} false")
 
     # delete all the old version data

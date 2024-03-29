@@ -48,7 +48,7 @@ if __name__ == '__main__':
     num_collections = len(utility.list_collections())
     if num_collections == 0:
         logging.error(f"no collections exist")
-        exit(0)
+        exit(-1)
     logging.info(f"there are {num_collections} collections")
     logging.info(f"start to search collections one by one...")
     logging.info(f"nq: {nq}, topk: {topk}, output_fields: {output_fields}, expr: {expr}")

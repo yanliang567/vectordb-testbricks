@@ -94,7 +94,7 @@ if __name__ == '__main__':
     # check and get the collection info
     if not utility.has_collection(collection_name=name):
         logging.error(f"collection: {name} does not exit")
-        exit(0)
+        exit(-1)
 
     collection = Collection(name=name)
     fields = collection.schema.fields
@@ -106,7 +106,7 @@ if __name__ == '__main__':
 
     if not collection.has_index():
         logging.error(f"collection: {name} has no index")
-        exit(0)
+        exit(-1)
     index_params = get_index_params(collection)
     metric_type = index_params.get("metric_type")
     index_type = index_params.get("index_type")

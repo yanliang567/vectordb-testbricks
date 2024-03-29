@@ -61,7 +61,7 @@ if __name__ == '__main__':
     index_params = index_params_dict.get(index_type.upper(), None)
     if index_params is None:
         logging.error(f"index type {index_type} no supported")
-        exit(1)
+        exit(-1)
 
     for i in range(insert_times):
         # prepare data

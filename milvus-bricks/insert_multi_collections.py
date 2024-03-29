@@ -37,7 +37,7 @@ if __name__ == '__main__':
     collection_names = utility.list_collections()
     if len(collection_names) == 0:
         logging.error(f"found 0 collections, exit")
-        exit(0)
+        exit(-1)
 
     logging.info(f"found {len(collection_names)} collections ready for inserting")
 

@@ -46,7 +46,7 @@ if __name__ == '__main__':
     default_rg_info = utility.describe_resource_group(name=default_rg)
     if default_rg_info.num_available_node < rg_num * node_num_each_rg:
         logging.error(f"there is no available nodes in default rg, expected: {rg_num} x {node_num_each_rg}")
-        exit(0)
+        exit(-1)
 
     prefix = gen_unique_str()
     rgs = [f"rg_{i}_{prefix}" for i in range(rg_num)]

@@ -111,7 +111,7 @@ def gen_data_by_collection(collection, nb, r):
             continue
         else:
             logging.error(f"found undefined datatype: {field.dtype} in field {field.name} in collection {collection.name}")
-            exit(0)
+            exit(-1)
     return data
 
 
@@ -220,7 +220,7 @@ def get_search_params(collection, topk):
         search_params = {"metric_type": metric_type, "params": {}}
     else:
         logging.error(f"index: {index_type} does not support yet")
-        exit(0)
+        exit(-1)
     return search_params
 
 
@@ -236,7 +236,7 @@ def get_default_params_by_index_type(index_type, metric_type):
     index_params = index_params_dict.get(index_type.upper(), None)
     if index_params is None:
         logging.error(f"index type {index_type} no supported")
-        exit(1)
+        exit(-1)
     return index_params
 
 

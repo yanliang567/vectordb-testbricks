@@ -47,12 +47,12 @@ if __name__ == '__main__':
     num_entities = c.num_entities
     if num_entities <= 0:
         logging.error(f"collection: {collection_name} num_entities is empty")
-        exit(0)
+        exit(-1)
     logging.info(f"{collection_name} num_entities {num_entities}")
 
     if not c.has_index():
         logging.error(f"collection: {collection_name} has no index")
-        exit(0)
+        exit(-1)
 
     search_params = get_search_params(collection=c, topk=nb)
 

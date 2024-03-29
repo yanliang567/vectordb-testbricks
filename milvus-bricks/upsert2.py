@@ -48,12 +48,12 @@ if __name__ == '__main__':
     c = Collection(name=collection_name)
     if not c.has_index():
         logging.error(f"collection: {collection_name} has no index")
-        exit(0)
+        exit(-1)
     auto_id = c.schema.auto_id
     primary_field_type = c.primary_field.dtype
     if auto_id:
         logging.error(f"{collection_name} has auto_id=True, which is not supported")
-        exit(0)
+        exit(-1)
 
     # load collection
     t1 = time.time()
