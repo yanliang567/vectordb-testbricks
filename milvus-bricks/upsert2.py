@@ -16,17 +16,17 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 if __name__ == '__main__':
     """
     if there already exists entities in the collection, this script will do upsert with existing entities' PK
-    if there is no entities in the collection, this script will do upsert as insert(unqiue PKs in one request)
+    if there is no entities in the collection, this script will do upsert as insert(unique PKs in one request)
     1. upsert M entities from versionN to new version
     """
     host = sys.argv[1]
-    collection_name = sys.argv[2]                   # collection mame
-    upsert_rounds = int(sys.argv[3])                # upsert time
-    entities_per_round = int(sys.argv[4])           # entities to be upsert per round
-    new_version = int(sys.argv[5])                  # the new value for version field in upsert requests
-    unique_in_requests = str(sys.argv[6]).upper()   # if gen unique pk in all upsert requests
-    interval = int(sys.argv[7])                     # interval between upsert rounds
-    check_diff = str(sys.argv[8]).upper()           # if check dup entity
+    collection_name = sys.argv[2]                       # collection mame
+    upsert_rounds = int(sys.argv[3])                    # upsert time
+    entities_per_round = int(sys.argv[4])               # entities to be upsert per round
+    new_version = int(sys.argv[5])                      # the new value for version field in upsert requests
+    unique_in_all_requests = str(sys.argv[6]).upper()   # if gen unique pk in all upsert requests
+    interval = int(sys.argv[7])                         # interval between upsert rounds
+    check_diff = str(sys.argv[8]).upper()               # if check dup entity
     port = 19530
 
     file_handler = logging.FileHandler(filename=f"/tmp/upsert2_{collection_name}.log")
@@ -36,7 +36,7 @@ if __name__ == '__main__':
     logger = logging.getLogger('LOGGER_NAME')
 
     conn = connections.connect('default', host=host, port=port)
-    unique_in_requests = True if unique_in_requests == "TRUE" else False
+    unique_in_requests = True if unique_in_all_requests == "TRUE" else False
     check_diff = True if check_diff == "TRUE" else False
 
     # check and get the collection info

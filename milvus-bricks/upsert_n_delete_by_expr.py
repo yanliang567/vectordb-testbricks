@@ -7,6 +7,7 @@ from pymilvus import utility, connections, DataType, \
 from pymilvus.orm.types import CONSISTENCY_STRONG
 from common import upsert_entities
 from create_n_insert import create_n_insert
+import os
 
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -31,51 +32,30 @@ if __name__ == '__main__':
     check_diff = str(sys.argv[8]).upper()           # if check dup entity
     port = 19530
 
-    file_handler = logging.FileHandler(filename=f"/tmp/upsert2_{collection_name}.log")
+    file_handler = logging.FileHandler(filename=f"/tmp/upsert_n_deletebyexpr_{collection_name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     logger = logging.getLogger('LOGGER_NAME')
 
-    conn = connections.connect('default', host=host, port=port)
-    unique_in_requests = True if unique_in_requests == "TRUE" else False
-    check_diff = True if check_diff == "TRUE" else False
-
-    # check and get the collection info
-    if not utility.has_collection(collection_name=collection_name):
-        logging.error(f"collection: {collection_name} does not exit, create an empty collection as default")
-        create_n_insert(collection_name=collection_name, dim=768, nb=2000, insert_times=0, auto_id=False,
-                        use_str_pk=True, index_type="AUTOINDEX", metric_type="L2")
+    if not utility.has_collection(collection_name):
+        logging.error(f"collection: {collection_name} not found")
+        exit(0)
 
     c = Collection(name=collection_name)
     if not c.has_index():
         logging.error(f"collection: {collection_name} has no index")
         exit(0)
-    auto_id = c.schema.auto_id
-    primary_field_type = c.primary_field.dtype
-    if auto_id:
-        logging.error(f"{collection_name} has auto_id=True, which is not supported")
-        exit(0)
 
-    # load collection
     t1 = time.time()
     c.load()
     t2 = round(time.time() - t1, 3)
     logging.info(f"load {collection_name}: {t2}")
-    max_id = c.query(expr="", output_fields=["count(*)"],
-                     consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
     old_version = c.query(expr="", limit=1, output_fields=["version"])[0].get("version")
-    if max_id == 0:
-        max_id = upsert_rounds * entities_per_round
-        logging.info(f"{collection_name} is empty, set max_id=upsert_rounds * entities_per_round")
-    # start upsert
-    logging.info(f"{collection_name} max_id={max_id}, upsert2 start: nb={entities_per_round}, rounds={upsert_rounds}")
-    upsert_entities(collection=c, nb=entities_per_round, rounds=upsert_rounds, maxid=max_id, new_version=new_version,
-                    unique_in_requests=unique_in_requests, interval=interval)
-    c.flush()
-    new_max_id = c.query(expr="", output_fields=["count(*)"],
-                         consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
-    logging.info(f"{collection_name} upsert2 completed, max_id: {max_id}, new_max_id: {new_max_id}")
+
+    # doing upsert: update the version to new value
+    os.system(f"upsert2.py {host} {collection_name} {upsert_rounds} {entities_per_round} "
+              f"{new_version} {unique_in_requests} {interval} {check_diff}")
 
     # delete all the old version data
     c.delete(expr=f"version=={old_version}")
@@ -87,3 +67,4 @@ if __name__ == '__main__':
                                 consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
     logging.info(f"{collection_name} flush, count(*) after flush: {count_after_flush}")
 
+    logging.info("upsert and delete by expr completed")
