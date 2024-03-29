@@ -37,6 +37,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     logger = logging.getLogger('LOGGER_NAME')
 
+    conn = connections.connect('default', host=host, port=port)
     if not utility.has_collection(collection_name):
         logging.error(f"collection: {collection_name} not found")
         exit(0)
