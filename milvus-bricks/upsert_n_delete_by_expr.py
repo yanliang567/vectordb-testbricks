@@ -57,20 +57,21 @@ if __name__ == '__main__':
     t2 = round(time.time() - t1, 3)
     logging.info(f"load {collection_name}: {t2}")
     old_version = c.query(expr="", limit=1, output_fields=["version"])[0].get("version")
-    logging.info(f"{collection_name} version old value: {old_version}")
+    logging.info(f"{collection_name} old version: {old_version}")
 
     # doing upsert: update the version to new value
-    logging.info(f"start doing upsert to update the old version to new version")
+    logging.info(f"start doing upsert to update the old version to new_version={new_version}")
     os.system(f"python3.8 upsert2.py {host} {collection_name} {upsert_rounds} {entities_per_round} "
               f"{new_version} {unique_in_requests} {interval} false")
-    logging.info(f"upsert with new versions done")
+    logging.info(f"upsert with new_version={new_version} done")
 
     # delete all the old version data
-    logging.info(f"start to delete all the entities with old version")
-    c.delete(expr=f"version=={old_version}")
+    logging.info(f"start to delete all the entities with old_version={old_version}")
+    expr = f"version=={old_version}"
+    c.delete(expr=expr)
     count_after_delete = c.query(expr="", output_fields=["count(*)"],
                                  consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
-    logging.info(f"{collection_name} delete by expr completed, count(*) after delete: {count_after_delete}")
+    logging.info(f"{collection_name} delete by expr {expr} completed, count(*) after delete: {count_after_delete}")
     c.flush()
     count_after_flush = c.query(expr="", output_fields=["count(*)"],
                                 consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
