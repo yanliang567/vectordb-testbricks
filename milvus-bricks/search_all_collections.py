@@ -76,6 +76,7 @@ if __name__ == '__main__':
                 not_loaded += 1
                 continue
             try:
+                t1 = time.time()
                 dim = get_dim(collection)
                 index_params = get_index_params(collection)
                 search_params = get_search_params(collection, topk)
@@ -83,7 +84,6 @@ if __name__ == '__main__':
                 search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
                 parkey = random.randint(1, 1000)
                 exact_expr = None if expr is None else expr + str(parkey)
-                t1 = time.time()
                 collection.search(data=search_vectors, anns_field=vector_field_name,
                                   output_fields=output_fields, expr=exact_expr,
                                   param=search_params, limit=topk)

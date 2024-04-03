@@ -16,6 +16,7 @@ def get_dim(collection):
     for field in fields:
         if field.dtype == DataType.FLOAT_VECTOR:
             dim = field.params.get("dim")
+            break
     return dim
 
 
@@ -24,6 +25,7 @@ def get_vector_field_name(collection):
     for field in fields:
         if field.dtype == DataType.FLOAT_VECTOR:
             vector_field_name = field.name
+            break
     return vector_field_name
 
 
