@@ -75,17 +75,15 @@ if __name__ == '__main__':
                 logging.info(f"collection: {name} not loaded")
                 not_loaded += 1
                 continue
-            dim = get_dim(collection)
-            index_params = get_index_params(collection)
-            search_params = get_search_params(collection, topk)
-            # logging.info(f"index param: {index_params}")
-            # logging.info(f"search_param: {search_params}")
-            vector_field_name = get_vector_field_name(collection)
-            search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
-            parkey = random.randint(1, 1000)
-            exact_expr = None if expr is None else expr + str(parkey)
-            t1 = time.time()
             try:
+                dim = get_dim(collection)
+                index_params = get_index_params(collection)
+                search_params = get_search_params(collection, topk)
+                vector_field_name = get_vector_field_name(collection)
+                search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
+                parkey = random.randint(1, 1000)
+                exact_expr = None if expr is None else expr + str(parkey)
+                t1 = time.time()
                 collection.search(data=search_vectors, anns_field=vector_field_name,
                                   output_fields=output_fields, expr=exact_expr,
                                   param=search_params, limit=topk)
