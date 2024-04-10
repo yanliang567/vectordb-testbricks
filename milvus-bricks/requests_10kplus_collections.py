@@ -17,7 +17,7 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 if __name__ == '__main__':
     host = sys.argv[1]
     collection_prefix = sys.argv[2]                     # collection mame prefix
-    collection_num = int(sys.argv[3])                   # how many collections to create
+    total_requests_num = int(sys.argv[3])               # how many requests to send totally
     partition_num = int(sys.argv[4])                    # how many customized partitions(except _default) to create
     shards_num = int(sys.argv[5])                       # how many shards to create
     dim = int(sys.argv[6])                              # dim for vectors
@@ -30,7 +30,7 @@ if __name__ == '__main__':
 
     port = 19530
 
-    file_handler = logging.FileHandler(filename=f"/tmp/create_{collection_num}_collections.log")
+    file_handler = logging.FileHandler(filename=f"/tmp/send{total_requests_num}_requests.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
@@ -108,9 +108,9 @@ if __name__ == '__main__':
 
 
     # check and get the collection info
-    logging.info(f"start to create {collection_num} collections")
+    logging.info(f"start to send {total_requests_num} requests in pool")
     futures = []
-    for i in range(collection_num):
+    for _ in range(total_requests_num):
         seed = random.randint(1, 10)
         future = pool.submit(execute, seed=seed, dim=dim, nb=nb,
                              insert_times_per_partition=insert_times_per_partition,
@@ -120,4 +120,4 @@ if __name__ == '__main__':
     for fu in futures:
         fu.result()
 
-    logging.info(f"create multi collections and partitions completed")
+    logging.info(f"run completed")
