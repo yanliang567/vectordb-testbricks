@@ -26,7 +26,7 @@ if __name__ == '__main__':
     partition_key_field = str(sys.argv[9]).upper()     # partition key field name, set None to disable it
     api_key = str(sys.argv[10])                         # api key to connect to milvus
     pool_size = int(sys.argv[11])                       # thread pool size
-    index_type = str(sys.argv[12])                      # index type
+    index_type = str(sys.argv[12]).upper()              # index type
 
     port = 19530
 
@@ -74,7 +74,7 @@ if __name__ == '__main__':
             logging.info(f"create {collection_name}  successfully")
         elif seed % 3 == 0:
             # insert
-            collection_name = random.randint(0, len(utility.list_collections()) - 1)
+            collection_name = utility.list_collections()[random.randint(0, len(utility.list_collections()) - 1)]
             c = Collection(collection_name)
             for r in range(insert_times_per_partition):
                 data = gen_data_by_collection(collection=c, nb=nb, r=r)
@@ -88,7 +88,7 @@ if __name__ == '__main__':
             pass
             logging.info(f"seed=5, pass")
         else:
-            collection_name = random.randint(0, len(utility.list_collections()) - 1)
+            collection_name = utility.list_collections()[random.randint(0, len(utility.list_collections()) - 1)]
             c = Collection(collection_name)
             dim1 = get_dim(collection=c)
             vector_field_name = get_vector_field_name(collection=c)
