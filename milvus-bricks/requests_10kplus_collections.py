@@ -94,7 +94,7 @@ if __name__ == '__main__':
             vector_field_name = get_vector_field_name(collection=c)
             topk = 10
             search_params = get_search_params(collection=c, topk=topk)
-            for k in range(10):
+            for k in range(2):
                 search_vectors = [[random.random() for _ in range(dim1)] for _ in range(1)]
                 t1 = time.time()
                 try:

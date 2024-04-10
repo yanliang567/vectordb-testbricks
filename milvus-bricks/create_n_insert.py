@@ -37,7 +37,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
                                   description=f"{collection_name}")    # do not change the description
         collection = Collection(name=collection_name, schema=schema,
                                 shards_num=shards_num, properties={"collection.ttl.seconds": ttl})
-        logging.info(f"create {collection_name} successfully, auto_id: {auto_id}, dim: {dim}, shards: {shards_num}")
+        # logging.info(f"create {collection_name} successfully, auto_id: {auto_id}, dim: {dim}, shards: {shards_num}")
     else:
         collection = Collection(name=collection_name)
         logging.info(f"{collection_name} already exists")
