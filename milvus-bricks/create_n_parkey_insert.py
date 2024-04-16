@@ -98,18 +98,19 @@ def create_n_insert_parkey(collection_name, dim, nb, insert_times, index_type, m
 
 
 if __name__ == '__main__':
-    host = sys.argv[1]  # host address
-    name = str(sys.argv[2])  # collection name
-    dim = int(sys.argv[3])  # collection dimension
-    nb = int(sys.argv[4])  # collection insert batch size
-    insert_times = int(sys.argv[5])  # collection insert times
-    index = str(sys.argv[6]).upper()    # index type
-    metric = str(sys.argv[7]).upper()   # metric type, L2 or IP
-    parkey_num = int(sys.argv[8])   # partition key number for evenly distributed partition keys
-    parkey_collection_only = str(sys.argv[9]).upper()   # true if only create partition key collection
-    parkey_values_evenly = str(sys.argv[10]).upper()   # true if partition key values are evenly distributed
-    num_partitions = int(sys.argv[11])   # number of partitions
-    pre_load = str(sys.argv[12]).upper()   # true if pre load data
+    host = sys.argv[1]                          # host address, ip or uri
+    name = str(sys.argv[2])                     # collection name
+    dim = int(sys.argv[3])                      # collection dimension
+    nb = int(sys.argv[4])                       # collection insert batch size
+    insert_times = int(sys.argv[5])             # collection insert times
+    index = str(sys.argv[6]).upper()                        # index type
+    metric = str(sys.argv[7]).upper()                       # metric type, L2 or IP
+    parkey_num = int(sys.argv[8])                           # partition key number for evenly distributed partition keys
+    parkey_collection_only = str(sys.argv[9]).upper()       # true if only create partition key collection
+    parkey_values_evenly = str(sys.argv[10]).upper()        # true if partition key values are evenly distributed
+    num_partitions = int(sys.argv[11])                      # number of partitions
+    pre_load = str(sys.argv[12]).upper()                    # true if pre load data
+    api_key = str(sys.argv[13])                             # api key to connect to milvus
     port = 19530
     log_name = f"prepare_parkey_{name}"
 
@@ -125,8 +126,10 @@ if __name__ == '__main__':
     logger = logging.getLogger('LOGGER_NAME')
 
     logging.info("start")
-    connections.add_connection(default={"host": host, "port": 19530})
-    connections.connect('default')
+    if api_key is None or api_key == "" or api_key.upper() == "NONE":
+        conn = connections.connect('default', host=host, port=port)
+    else:
+        conn = connections.connect('default', uri=host, token=api_key)
 
     create_n_insert_parkey(collection_name=name, dim=dim, nb=nb, insert_times=insert_times,
                            index_type=index, metric_type=metric,
