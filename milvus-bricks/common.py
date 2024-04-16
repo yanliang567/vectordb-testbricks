@@ -74,7 +74,10 @@ def gen_data_by_collection(collection, nb, r):
                 else:
                     continue
             else:
-                data.append([_ for _ in range(start_uid, start_uid + nb)])
+                if field.name == "category":
+                    data.append([random.randint(1, 100) for _ in range(nb)])
+                else:
+                    data.append([_ for _ in range(start_uid, start_uid + nb)])
                 continue
         if field.dtype == DataType.INT8:
             data.append([random.randint(-128, 127) for _ in range(nb)])

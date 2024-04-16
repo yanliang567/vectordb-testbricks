@@ -33,7 +33,7 @@ def create_n_insert_parkey(collection_name, dim, nb, insert_times, index_type, m
                            parkey_num=10000, parkey_collection_only=False, parkey_values_evenly=False,
                            num_partitions=64, pre_load=False, shards_num=1):
     id_field = FieldSchema(name="id", dtype=DataType.INT64, description="auto primary id")
-    category_field = FieldSchema(name="category", dtype=DataType.INT64, description="age")
+    category_field = FieldSchema(name="category", dtype=DataType.INT64, description="category")
     embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
     if not parkey_collection_only:
         schema = CollectionSchema(fields=[id_field, category_field, embedding_field],

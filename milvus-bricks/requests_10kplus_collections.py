@@ -51,8 +51,8 @@ if __name__ == '__main__':
 
 
     def execute(seed, dim, nb, insert_times_per_partition, index_type, shards_num, partition_key_enabled, partition_num):
-        if seed % 2 == 0:
-            # create a collection
+        if seed % 2 == 0 or seed % 5 == 0:
+            # create a collection -50%
             auto_id = random.choice([True, False])
             metric_type = random.choice(["COSINE", "L2", "IP"])
             collection_name = f"{collection_prefix}_{gen_str_by_length(8, letters_only=True)}"
@@ -73,7 +73,7 @@ if __name__ == '__main__':
             c.load()
             logging.info(f"create {collection_name}  successfully")
         elif seed % 3 == 0:
-            # insert
+            # insert -20%
             collection_name = utility.list_collections()[random.randint(0, len(utility.list_collections()) - 1)]
             c = Collection(collection_name)
             for r in range(insert_times_per_partition):
@@ -88,6 +88,7 @@ if __name__ == '__main__':
             pass
             logging.info(f"seed=5, pass")
         else:
+            # search -20%
             collection_name = utility.list_collections()[random.randint(0, len(utility.list_collections()) - 1)]
             c = Collection(collection_name)
             dim1 = get_dim(collection=c)

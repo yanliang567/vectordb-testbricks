@@ -15,7 +15,7 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 id_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
 # id_field = FieldSchema(name="id", dtype=DataType.VARCHAR, description="primary id", max_length=100)
 
-age_field = FieldSchema(name="age", dtype=DataType.INT64, description="age")
+category_field = FieldSchema(name="category", dtype=DataType.INT64, description="category for partition key")
 groupid_field = FieldSchema(name="groupid", dtype=DataType.INT64, description="groupid")
 device_field = FieldSchema(name="device", dtype=DataType.VARCHAR, max_length=500, description="device")
 fname_field = FieldSchema(name="fname", dtype=DataType.VARCHAR, max_length=256, description="fname")
@@ -35,9 +35,9 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
                                       auto_id=auto_id, primary_field=id_field.name,
                                       description=f"{collection_name}")
         else:
-            schema = CollectionSchema(fields=[id_field, age_field, flag_field, ext_field, fname_field,
-                                              embedding_field, json_field],
+            schema = CollectionSchema(fields=[id_field, category_field, embedding_field],
                                       auto_id=auto_id, primary_field=id_field.name,
+                                      partition_key_field=category_field.name,
                                       description=f"{collection_name}")    # do not change the description
         collection = Collection(name=collection_name, schema=schema,
                                 shards_num=shards_num, properties={"collection.ttl.seconds": ttl})
