@@ -67,7 +67,8 @@ if __name__ == '__main__':
     expr = str(sys.argv[5]).strip()                 # search expression, default is None
     nq = int(sys.argv[6])                           # search nq
     topk = int(sys.argv[7])                         # search topk
-    api_key = str(sys.argv[8])                      # api key for cloud instances
+    reload = str(sys.argv[8]).upper()               # reload collection before search
+    api_key = str(sys.argv[9])                      # api key for cloud instances
     port = 19530
 
     if output_fields.upper() == "NONE" or output_fields == "":
@@ -77,6 +78,8 @@ if __name__ == '__main__':
     if expr.upper() == "NONE" or expr == "":
         expr = None
 
+    reload = True if reload == "TRUE" else False
+
     file_handler = logging.FileHandler(filename=f"/tmp/cold_search_{name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
@@ -85,7 +88,7 @@ if __name__ == '__main__':
 
     logging.info(f"searching collection={name}, host={host}, timeout={timeout}, "
                  f"output_fields={output_fields}, expr={expr}, nq={nq}, "
-                 f"topk={topk}, api_key={api_key}")
+                 f"topk={topk}, reload={reload}, api_key={api_key}")
 
     if api_key is None or api_key == "" or api_key.upper() == "NONE":
         conn = connections.connect('default', host=host, port=port)
@@ -119,18 +122,19 @@ if __name__ == '__main__':
     logging.info(f"{name} num_entities: {num}")
     logging.info(f"{name} index progress: {utility.index_building_progress(name)}")
 
-    # # release collection
-    # t1 = time.time()
-    # collection.release()
-    # t2 = round(time.time() - t1, 3)
-    # logging.info(f"assert release {name}: {t2}")
-    # time.sleep(10)
+    # release collection
+    if reload:
+        t1 = time.time()
+        collection.release()
+        t2 = round(time.time() - t1, 3)
+        logging.info(f"assert release {name}: {t2}")
+        time.sleep(5)
 
-    # # load collection
-    # t1 = time.time()
-    # collection.load()
-    # t2 = round(time.time() - t1, 3)
-    # logging.info(f"assert re-load {name}: {t2}")
+        # load collection
+        t1 = time.time()
+        collection.load()
+        t2 = round(time.time() - t1, 3)
+        logging.info(f"assert re-load {name}: {t2}")
 
     logging.info(f"cold search start: nq{nq}_top{topk}")
     dim = get_dim(collection)
