@@ -46,6 +46,11 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
     logging.info(f"{collection_name} collection schema: {collection.schema}")
     if build_index:
         index_params = get_default_params_by_index_type(index_type.upper(), metric_type)
+        if not collection.has_index():
+            t0 = time.time()
+            collection.create_index(field_name=get_vector_field_name(collection), index_params=index_params)
+            tt = round(time.time() - t0, 3)
+            logging.info(f"build index {index_params} costs {tt}")
 
     # insert data
     insert_entities(collection=collection, nb=nb, rounds=insert_times)
