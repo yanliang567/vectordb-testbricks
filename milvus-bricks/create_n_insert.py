@@ -15,7 +15,8 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 intpk_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
 strpk_field = FieldSchema(name="id", dtype=DataType.VARCHAR, description="primary id", max_length=100)
 
-age_field = FieldSchema(name="age", dtype=DataType.INT64, description="age")
+category_field = FieldSchema(name="category", dtype=DataType.INT64, is_clustering_key=True,
+                             description="category for partition key or clustering key")
 groupid_field = FieldSchema(name="groupid", dtype=DataType.INT64, description="groupid")
 device_field = FieldSchema(name="device", dtype=DataType.VARCHAR, max_length=500, description="device")
 fname_field = FieldSchema(name="fname", dtype=DataType.VARCHAR, max_length=256, description="fname")
@@ -31,9 +32,9 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
     if not utility.has_collection(collection_name=collection_name):
         embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
         id_field = strpk_field if use_str_pk else intpk_field
-        schema = CollectionSchema(fields=[id_field, age_field, flag_field, ver_field, fname_field,
-                                          embedding_field, json_field],
-                                  auto_id=auto_id, primary_field=id_field.name,
+        # fields = [id_field, category_field, flag_field, ver_field, fname_field, embedding_field, json_field]
+        fields = [id_field, category_field, embedding_field]
+        schema = CollectionSchema(fields=fields, auto_id=auto_id, primary_field=id_field.name,
                                   description=f"{collection_name}")    # do not change the description
         collection = Collection(name=collection_name, schema=schema,
                                 shards_num=shards_num, properties={"collection.ttl.seconds": ttl})
@@ -67,7 +68,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
 
 
 if __name__ == '__main__':
-    host = sys.argv[1]                              # host address
+    host = sys.argv[1]                              # host ip or uri
     name = str(sys.argv[2])                         # collection name
     dim = int(sys.argv[3])                          # collection dimension
     nb = int(sys.argv[4])                           # collection insert batch size
