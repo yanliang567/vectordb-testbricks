@@ -144,8 +144,8 @@ if __name__ == '__main__':
     while time.time() < start_time + timeout:
         search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
         parkey = random.randint(1, 1000)
-        exact_expr = "category==27"
-        # exact_expr = None if expr is None else expr + str(parkey)
+        # exact_expr = "category==27"
+        exact_expr = None if expr is None else expr + str(parkey)
         t1 = time.time()
         try:
             collection.search(data=search_vectors, anns_field=vector_field_name, output_fields=output_fields, expr=exact_expr, param=search_params, limit=topk)
