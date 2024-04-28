@@ -153,10 +153,11 @@ if __name__ == '__main__':
     logging.info(utility.index_building_progress(name))
 
     # load collection
-    t1 = time.time()
-    collection.load()
-    t2 = round(time.time() - t1, 3)
-    logging.info(f"assert load {name}: {t2}")
+    if utility.load_state(collection.name).name.upper() != "LOADED":
+        t1 = time.time()
+        collection.load()
+        t2 = round(time.time() - t1, 3)
+        logging.info(f"assert load {name}: {t2}")
 
     logging.info(f"search start: nq{nq}_top{topk}_threads{th}")
     search(collection, search_params, nq, topk, th, output_fields, expr, group_by_field, timeout)
