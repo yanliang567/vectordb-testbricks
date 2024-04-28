@@ -28,7 +28,7 @@ json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=6553
 
 
 def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_type="L2",
-                    auto_id=True, use_str_pk=False, ttl=0, build_index=True, shards_num=1):
+                    auto_id=True, use_str_pk=False, ttl=0, build_index=True, shards_num=1, is_flush=True):
     if not utility.has_collection(collection_name=collection_name):
         embedding_field = FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dim)
         id_field = strpk_field if use_str_pk else intpk_field
@@ -56,7 +56,8 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
     insert_entities(collection=collection, nb=nb, rounds=insert_times)
 
     collection = Collection(name=collection_name)
-    collection.flush()
+    if is_flush:
+        collection.flush()
     logging.info(f"collection entities: {collection.num_entities}")
 
     if build_index:

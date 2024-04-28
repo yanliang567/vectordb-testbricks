@@ -14,51 +14,6 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
-def search(collection, search_params, nq, topk, threads_num,
-           output_fields, expr, group_by_field, timeout):
-    threads_num = int(threads_num)
-    interval_count = 1000
-    dim = get_dim(collection)
-    vector_field_name = get_vector_field_name(collection)
-
-    if threads_num > 1:
-        for i in range(threads_num):
-            t = threading.Thread(target=search_th, args=(collection, i))
-            threads.append(t)
-            t.start()
-        for t in threads:
-            t.join()
-    else:
-        interval_count = 100
-        search_latency = []
-        count = 0
-        start_time = time.time()
-        while time.time() < start_time + timeout:
-            count += 1
-            search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
-            parkey = random.randint(1, 1000)
-            exact_expr = None if expr is None else expr+str(parkey)
-            t1 = time.time()
-            try:
-                collection.search(data=search_vectors, anns_field=vector_field_name,
-                                  output_fields=output_fields, expr=exact_expr,
-                                  group_by_field=group_by_field,
-                                  param=search_params, limit=topk)
-
-            except Exception as e:
-                logging.error(e)
-            t2 = round(time.time() - t1, 4)
-            search_latency.append(t2)
-            if count == interval_count:
-                total = round(np.sum(search_latency), 4)
-                p99 = round(np.percentile(search_latency, 99), 4)
-                avg = round(np.mean(search_latency), 4)
-                qps = round(interval_count / total, 4)
-                logging.info(f"collection {collection.description} search {interval_count} times single thread: cost {total}, qps {qps}, avg {avg}, p99 {p99} ")
-                count = 0
-                search_latency = []
-
-
 if __name__ == '__main__':
     host = sys.argv[1]
     name = sys.argv[2]                              # collection mame/alias
