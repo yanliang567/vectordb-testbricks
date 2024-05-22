@@ -71,8 +71,12 @@ if __name__ == '__main__':
                 logging.info(f"collection: {name} has no index")
                 no_index += 1
                 continue
-            if not utility.load_state(name).name == "Loaded":
-                logging.info(f"collection: {name} not loaded")
+            try:
+                if not utility.load_state(name).name == "Loaded":
+                    logging.info(f"collection: {name} not loaded")
+                    not_loaded += 1
+                    continue
+            except Exception as e:
                 not_loaded += 1
                 continue
             try:
