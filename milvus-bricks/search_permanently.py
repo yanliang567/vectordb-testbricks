@@ -6,7 +6,7 @@ import threading
 import logging
 from pymilvus import utility, connections, DataType, \
     Collection, FieldSchema, CollectionSchema
-from common import get_dim, get_vector_field_name, get_search_params, get_index_params
+from common import get_float_vec_dim, get_float_vec_field_name, get_search_params, get_index_params
 from create_n_insert import create_n_insert
 
 
@@ -18,8 +18,8 @@ def search(collection, search_params, nq, topk, threads_num,
            output_fields, expr, group_by_field, timeout):
     threads_num = int(threads_num)
     interval_count = 1000
-    dim = get_dim(collection)
-    vector_field_name = get_vector_field_name(collection)
+    dim = get_float_vec_dim(collection)
+    vector_field_name = get_float_vec_field_name(collection)
 
     def search_th(col, thread_no):
         search_latency = []

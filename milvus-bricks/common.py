@@ -9,9 +9,17 @@ from pymilvus import utility, connections, DataType, \
     Collection, FieldSchema, CollectionSchema
 
 pk_prefix = "iamprimarykey_"
+FLOAT_VECTOR_TYPES = [DataType.FLOAT_VECTOR, DataType.BFLOAT16_VECTOR, DataType.FLOAT16_VECTOR]
+ALL_VECTOR_TYPES = [DataType.FLOAT_VECTOR, DataType.BFLOAT16_VECTOR, DataType.FLOAT16_VECTOR,
+                    DataType.BINARY_VECTOR, DataType.SPARSE_FLOAT_VECTOR]
 
 
-def get_dim(collection):
+def get_float_vec_dim(collection):
+    """
+    return the dim of float32 vector field in collection
+    :param collection:
+    :return:
+    """
     fields = collection.schema.fields
     for field in fields:
         if field.dtype == DataType.FLOAT_VECTOR:
@@ -20,7 +28,29 @@ def get_dim(collection):
     return dim
 
 
-def get_vector_field_name(collection):
+def get_dims(collection):
+    """
+    return the dims of all vector fields in dict format
+    :param collection:
+    :return: dict e.g. {"field1": dim1, "field2": dim2}
+    """
+    dims = {}
+    fields = collection.schema.fields
+    for field in fields:
+        if field.dtype in FLOAT_VECTOR_TYPES:
+            dim = field.params.get("dim")
+            dims.update({field.name: dim})
+            continue
+    return dims
+
+
+def get_float_vec_field_name(collection):
+    """
+    return the name of float32 vector field in collection,
+    if there are mutli float32 vector fields, return the first one
+    :param collection
+    :return: str
+    """
     fields = collection.schema.fields
     for field in fields:
         if field.dtype == DataType.FLOAT_VECTOR:
@@ -29,11 +59,22 @@ def get_vector_field_name(collection):
     return vector_field_name
 
 
+def get_float_vec_field_names(collection):
+    """
+    return the names of all the float vector fields in collection
+    :param collection
+    :return: list
+    """
+    vector_field_names = [field.name for field in collection.schema.fields
+                          if field.dtype in ALL_VECTOR_TYPES]
+    return vector_field_names
+
+
 def delete_entities(collection, nb, search_params, rounds):
-    dim = get_dim(collection=collection)
+    dim = get_float_vec_dim(collection=collection)
     auto_id = collection.schema.auto_id
     primary_field_name = collection.primary_field.name
-    vector_field_name = get_vector_field_name(collection=collection)
+    vector_field_name = get_float_vec_field_name(collection=collection)
     if auto_id:
         for r in range(rounds):
             search_vector = [[random.random() for _ in range(dim)] for _ in range(1)]

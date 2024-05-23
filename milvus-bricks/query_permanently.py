@@ -6,7 +6,7 @@ import threading
 import logging
 from pymilvus import utility, connections, DataType, \
     Collection, FieldSchema, CollectionSchema
-from common import get_index_params, get_dim
+from common import get_index_params, get_float_vec_dim
 from create_n_insert import create_n_insert
 
 
@@ -108,7 +108,7 @@ if __name__ == '__main__':
                         index_type="AUTOINDEX", metric_type="L2")
 
     collection = Collection(name=name)
-    dim = get_dim(collection)
+    dim = get_float_vec_dim(collection)
 
     if not collection.has_index():
         logging.error(f"collection: {name} has no index")

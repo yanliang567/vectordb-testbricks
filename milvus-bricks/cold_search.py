@@ -4,7 +4,7 @@ import random
 import logging
 from pymilvus import utility, connections, DataType, \
     Collection, FieldSchema, CollectionSchema
-from common import get_dim, get_vector_field_name, get_search_params, get_index_params
+from common import get_float_vec_dim, get_float_vec_field_name, get_search_params, get_index_params
 from create_n_insert import create_n_insert
 
 
@@ -90,8 +90,8 @@ if __name__ == '__main__':
         logging.info(f"assert re-load {name}: {t2}")
 
     logging.info(f"cold search start: nq{nq}_top{topk}")
-    dim = get_dim(collection)
-    vector_field_name = get_vector_field_name(collection)
+    dim = get_float_vec_dim(collection)
+    vector_field_name = get_float_vec_field_name(collection)
     start_time = time.time()
     i = 0
     while time.time() < start_time + timeout:

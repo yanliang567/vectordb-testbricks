@@ -6,7 +6,7 @@ import threading
 import logging
 from pymilvus import utility, connections, DataType, \
     Collection, FieldSchema, CollectionSchema
-from common import get_dim, get_vector_field_name, get_search_params, get_index_params
+from common import get_float_vec_dim, get_float_vec_field_name, get_search_params, get_index_params
 from create_n_insert import create_n_insert
 
 
@@ -81,10 +81,10 @@ if __name__ == '__main__':
                 continue
             try:
                 t1 = time.time()
-                dim = get_dim(collection)
+                dim = get_float_vec_dim(collection)
                 index_params = get_index_params(collection)
                 search_params = get_search_params(collection, topk)
-                vector_field_name = get_vector_field_name(collection)
+                vector_field_name = get_float_vec_field_name(collection)
                 search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
                 parkey = random.randint(1, 1000)
                 exact_expr = None if expr is None else expr + str(parkey)

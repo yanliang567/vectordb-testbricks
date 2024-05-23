@@ -6,7 +6,7 @@ import numpy as np
 import logging
 from pymilvus import connections, DataType, \
     Collection, FieldSchema, CollectionSchema, utility, MilvusException
-from common import insert_entities, get_vector_field_name, get_default_params_by_index_type, gen_data_by_collection
+from common import insert_entities, get_float_vec_field_name, get_default_params_by_index_type, gen_data_by_collection
 
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -60,7 +60,7 @@ def create_n_insert(collection_name, dim, nb, insert_times, index_type, metric_t
     if build_index:
         if not collection.has_index():
             t0 = time.time()
-            collection.create_index(field_name=get_vector_field_name(collection), index_params=index_params)
+            collection.create_index(field_name=get_float_vec_field_name(collection), index_params=index_params)
             tt = round(time.time() - t0, 3)
             logging.info(f"build index {index_params} costs {tt}")
         else:

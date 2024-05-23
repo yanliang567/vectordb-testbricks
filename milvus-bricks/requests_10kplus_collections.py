@@ -6,7 +6,7 @@ from pymilvus import utility, connections, DataType, \
     Collection, FieldSchema, CollectionSchema, Partition
 from create_n_insert import create_n_insert
 from create_n_parkey_insert import create_n_insert_parkey
-from common import gen_data_by_collection, gen_str_by_length, get_dim, get_vector_field_name, get_search_params
+from common import gen_data_by_collection, gen_str_by_length, get_float_vec_dim, get_float_vec_field_name, get_search_params
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
@@ -91,8 +91,8 @@ if __name__ == '__main__':
             # search -20%
             collection_name = utility.list_collections()[random.randint(0, len(utility.list_collections()) - 1)]
             c = Collection(collection_name)
-            dim1 = get_dim(collection=c)
-            vector_field_name = get_vector_field_name(collection=c)
+            dim1 = get_float_vec_dim(collection=c)
+            vector_field_name = get_float_vec_field_name(collection=c)
             topk = 10
             search_params = get_search_params(collection=c, topk=topk)
             for k in range(2):
