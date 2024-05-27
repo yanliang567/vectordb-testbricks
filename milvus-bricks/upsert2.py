@@ -46,7 +46,7 @@ if __name__ == '__main__':
                         use_str_pk=True, index_type="AUTOINDEX", metric_type="L2")
 
     c = Collection(name=collection_name)
-    if not c.has_index():
+    if len(c.indexes) == 0:
         logging.error(f"collection: {collection_name} has no index")
         exit(-1)
     auto_id = c.schema.auto_id
