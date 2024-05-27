@@ -17,13 +17,29 @@ ALL_VECTOR_TYPES = [DataType.FLOAT_VECTOR, DataType.BFLOAT16_VECTOR, DataType.FL
 def get_float_vec_dim(collection):
     """
     return the dim of float32 vector field in collection
-    :param collection:
+    if there are multiple float32 vector fields, return the first one
+    :param collection: Collection object
     :return:
     """
     fields = collection.schema.fields
     for field in fields:
         if field.dtype == DataType.FLOAT_VECTOR:
             dim = field.params.get("dim")
+            break
+    return dim
+
+
+def get_dim_by_field_name(collection, name):
+    """
+    return the dim of vector field in collection by field name
+    :param collection : Collection object
+    :param name : str, field name
+    :return: dim int
+    """
+    fields = collection.schema.fields
+    for field in fields:
+        if field.name == name:
+            dim = field.params.get("dim", None)
             break
     return dim
 
@@ -251,8 +267,8 @@ def upsert_entities(collection, nb, rounds, maxid, new_version=0, unique_in_requ
         start += sample_n
 
 
-def get_search_params(collection, topk):
-    idx = collection.index()
+def get_search_params(collection, topk, index_name=None):
+    idx = collection.index(index_name=index_name)
     metric_type = idx.params.get("metric_type")
     index_type = idx.params.get("index_type")
     if index_type == "HNSW":
@@ -286,9 +302,24 @@ def get_default_params_by_index_type(index_type, metric_type):
     return index_params
 
 
-def get_index_params(collection):
-    idx = collection.index()
+def get_index_params(collection, index_name=None):
+    idx = collection.index(index_name=index_name)
     return idx.params
+
+
+def get_index_by_field_name(collection, field_name):
+    for idx in collection.indexes:
+        if idx.field_name == field_name:
+            return idx
+    return None
+
+
+def is_vector_field(collection, field_name):
+    fields = collection.schema.fields
+    for field in fields:
+        if field.name == field_name and field.dtype in ALL_VECTOR_TYPES:
+            return True
+    return False
 
 
 def gen_str_by_length(length=8, letters_only=False):
