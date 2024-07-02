@@ -40,9 +40,9 @@ if __name__ == '__main__':
     if not utility.has_collection(collection_name=collection_name):
         logging.info(f"start to create default collection")
         dim = 768
-        create_n_insert(collection_name=collection_name,
-                        dim=dim, nb=nb, insert_times=insert_times, auto_id=False,
-                        index_type="AUTOINDEX", metric_type="L2", build_index=need_build_index,
+        create_n_insert(collection_name=collection_name, vector_types=[DataType.FLOAT_VECTOR],
+                        dims=[dim], nb=nb, insert_times=insert_times, auto_id=False,
+                        index_types=["AUTOINDEX"], metric_types=["L2"], build_index=need_build_index,
                         shards_num=shards_num)
         logging.info(f"create {collection_name}  successfully")
 

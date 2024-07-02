@@ -39,11 +39,12 @@ if __name__ == '__main__':
     # check and get the collection info
     if not utility.has_collection(collection_name=name):
         logging.error(f"collection: {name} does not exit, create 10m-128d as default")
-        create_n_insert(collection_name=name, dim=128, nb=20000, insert_times=50,
-                        index_type="HNSW", metric_type="L2")
+        # create_n_insert(collection_name=name, dim=128, nb=20000, insert_times=50,
+        #                 index_type="HNSW", metric_type="L2")
+        exit(-1)
 
     collection = Collection(name=name)
-    if not collection.has_index():
+    if len(collection.indexes) == 0:
         logging.error(f"collection: {name} has no index")
         exit(-1)
 
@@ -53,7 +54,7 @@ if __name__ == '__main__':
     # flush before indexing
     num = collection.num_entities
     logging.info(f"{name} num_entities: {num}")
-    logging.info(f"{name} index progress: {utility.index_building_progress(name)}")
+    # logging.info(f"{name} index progress: {utility.index_building_progress(name)}")
 
     for i in range(reload_times):
         # release collection
@@ -62,7 +63,7 @@ if __name__ == '__main__':
         t2 = round(time.time() - t1, 3)
         logging.info(f"assert release {name}: {t2}")
 
-        time.sleep(120)
+        time.sleep(200)
         # load collection
         t1 = time.time()
         collection.load()
