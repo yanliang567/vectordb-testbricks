@@ -6,4 +6,4 @@ git+https://github.com/wayblink/pymilvus.git@major
 git+https://github.com/Projectplace/pytest-tags
 kubernetes==29.0.0a1
 urllib3==2.1.0
-
+pymilvus==2.4.5rc7
