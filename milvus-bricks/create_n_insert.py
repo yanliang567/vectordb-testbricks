@@ -25,7 +25,7 @@ json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=6553
 
 
 def create_n_insert(collection_name, dims, vector_types, nb, insert_times, index_types, metric_types=["L2"],
-                    auto_id=True, use_str_pk=False, ttl=0, build_index=True, shards_num=1, is_flush=True):
+                    auto_id=True, use_str_pk=False, ttl=0, build_index=True, shards_num=1, is_flush=True, use_insert=True):
     id_field = strpk_field if use_str_pk else intpk_field
     fields = [id_field, category_field]
     # vec_field_names = []
@@ -44,7 +44,7 @@ def create_n_insert(collection_name, dims, vector_types, nb, insert_times, index
 
     logging.info(f"{collection_name} collection schema: {collection.schema}")
     # insert data
-    insert_entities(collection=collection, nb=nb, rounds=insert_times)
+    insert_entities(collection=collection, nb=nb, rounds=insert_times, use_insert=use_insert)
     collection = Collection(name=collection_name)
     if is_flush:
         collection.flush()
@@ -85,7 +85,8 @@ if __name__ == '__main__':
     ttl = int(sys.argv[12])                         # ttl for the collection property
     need_build_index = str(sys.argv[13]).upper()    # build index or not after insert
     need_load = str(sys.argv[14]).upper()           # load the collection or not at the end
-    api_key = str(sys.argv[15])                     # api key to connect to milvus
+    use_insert = str(sys.argv[15]).upper()          # use insert or upsert
+    api_key = str(sys.argv[16])                     # api key to connect to milvus
 
     port = 19530
     log_name = f"prepare_{name}"
@@ -94,6 +95,7 @@ if __name__ == '__main__':
     need_load = True if need_load == "TRUE" else False
     need_build_index = True if need_build_index == "TRUE" else False
     use_str_pk = True if use_str_pk == "TRUE" else False
+    use_insert = True if use_insert == "TRUE" else False
 
     file_handler = logging.FileHandler(filename=f"/tmp/{log_name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -129,7 +131,7 @@ if __name__ == '__main__':
 
     create_n_insert(collection_name=name, dims=dims, vector_types=vector_types_in_enum, nb=nb, insert_times=insert_times,
                     index_types=indexes, metric_types=metrics, auto_id=auto_id, use_str_pk=use_str_pk, ttl=ttl,
-                    build_index=need_build_index, shards_num=shards)
+                    build_index=need_build_index, shards_num=shards, use_insert=use_insert)
 
     # load the collection
     if need_load:
