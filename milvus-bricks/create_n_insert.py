@@ -10,7 +10,7 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 intpk_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
-strpk_field = FieldSchema(name="id", dtype=DataType.VARCHAR, description="primary id", max_length=100)
+strpk_field = FieldSchema(name="id", dtype=DataType.VARCHAR, description="primary id", max_length=65535)
 
 category_field = FieldSchema(name="category", dtype=DataType.INT64, is_clustering_key=True,
                              description="category for partition key or clustering key")
@@ -27,7 +27,7 @@ json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=6553
 def create_n_insert(collection_name, dims, vector_types, nb, insert_times, index_types, metric_types=["L2"],
                     auto_id=True, use_str_pk=False, ttl=0, build_index=True, shards_num=1, is_flush=True, use_insert=True):
     id_field = strpk_field if use_str_pk else intpk_field
-    fields = [id_field, category_field]
+    fields = [id_field, category_field, device_field, fname_field, ext_field, ver_field, content_field, flag_field, json_field]
     # vec_field_names = []
     if not utility.has_collection(collection_name=collection_name):
         for i in range(len(dims)):
@@ -38,6 +38,7 @@ def create_n_insert(collection_name, dims, vector_types, nb, insert_times, index
                                   description=f"{collection_name}")    # do not change the description
         collection = Collection(name=collection_name, schema=schema,
                                 shards_num=shards_num, properties={"collection.ttl.seconds": ttl})
+        collection.set_properties({'mmap.enabled': True})
     else:
         collection = Collection(name=collection_name)
         logging.info(f"{collection_name} already exists")
