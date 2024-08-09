@@ -38,7 +38,7 @@ def create_n_insert(collection_name, dims, vector_types, nb, insert_times, index
                                   description=f"{collection_name}")    # do not change the description
         collection = Collection(name=collection_name, schema=schema,
                                 shards_num=shards_num, properties={"collection.ttl.seconds": ttl})
-        collection.set_properties({'mmap.enabled': True})
+        # collection.set_properties({'mmap.enabled': True})
     else:
         collection = Collection(name=collection_name)
         logging.info(f"{collection_name} already exists")
