@@ -27,7 +27,7 @@ json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=6553
 def create_n_insert(collection_name, dims, vector_types, nb, insert_times, index_types, metric_types=["L2"],
                     auto_id=True, use_str_pk=False, ttl=0, build_index=True, shards_num=1, is_flush=True, use_insert=True):
     id_field = strpk_field if use_str_pk else intpk_field
-    fields = [id_field, category_field, device_field, fname_field, ext_field, ver_field, content_field, flag_field, json_field]
+    fields = [id_field, category_field, ver_field]
     # vec_field_names = []
     if not utility.has_collection(collection_name=collection_name):
         for i in range(len(dims)):
