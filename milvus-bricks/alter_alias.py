@@ -15,7 +15,7 @@ if __name__ == '__main__':
     c_name = sys.argv[2]                                    # collection name is <c_name>_aa or <c_name>_bb
     dim = sys.argv[3]                                       # vector dimension
     nb = sys.argv[4]                                        # number of entities per insert round
-    insert_times = sys.argv[5]                              # number of insert rounds
+    insert_times = int(sys.argv[5])                         # number of insert rounds
     index_type = str(sys.argv[6]).upper()                   # index type is hnsw or diskann
     metric_type = str(sys.argv[7]).upper()                  # metric type is L2 or IP
     is_flush = str(sys.argv[8]).upper()                     # flush data or not

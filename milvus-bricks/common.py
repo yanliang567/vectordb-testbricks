@@ -242,7 +242,7 @@ def gen_upsert_data_by_pk_collection(collection, nb, start=0, end=0, new_version
 
 def insert_entities(collection, nb, rounds, use_insert=True):
     auto_id = collection.schema.auto_id
-    for r in range(rounds):
+    for r in range(int(rounds)):
         data = gen_data_by_collection(collection=collection, nb=nb, r=r)
         t1 = time.time()
         if not use_insert and auto_id is False:
