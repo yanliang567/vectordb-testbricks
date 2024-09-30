@@ -1,7 +1,7 @@
 import sys
 import os
 import logging
-from pymilvus import utility, connections, \
+from pymilvus import utility, DataType, connections, \
     Collection
 import create_n_insert
 import pymilvus.exceptions
@@ -51,12 +51,12 @@ if __name__ == '__main__':
     exists_bb = utility.has_collection(collection_name=f'{c_name}_bb')
     if not exists_aa:
         logging.info(f"creating collection {c_name}_aa")
-        create_n_insert.create_n_insert(collection_name=f'{c_name}_aa', vector_types=['FLOAT32'],
+        create_n_insert.create_n_insert(collection_name=f'{c_name}_aa', vector_types=[DataType.FLOAT_VECTOR],
                                         dims=[dim], nb=nb, insert_times=insert_times, is_flush=is_flush,
                                         index_types=[index_type], metric_types=[metric_type], auto_id=False)
     if not exists_bb:
         logging.info(f"creating collection {c_name}_bb with nb+1")
-        create_n_insert.create_n_insert(collection_name=f'{c_name}_bb', vector_types=['FLOAT32'],
+        create_n_insert.create_n_insert(collection_name=f'{c_name}_bb', vector_types=[DataType.FLOAT_VECTOR],
                                         dims=[dim], nb=nb+1, insert_times=insert_times, is_flush=is_flush,
                                         index_types=[index_type], metric_types=[metric_type], auto_id=False)
 
