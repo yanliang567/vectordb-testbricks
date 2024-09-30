@@ -13,8 +13,8 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 if __name__ == '__main__':
     host = sys.argv[1]
     c_name = sys.argv[2]                                    # collection name is <c_name>_aa or <c_name>_bb
-    dim = sys.argv[3]                                       # vector dimension
-    nb = sys.argv[4]                                        # number of entities per insert round
+    dim = int(sys.argv[3])                                  # vector dimension
+    nb = int(sys.argv[4])                                   # number of entities per insert round
     insert_times = int(sys.argv[5])                         # number of insert rounds
     index_type = str(sys.argv[6]).upper()                   # index type is hnsw or diskann
     metric_type = str(sys.argv[7]).upper()                  # metric type is L2 or IP
