@@ -113,6 +113,7 @@ def search(collection, index_0, nq, topk, threads_num, output_fields, expr, grou
     def search_th(col, thread_no):
         search_latency = []
         count = 0
+        failures = 0
         start_time = time.time()
         while time.time() < start_time + timeout:
             count += 1
@@ -126,6 +127,7 @@ def search(collection, index_0, nq, topk, threads_num, output_fields, expr, grou
                            expr=exact_expr, group_by_field=group_by_field,
                            output_fields=output_fields)
             except Exception as e:
+                failures += 1
                 logging.error(e)
             t2 = round(time.time() - t1, 4)
             search_latency.append(t2)
@@ -134,7 +136,8 @@ def search(collection, index_0, nq, topk, threads_num, output_fields, expr, grou
                 p99 = round(np.percentile(search_latency, 99), 4)
                 avg = round(np.mean(search_latency), 4)
                 qps = round(interval_count / total, 4)
-                logging.info(f"collection {col.description} search {interval_count} times in thread{thread_no}: cost {total}, qps {qps}, avg {avg}, p99 {p99} ")
+                logging.info(f"collection {col.description} total failures: {failures}, search {interval_count} times "
+                             f"in thread{thread_no}: cost {total}, qps {qps}, avg {avg}, p99 {p99} ")
                 count = 0
                 search_latency = []
 
@@ -150,6 +153,7 @@ def search(collection, index_0, nq, topk, threads_num, output_fields, expr, grou
         interval_count = 100
         search_latency = []
         count = 0
+        failures = 0
         start_time = time.time()
         while time.time() < start_time + timeout:
             count += 1
@@ -164,6 +168,7 @@ def search(collection, index_0, nq, topk, threads_num, output_fields, expr, grou
                                   param=search_params, limit=topk)
 
             except Exception as e:
+                failures += 1
                 logging.error(e)
             t2 = round(time.time() - t1, 4)
             search_latency.append(t2)
@@ -172,7 +177,8 @@ def search(collection, index_0, nq, topk, threads_num, output_fields, expr, grou
                 p99 = round(np.percentile(search_latency, 99), 4)
                 avg = round(np.mean(search_latency), 4)
                 qps = round(interval_count / total, 4)
-                logging.info(f"collection {collection.description} search {interval_count} times single thread: cost {total}, qps {qps}, avg {avg}, p99 {p99} ")
+                logging.info(f"collection {collection.description} total failures: {failures}, search {interval_count}"
+                             f" times single thread: cost {total}, qps {qps}, avg {avg}, p99 {p99}")
                 count = 0
                 search_latency = []
 
