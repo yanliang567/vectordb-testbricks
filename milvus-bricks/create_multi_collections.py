@@ -61,9 +61,9 @@ if __name__ == '__main__':
             auto_id = random.choice([True, False])
             metric_type = random.choice(["COSINE", "L2", "IP"])
             if not partition_key_enabled:
-                create_n_insert(collection_name=collection_name,
-                                dim=dim, nb=nb, insert_times=insert_times_per_partition, auto_id=auto_id,
-                                index_type=index_type, metric_type=metric_type, build_index=need_build_index,
+                create_n_insert(collection_name=collection_name, vector_types=[DataType.FLOAT_VECTOR],
+                                dims=[dim], nb=nb, insert_times=insert_times_per_partition, auto_id=auto_id,
+                                index_types=[index_type], metric_types=[metric_type], build_index=need_build_index,
                                 shards_num=shards_num)
             else:
                 num_partitions = 64 if partition_num == 0 else partition_num

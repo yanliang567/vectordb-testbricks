@@ -122,10 +122,12 @@ def search(collection, index_0, nq, topk, threads_num, output_fields, expr, grou
             exact_expr = None if expr is None else expr+str(parkey)
             t1 = time.time()
             try:
-                col.search(data=search_vectors, anns_field=vector_field_name,
-                           param=search_params, limit=topk,
-                           expr=exact_expr, group_by_field=group_by_field,
-                           output_fields=output_fields)
+                res = col.search(data=search_vectors, anns_field=vector_field_name,
+                                 param=search_params, limit=topk,
+                                 expr=exact_expr, group_by_field=group_by_field,
+                                 output_fields=output_fields)
+                if len(res[0]) != topk:
+                    logging.info(f"search results do not meet topk, expected:{topk}, actual:{len(res[0])}")
             except Exception as e:
                 failures += 1
                 logging.error(e)
@@ -162,11 +164,12 @@ def search(collection, index_0, nq, topk, threads_num, output_fields, expr, grou
             exact_expr = None if expr is None else expr+str(parkey)
             t1 = time.time()
             try:
-                collection.search(data=search_vectors, anns_field=vector_field_name,
-                                  output_fields=output_fields, expr=exact_expr,
-                                  group_by_field=group_by_field,
-                                  param=search_params, limit=topk)
-
+                res = collection.search(data=search_vectors, anns_field=vector_field_name,
+                                        output_fields=output_fields, expr=exact_expr,
+                                        group_by_field=group_by_field,
+                                        param=search_params, limit=topk)
+                if len(res[0]) != topk:
+                    logging.info(f"search results do not meet topk, expected:{topk}, actual:{len(res[0])}")
             except Exception as e:
                 failures += 1
                 logging.error(e)
