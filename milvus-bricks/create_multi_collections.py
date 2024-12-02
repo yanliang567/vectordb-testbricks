@@ -88,7 +88,7 @@ if __name__ == '__main__':
                     p.insert(data)
                     t2 = round(time.time() - t1, 3)
                     logging.info(f"{partition_name} insert {r} costs {t2}")
-            c.flush()
+            # c.flush()
 
         if need_load:
             c = Collection(name=collection_name)
