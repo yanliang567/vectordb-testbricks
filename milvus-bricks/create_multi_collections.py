@@ -93,7 +93,7 @@ if __name__ == '__main__':
         if need_load:
             c = Collection(name=collection_name)
             t1 = time.time()
-            c.load(_async=True)
+            c.load()
             t2 = round(time.time() - t1, 3)
             logging.info(f"{collection_name} load in {t2}")
 
