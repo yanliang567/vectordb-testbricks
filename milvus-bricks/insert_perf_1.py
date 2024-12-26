@@ -14,7 +14,7 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
-def do_insert(collection, threads_num, ins_times_per_thread):
+def do_insert(collection, threads_num, ins_times_per_thread, sleep_interval):
 
     def insert_th(collection, rounds, thread_no):
         for r in range(rounds):
@@ -23,6 +23,7 @@ def do_insert(collection, threads_num, ins_times_per_thread):
             res = collection.insert(data)
             t2 = round(time.time() - t1, 3)
             logging.info(f"assert insert thread{thread_no} round{r}: {t2}")
+            time.sleep(sleep_interval)
 
     # insert
     threads = []
@@ -41,6 +42,7 @@ def do_insert(collection, threads_num, ins_times_per_thread):
             res = collection.insert(data)
             t2 = round(time.time() - t1, 3)
             logging.info(f"assert insert thread0 round{r}: {t2}")
+            time.sleep(sleep_interval)
 
 
 if __name__ == '__main__':
@@ -50,6 +52,7 @@ if __name__ == '__main__':
     nb = int(sys.argv[4])                       # number of vectors per insert request
     num_threads = int(sys.argv[5])              # insert thread num
     ins_per_thread = int(sys.argv[6])           # insert times per thread
+    sleep_interval = int(sys.argv[7])               # sleep time between every insert request
     port = 19530
 
     file_handler = logging.FileHandler(filename=f"/tmp/insert_perf_{collection_name}.log")
@@ -60,7 +63,8 @@ if __name__ == '__main__':
 
     conn = connections.connect('default', host=host, port=port)
     logging.info(f"host={host}, collection_name={collection_name}, dim={dim}, "
-                 f"nb={nb}, num_threads={num_threads}, ins_times_per_thread={ins_per_thread}")
+                 f"nb={nb}, num_threads={num_threads}, ins_times_per_thread={ins_per_thread}, "
+                 f"sleep_interval={sleep_interval}")
     logging.info("Insert perf start... ...")
 
     # check and get the collection info
@@ -71,7 +75,7 @@ if __name__ == '__main__':
     c = Collection(collection_name)
     # insert
     t1 = time.time()
-    do_insert(c, num_threads, ins_per_thread)
+    do_insert(c, num_threads, ins_per_thread, sleep_interval)
     t2 = time.time() - t1
     req_per_sec = round(ins_per_thread * num_threads / t2, 3)  # how many insert requests response per second
     entities_throughput = round(nb * req_per_sec, 3)  # how many entities inserted per second
