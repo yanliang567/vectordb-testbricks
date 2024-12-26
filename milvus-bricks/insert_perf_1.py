@@ -70,7 +70,8 @@ if __name__ == '__main__':
     # check and get the collection info
     if not utility.has_collection(collection_name=collection_name):
         logging.error(f"collection: {collection_name} does not exit, create an empty one as default")
-        create_n_insert(collection_name=collection_name, dims=[dim], nb=nb, insert_times=0, build_index=False)
+        create_n_insert(collection_name=collection_name, vector_types=[DataType.FLOAT_VECTOR],
+                        dims=[dim], nb=nb, insert_times=0, index_types=['HNSW'])
 
     c = Collection(collection_name)
     # insert
