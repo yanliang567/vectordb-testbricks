@@ -51,7 +51,7 @@ if __name__ == '__main__':
         fields = [intpk_field, fname_field, version_field, embedding_field]
         schema = CollectionSchema(fields=fields, auto_id=False, primary_field=intpk_field.name,
                                   description=f"{collection_name}")
-        create_n_insert(collection_name=collection_name, dims=[dim], nb=2000, insert_times=0, index_types="HNSW",
+        create_n_insert(collection_name=collection_name, dims=[dim], nb=2000, insert_times=0, index_types=["HNSW"],
                         auto_id=False, vector_types=[DataType.FLOAT_VECTOR], metric_types=["L2"], schema=schema)
 
     c = Collection(name=collection_name)
