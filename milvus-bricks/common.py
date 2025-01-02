@@ -157,9 +157,12 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
                     logging.error(f"varchar pk shall not be auto_id.")
                     return None
             else:
-                max_length = field.params.get("max_length")
-                data.append(["bb_" + gen_str_by_length(max_length//10) for _ in range(nb)])
-                # data.append([json.dumps(s) for _ in range(start_uid, start_uid + nb)])
+                if field.name == "version":
+                    data.append([new_version for _ in range(nb)])
+                else:
+                    max_length = field.params.get("max_length")
+                    data.append(["bb_" + gen_str_by_length(max_length//10) for _ in range(nb)])
+                    # data.append([json.dumps(s) for _ in range(start_uid, start_uid + nb)])
                 continue
         if field.dtype == DataType.JSON:
             # data.append([{"number": i, "float": i * 1.0} for i in range(start_uid, start_uid + nb)])

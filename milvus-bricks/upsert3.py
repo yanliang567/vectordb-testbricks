@@ -22,7 +22,7 @@ if __name__ == '__main__':
     collection_name = sys.argv[2]                       # collection mame
     upsert_rounds = int(sys.argv[3])                    # upsert time
     entities_per_round = int(sys.argv[4])               # entities to be upsert per round
-    new_version = int(sys.argv[5])                      # the new value for version field in upsert requests
+    new_version = str(sys.argv[5]).upper()                      # the new value for version field in upsert requests
     interval = int(sys.argv[6])                         # interval between upsert rounds
     check_diff = str(sys.argv[7]).upper()               # if check dup entity
     port = 19530
@@ -39,6 +39,7 @@ if __name__ == '__main__':
 
     conn = connections.connect('default', host=host, port=port)
     check_diff = True if check_diff == "TRUE" else False
+    new_version = time.asctime() if new_version == "NONE" else new_version
 
     # check and get the collection info
     if not utility.has_collection(collection_name=collection_name):
@@ -46,13 +47,14 @@ if __name__ == '__main__':
         dim = 128
         intpk_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
         fname_field = FieldSchema(name="fname", dtype=DataType.VARCHAR, max_length=256, description="fname")
-        version_field = FieldSchema(name="version", dtype=DataType.INT32, description="data version")
+        version_field = FieldSchema(name="version", dtype=DataType.VARCHAR, max_length=256, description="data version")
         embedding_field = FieldSchema(name=f"embeddings", dtype=DataType.FLOAT_VECTOR, dim=dim)
         fields = [intpk_field, fname_field, version_field, embedding_field]
         schema = CollectionSchema(fields=fields, auto_id=False, primary_field=intpk_field.name,
                                   description=f"{collection_name}")
         create_n_insert(collection_name=collection_name, dims=[dim], nb=2000, insert_times=0, index_types=["HNSW"],
-                        auto_id=False, vector_types=[DataType.FLOAT_VECTOR], metric_types=["L2"], schema=schema)
+                        auto_id=False, vector_types=[DataType.FLOAT_VECTOR], metric_types=["L2"],
+                        build_index=True, schema=schema)
 
     c = Collection(name=collection_name)
     if len(c.indexes) == 0:
@@ -80,7 +82,7 @@ if __name__ == '__main__':
     new_max_id = c.query(expr="", output_fields=["count(*)"],
                          consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
 
-    logging.info(f"{collection_name} upsert3 completed, max_id: {max_id}, new_max_id: {new_max_id}")
+    logging.info(f"{collection_name} upsert3 completed, max_id: {max_id}, new_query_count*: {new_max_id}")
 
     if max_id != new_max_id and check_diff:
         dup_count = 0
