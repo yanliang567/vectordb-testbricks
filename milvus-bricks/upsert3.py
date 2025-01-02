@@ -23,8 +23,8 @@ if __name__ == '__main__':
     upsert_rounds = int(sys.argv[3])                    # upsert time
     entities_per_round = int(sys.argv[4])               # entities to be upsert per round
     new_version = int(sys.argv[5])                      # the new value for version field in upsert requests
-    interval = int(sys.argv[7])                         # interval between upsert rounds
-    check_diff = str(sys.argv[8]).upper()               # if check dup entity
+    interval = int(sys.argv[6])                         # interval between upsert rounds
+    check_diff = str(sys.argv[7]).upper()               # if check dup entity
     port = 19530
 
     file_handler = logging.FileHandler(filename=f"/tmp/upsert3_{collection_name}.log")
