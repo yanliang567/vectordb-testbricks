@@ -240,7 +240,7 @@ def gen_upsert_data_by_pk_collection(collection, nb, start=0, end=0, new_version
     return data
 
 
-def insert_entities(collection, nb, rounds, use_insert=True, new_version=0):
+def insert_entities(collection, nb, rounds, use_insert=True, interval=0, new_version=0):
     auto_id = collection.schema.auto_id
     for r in range(int(rounds)):
         data = gen_data_by_collection(collection=collection, nb=nb, r=r, new_version=new_version)
@@ -251,6 +251,7 @@ def insert_entities(collection, nb, rounds, use_insert=True, new_version=0):
             collection.insert(data)
         t2 = round(time.time() - t1, 3)
         logging.info(f"{collection.name} insert {r} costs {t2}")
+        time.sleep(interval)
 
 
 def upsert_entities(collection, nb, rounds, maxid, new_version=0, unique_in_requests=False, interval=0):

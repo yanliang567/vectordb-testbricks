@@ -75,7 +75,7 @@ if __name__ == '__main__':
     # start upsert
     logging.info(f"{collection_name} upsert3 start: nb={entities_per_round}, rounds={upsert_rounds}")
     insert_entities(collection=c, nb=entities_per_round, rounds=upsert_rounds,
-                    use_insert=False, new_version=new_version)
+                    use_insert=False, interval=interval, new_version=new_version)
     c.flush()
     new_max_id = c.query(expr="", output_fields=["count(*)"],
                          consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
