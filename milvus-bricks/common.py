@@ -108,7 +108,7 @@ def delete_entities(collection, nb, search_params, rounds):
             logging.info(f"deleted entities {start_uid}-{end_uid}")
 
 
-def gen_data_by_collection(collection, nb, r):
+def gen_data_by_collection(collection, nb, r, new_version=0):
     data = []
     s = '{"glossary": {"title": "example glossary", "GlossDiv": {"title": "S", "GlossList": ' \
         '{"GlossEntry": {"ID": "SGML","SortAs": "SGML","GlossTerm": ' \
@@ -144,7 +144,7 @@ def gen_data_by_collection(collection, nb, r):
             continue
         if field.dtype == DataType.INT32:
             if field.name == "version":
-                data.append([0 for _ in range(nb)])
+                data.append([new_version for _ in range(nb)])
             else:
                 data.append([random.randint(-2147483648, 2147483647) for _ in range(nb)])
             continue
@@ -240,10 +240,10 @@ def gen_upsert_data_by_pk_collection(collection, nb, start=0, end=0, new_version
     return data
 
 
-def insert_entities(collection, nb, rounds, use_insert=True):
+def insert_entities(collection, nb, rounds, use_insert=True, new_version=0):
     auto_id = collection.schema.auto_id
     for r in range(int(rounds)):
-        data = gen_data_by_collection(collection=collection, nb=nb, r=r)
+        data = gen_data_by_collection(collection=collection, nb=nb, r=r, new_version=new_version)
         t1 = time.time()
         if not use_insert and auto_id is False:
             collection.upsert(data)

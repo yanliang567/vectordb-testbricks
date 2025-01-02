@@ -26,7 +26,7 @@ json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=6553
 
 def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector_types=[DataType.FLOAT_VECTOR],
                     metric_types=["L2"], auto_id=True, use_str_pk=False, ttl=0,
-                    build_index=True, shards_num=1, is_flush=True, use_insert=True):
+                    build_index=True, shards_num=1, is_flush=True, use_insert=True, schema=None):
     id_field = strpk_field if use_str_pk else intpk_field
     fields = [id_field, category_field, ver_field]
     # vec_field_names = []
@@ -35,8 +35,9 @@ def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector
             embedding_field = FieldSchema(name=f"embedding_{i}", dtype=vector_types[i], dim=int(dims[i]))
             fields.append(embedding_field)
             # vec_field_names.append(embedding_field.name)
-        schema = CollectionSchema(fields=fields, auto_id=auto_id, primary_field=id_field.name,
-                                  description=f"{collection_name}")    # do not change the description
+        if schema is None:
+            schema = CollectionSchema(fields=fields, auto_id=auto_id, primary_field=id_field.name,
+                                      description=f"{collection_name}")    # do not change the description
         collection = Collection(name=collection_name, schema=schema,
                                 shards_num=shards_num, properties={"collection.ttl.seconds": ttl})
         # collection.set_properties({'mmap.enabled': True})
