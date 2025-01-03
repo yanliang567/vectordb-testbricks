@@ -33,13 +33,14 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     logger = logging.getLogger('LOGGER_NAME')
 
+    check_diff = True if check_diff == "TRUE" else False
+    new_version = time.asctime() if new_version == "NONE" else new_version
+
     logging.info(f"upsert3: host={host}, collection_name={collection_name}, upsert_rounds={upsert_rounds}, "
                  f"entities_per_round={entities_per_round}, new_version={new_version}, interval={interval}, "
                  f"check_diff={check_diff}")
 
     conn = connections.connect('default', host=host, port=port)
-    check_diff = True if check_diff == "TRUE" else False
-    new_version = time.asctime() if new_version == "NONE" else new_version
 
     # check and get the collection info
     if not utility.has_collection(collection_name=collection_name):
@@ -78,7 +79,7 @@ if __name__ == '__main__':
     logging.info(f"{collection_name} upsert3 start: nb={entities_per_round}, rounds={upsert_rounds}")
     insert_entities(collection=c, nb=entities_per_round, rounds=upsert_rounds,
                     use_insert=False, interval=interval, new_version=new_version)
-    c.flush()
+    # c.flush()
     new_max_id = c.query(expr="", output_fields=["count(*)"])[0].get("count(*)")
 
     logging.info(f"{collection_name} upsert3 completed, max_id: {max_id}, new_query_count*: {new_max_id}")
