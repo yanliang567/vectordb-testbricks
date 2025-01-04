@@ -73,8 +73,14 @@ if __name__ == '__main__':
     t2 = round(time.time() - t1, 3)
     logging.info(f"load {collection_name}: {t2}")
 
+    if c.num_entities > 0:
+        res = c.query(expr="", limit=1, output_fields=["version"])
+        old_version = res[0].get("version")
+        logging.info(f"old_version: {old_version}")
+
     max_id = upsert_rounds * entities_per_round
-    logging.info(f"{collection_name} is going to upsert {max_id} entities, starting from id 0")
+    logging.info(f"{collection_name} is going to upsert {max_id} entities, "
+                 f"starting from id 0, new_version: {new_version}")
     # start upsert
     logging.info(f"{collection_name} upsert3 start: nb={entities_per_round}, rounds={upsert_rounds}")
     insert_entities(collection=c, nb=entities_per_round, rounds=upsert_rounds,
@@ -83,6 +89,13 @@ if __name__ == '__main__':
     new_max_id = c.query(expr="", output_fields=["count(*)"])[0].get("count(*)")
 
     logging.info(f"{collection_name} upsert3 completed, max_id: {max_id}, new_query_count*: {new_max_id}")
+
+    res = c.query(expr=f"version=='{old_version}'", output_fields=["count(*)"])
+    count = res[0]["count(*)"]
+    if count > 0:
+        logging.error(f"old_version {old_version} found {count} entities")
+    else:
+        logging.info(f"old_version {old_version} not found in the collection")
 
     if check_diff:
         dup_count = 0
