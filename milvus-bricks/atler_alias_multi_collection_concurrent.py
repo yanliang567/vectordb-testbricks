@@ -59,7 +59,7 @@ if __name__ == '__main__':
                                             dims=[dim], nb=nb, insert_times=insert_times, is_flush=is_flush,
                                             index_types=[index_type], metric_types=[metric_type],
                                             auto_id=False, new_version=0)
-            utility.wait_for_index_building_complete(collection_name=name, index_name=f"embedding_0_index")
+            utility.wait_for_index_building_complete(collection_name=name, index_name=f"embedding_0")
         if not exists_bb:
             name = f"{prefix_name}_bb"
             logging.info(f"creating collection {name} with nb+1")
@@ -67,7 +67,7 @@ if __name__ == '__main__':
                                             dims=[dim], nb=nb+1, insert_times=insert_times, is_flush=is_flush,
                                             index_types=[index_type], metric_types=[metric_type],
                                             auto_id=False, new_version=1)
-            utility.wait_for_index_building_complete(collection_name=name, index_name=f"embedding_0_index")
+            utility.wait_for_index_building_complete(collection_name=name, index_name=f"embedding_0")
 
     # alter alias
     to_be_dropped_collections = []
