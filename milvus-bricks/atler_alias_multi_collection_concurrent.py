@@ -60,7 +60,7 @@ if __name__ == '__main__':
                                             index_types=[index_type], metric_types=[metric_type],
                                             auto_id=False, new_version=0)
             utility.wait_for_index_building_complete(collection_name=name, index_name=f"embedding_0")
-        if not exists_bb:
+        if (not exists_bb) and exists_aa:
             name = f"{prefix_name}_bb"
             logging.info(f"creating collection {name} with nb+1")
             create_n_insert.create_n_insert(collection_name=name, vector_types=[DataType.FLOAT_VECTOR],
@@ -102,4 +102,5 @@ if __name__ == '__main__':
         utility.wait_for_loading_complete(c.name)
         c.release()
         c.drop()
+        logging.info(f"collection {c.name} dropped")
     logging.info(f"alter {c_name} alias completed")
