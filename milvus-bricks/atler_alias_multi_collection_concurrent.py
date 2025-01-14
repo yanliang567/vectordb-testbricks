@@ -83,6 +83,7 @@ if __name__ == '__main__':
                 next_name = f"{prefix_name}_bb" if description == f"{prefix_name}_aa" else f"{prefix_name}_aa"
                 next_collection = Collection(next_name)
                 next_collection.load(replica_number=load_replicas, _async=True)
+                utility.alter_alias(collection_name=next_name, alias=alias_name)
                 current_collection = Collection(description)
                 to_be_dropped_collections.append(current_collection)
             else:
@@ -98,9 +99,10 @@ if __name__ == '__main__':
         collection = Collection(alias_name)
         logging.info(f"collection alias after altered: {collection.description}, num_entities: {collection.num_entities}")
 
-    for c in to_be_dropped_collections:
-        utility.wait_for_loading_complete(c.name)
-        c.release()
-        c.drop()
-        logging.info(f"collection {c.name} dropped")
+    if drop_after_alter_alias:
+        for c in to_be_dropped_collections:
+            utility.wait_for_loading_complete(c.name)
+            c.release()
+            c.drop()
+            logging.info(f"collection {c.name} dropped")
     logging.info(f"alter {c_name} alias completed")
