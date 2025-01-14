@@ -88,4 +88,4 @@ if __name__ == '__main__':
     collection = Collection(alias_name)
     logging.info(f"collection alias after altered: {collection.description}, num_entities: {collection.num_entities}")
 
-    logging.info(f"alter alias completed")
+    logging.info(f"alter {c_name} alias completed")

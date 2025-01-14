@@ -67,18 +67,6 @@ if __name__ == '__main__':
             utility.wait_for_loading_complete(c.name)
             logging.info(f"collection:{name} loaded completed")
 
-    # dim = get_float_vec_dim(collection)
-    # vector_field_name = get_float_vec_field_name(collection)
-    # nq = 1
-    # topk = 10
-    # search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
-    # search_params = get_search_params(collection, topk)
-    # t1 = time.time()
-    # try:
-    #     collection.search(data=search_vectors, anns_field=vector_field_name, param=search_params, limit=topk)
-    # except Exception as e:
-    #     logging.error(e)
-    # t2 = round(time.time() - t1, 4)
-    # logging.info(f"collection {collection.description} search: cost {t2}")
-
     logging.info(f"load release for {reload_times} times completed")
+
+
