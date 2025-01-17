@@ -77,6 +77,9 @@ if __name__ == '__main__':
         res = c.query(expr="", limit=1, output_fields=["version"])
         old_version = res[0].get("version")
         logging.info(f"old_version: {old_version}")
+    else:
+        old_version = "NONE"
+        logging.info(f"collection is empty, old_version: {old_version}")
 
     max_id = upsert_rounds * entities_per_round
     logging.info(f"{collection_name} is going to upsert {max_id} entities, "
