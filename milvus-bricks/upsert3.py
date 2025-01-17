@@ -89,11 +89,11 @@ if __name__ == '__main__':
     insert_entities(collection=c, nb=entities_per_round, rounds=upsert_rounds,
                     use_insert=False, interval=interval, new_version=new_version)
     # c.flush()
-    new_max_id = c.query(expr="", output_fields=["count(*)"])[0].get("count(*)")
+    new_max_id = c.query(expr="", output_fields=["count(*)"], consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
 
     logging.info(f"{collection_name} upsert3 completed, max_id: {max_id}, new_query_count*: {new_max_id}")
 
-    res = c.query(expr=f"version=='{old_version}'", output_fields=["count(*)"])
+    res = c.query(expr=f"version=='{old_version}'", output_fields=["count(*)"], consistency_level=CONSISTENCY_STRONG)
     count = res[0]["count(*)"]
     if count > 0:
         logging.error(f"old_version {old_version} found {count} entities")
@@ -104,7 +104,7 @@ if __name__ == '__main__':
         dup_count = 0
         logging.info(f"start checking the difference between max_id and new_max_id...")
         for i in range(max_id):
-            res = c.query(expr=f"id=={i}", output_fields=["count(*)"])   #, consistency_level=CONSISTENCY_STRONG)
+            res = c.query(expr=f"id=={i}", output_fields=["count(*)"], consistency_level=CONSISTENCY_STRONG)
             count = res[0]["count(*)"]
             if count == 1:
                 pass
