@@ -21,7 +21,7 @@ if __name__ == '__main__':
     expr = str(sys.argv[5]).strip()                 # search expression, default is None
     nq = int(sys.argv[6])                           # search nq
     topk = int(sys.argv[7])                         # search topk
-    api_key = str(sys.argv[8] )                     # cloud api key or token
+    api_key = str(sys.argv[8])                     # cloud api key or token
     port = 19530
 
     ignore_growing = True if ignore_growing == "TRUE" else False

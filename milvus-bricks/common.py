@@ -126,7 +126,8 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
         if field.dtype == DataType.INT64:
             if field.is_primary:
                 if not auto_id:
-                    data.append([_ for _ in range(start_uid, start_uid + nb)])
+                    pks = [_ for _ in range(start_uid, start_uid + nb)]
+                    data.append(random.shuffle(pks))
                     continue
                 else:
                     continue
@@ -151,7 +152,8 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
         if field.dtype == DataType.VARCHAR:
             if field.is_primary:
                 if not auto_id:
-                    data.append([pk_prefix + str(j) for j in range(start_uid, start_uid + nb)])
+                    pks = [pk_prefix + str(j) for j in range(start_uid, start_uid + nb)]
+                    data.append(random.shuffle(pks))
                     continue
                 else:
                     logging.error(f"varchar pk shall not be auto_id.")
