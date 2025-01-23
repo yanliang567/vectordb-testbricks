@@ -100,7 +100,7 @@ if __name__ == '__main__':
             if field.name == "version":
                 version_field_type = field.dtype
                 break
-        if new_version == "NONE":
+        if new_version.upper() == "NONE":
             logging.info(f"version field type: {version_field_type}")
             if version_field_type == DataType.VARCHAR:
                 new_version = time.asctime()
