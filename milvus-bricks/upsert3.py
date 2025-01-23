@@ -22,7 +22,7 @@ if __name__ == '__main__':
     collection_name = sys.argv[2]                       # collection mame
     upsert_rounds = int(sys.argv[3])                    # upsert time
     entities_per_round = int(sys.argv[4])               # entities to be upsert per round
-    new_version = str(sys.argv[5]).upper()                      # the new value for version field in upsert requests
+    new_version = sys.argv[5]                           # the new value for version field in upsert requests
     interval = int(sys.argv[6])                         # interval between upsert rounds
     check_diff = str(sys.argv[7]).upper()               # if check dup entity
     port = 19530
@@ -106,7 +106,8 @@ if __name__ == '__main__':
 
         logging.info(f"{collection_name} upsert3 completed, max_id: {max_id}, new_query_count*: {new_max_id}")
 
-        res = c.query(expr=f"version=='{old_version}'", output_fields=["count(*)"], consistency_level=CONSISTENCY_STRONG)
+        expr = f"version=='{old_version}'" if old_version.__class__ == str else f"version=={old_version}"
+        res = c.query(expr=expr, output_fields=["count(*)"], consistency_level=CONSISTENCY_STRONG)
         count = res[0]["count(*)"]
         if count > 0:
             logging.error(f"{collection_name} old_version {old_version} found {count} entities")
