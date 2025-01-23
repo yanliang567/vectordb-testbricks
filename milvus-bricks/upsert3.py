@@ -34,7 +34,6 @@ if __name__ == '__main__':
     logger = logging.getLogger('LOGGER_NAME')
 
     check_diff = True if check_diff == "TRUE" else False
-    new_version = time.asctime() if new_version == "NONE" else new_version
     rand_c = True if collection_name.upper() == "RAND" or collection_name.upper() == "RANDOM" else False
 
     logging.info(f"upsert3: host={host}, collection_name={collection_name}, upsert_rounds={upsert_rounds}, "
@@ -94,6 +93,20 @@ if __name__ == '__main__':
             old_version = "NONE"
             logging.info(f"collection is empty, old_version: {old_version}")
 
+        # get version field type
+        fields = c.schema.fields
+        for field in fields:
+            if field.name == "version":
+                version_field_type = field.dtype
+                break
+        if new_version == "NONE":
+            if version_field_type == DataType.VARCHAR:
+                new_version = time.asctime()
+            elif version_field_type == DataType.INT32:
+                new_version = int(time.time())
+        else:
+            pass
+
         max_id = upsert_rounds * entities_per_round
         logging.info(f"{collection_name} is going to upsert {max_id} entities, "
                      f"starting from id 0, new_version: {new_version}")
@@ -106,7 +119,7 @@ if __name__ == '__main__':
 
         logging.info(f"{collection_name} upsert3 completed, max_id: {max_id}, new_query_count*: {new_max_id}")
 
-        expr = f"version=='{old_version}'" if old_version.__class__ == str else f"version=={old_version}"
+        expr = f"version=='{old_version}'" if version_field_type == DataType.VARCHAR else f"version=={old_version}"
         res = c.query(expr=expr, output_fields=["count(*)"], consistency_level=CONSISTENCY_STRONG)
         count = res[0]["count(*)"]
         if count > 0:
