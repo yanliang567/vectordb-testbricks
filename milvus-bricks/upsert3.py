@@ -96,10 +96,12 @@ if __name__ == '__main__':
         # get version field type
         fields = c.schema.fields
         for field in fields:
+            logging.info(f"field: {field.name}, {field.dtype}")
             if field.name == "version":
                 version_field_type = field.dtype
                 break
         if new_version == "NONE":
+            logging.info(f"version field type: {version_field_type}")
             if version_field_type == DataType.VARCHAR:
                 new_version = time.asctime()
             elif version_field_type == DataType.INT32:
