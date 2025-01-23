@@ -17,9 +17,10 @@ if __name__ == '__main__':
     """
     upsert the entities in the collection with the same id, the version field will be updated as input
     only works for int64 primary key, staring from 0
+    will randomly select 100 collections if collection_name is "rand" or "random"
     """
     host = sys.argv[1]
-    collection_name = sys.argv[2]                       # collection mame
+    collection_name = sys.argv[2]                       # collection mame, if random, it will randomly select 100 collections
     upsert_rounds = int(sys.argv[3])                    # upsert time
     entities_per_round = int(sys.argv[4])               # entities to be upsert per round
     new_version = sys.argv[5]                           # the new value for version field in upsert requests
