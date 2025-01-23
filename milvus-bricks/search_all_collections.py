@@ -65,10 +65,6 @@ if __name__ == '__main__':
         for name in utility.list_collections():
             collection = Collection(name=name)
             # logging.info(f"collection: {name}")
-            t1 = time.time()
-            collection.flush()
-            num = collection.num_entities
-            logging.info(f"collection {name} flushed in {round(time.time()-t1, 3)}, num_entities {num}")
             if not collection.has_index():
                 logging.info(f"collection: {name} has no index")
                 no_index += 1
@@ -82,6 +78,10 @@ if __name__ == '__main__':
                 not_loaded += 1
                 continue
             try:
+                t1 = time.time()
+                collection.flush()
+                num = collection.num_entities
+                logging.info(f"collection {name} flushed in {round(time.time() - t1, 3)}, num_entities {num}")
                 t1 = time.time()
                 dim = get_float_vec_dim(collection)
                 index_params = get_index_params(collection)
