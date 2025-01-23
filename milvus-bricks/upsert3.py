@@ -103,19 +103,19 @@ if __name__ == '__main__':
         if new_version.upper() == "NONE":
             logging.info(f"version field type: {version_field_type}")
             if version_field_type == DataType.VARCHAR:
-                new_version = time.asctime()
+                _new_version = time.asctime()
             elif version_field_type == DataType.INT32:
-                new_version = int(time.time())
+                _new_version = int(time.time())
         else:
             pass
 
         max_id = upsert_rounds * entities_per_round
         logging.info(f"{collection_name} is going to upsert {max_id} entities, "
-                     f"starting from id 0, new_version: {new_version}")
+                     f"starting from id 0, new_version: {_new_version}")
         # start upsert
         logging.info(f"{collection_name} upsert3 start: nb={entities_per_round}, rounds={upsert_rounds}")
         insert_entities(collection=c, nb=entities_per_round, rounds=upsert_rounds,
-                        use_insert=False, interval=interval, new_version=new_version)
+                        use_insert=False, interval=interval, new_version=_new_version)
         # c.flush()
         new_max_id = c.query(expr="", output_fields=["count(*)"], consistency_level=CONSISTENCY_STRONG)[0].get("count(*)")
 
