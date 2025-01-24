@@ -18,7 +18,7 @@ groupid_field = FieldSchema(name="groupid", dtype=DataType.INT64, description="g
 device_field = FieldSchema(name="device", dtype=DataType.VARCHAR, max_length=500, description="device")
 fname_field = FieldSchema(name="fname", dtype=DataType.VARCHAR, max_length=256, description="fname")
 ext_field = FieldSchema(name="ext", dtype=DataType.VARCHAR, max_length=20, description="ext")
-ver_field = FieldSchema(name="version", dtype=DataType.INT32, description="data version")
+ver_field = FieldSchema(name="version", dtype=DataType.VARCHAR, max_length=200, description="data version")
 content_field = FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535, description="content")
 flag_field = FieldSchema(name="flag", dtype=DataType.BOOL, description="flag")
 json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=65535, description="json content")
@@ -27,9 +27,9 @@ json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=6553
 def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector_types=[DataType.FLOAT_VECTOR],
                     metric_types=["L2"], auto_id=True, use_str_pk=False, ttl=0,
                     build_index=True, shards_num=1, is_flush=True, use_insert=True,
-                    schema=None, new_version=0):
+                    schema=None, new_version="0"):
     id_field = strpk_field if use_str_pk else intpk_field
-    fields = [id_field, category_field, ver_field]
+    fields = [id_field, category_field, groupid_field, ver_field]
     # vec_field_names = []
     if not utility.has_collection(collection_name=collection_name):
         for i in range(len(dims)):
