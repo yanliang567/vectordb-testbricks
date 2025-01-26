@@ -134,8 +134,10 @@ if __name__ == '__main__':
     else:
         conn = connections.connect('default', uri=host, token=api_key)
 
-    create_n_insert(collection_name=name, dims=dims, vector_types=vector_types_in_enum, nb=nb, insert_times=insert_times,
-                    index_types=indexes, metric_types=metrics, auto_id=auto_id, use_str_pk=use_str_pk, ttl=ttl,
+    flush = False
+    create_n_insert(collection_name=name, dims=dims, vector_types=vector_types_in_enum, nb=nb,
+                    insert_times=insert_times, index_types=indexes, metric_types=metrics,
+                    auto_id=auto_id, use_str_pk=use_str_pk, ttl=ttl, is_flush=flush,
                     build_index=need_build_index, shards_num=shards, use_insert=use_insert)
 
     # load the collection
