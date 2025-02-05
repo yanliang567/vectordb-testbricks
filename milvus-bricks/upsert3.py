@@ -106,7 +106,7 @@ if __name__ == '__main__':
             elif version_field_type == DataType.INT32:
                 _new_version = int(time.time())
         else:
-            pass
+            _new_version = new_version
 
         max_id = upsert_rounds * entities_per_round
         logging.info(f"{collection_name} is going to upsert {max_id} entities, "
