@@ -162,7 +162,7 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
                     return None
             else:
                 if field.name == "version":
-                    data.append([new_version for _ in range(nb)])
+                    data.append([str(new_version) for _ in range(nb)])
                 else:
                     max_length = field.params.get("max_length")
                     data.append(["bb_" + gen_str_by_length(max_length//10) for _ in range(nb)])
