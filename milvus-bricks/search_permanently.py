@@ -92,7 +92,7 @@ def hybrid_search(collection, vec_field_names, nq, topk, threads_num, output_fie
                 search_latency = []
 
 
-def search(collection, index_0, nq, topk, threads_num, output_fields, expr, group_by_field, timeout):
+def search(collection, partitions, index_0, nq, topk, threads_num, output_fields, expr, group_by_field, timeout):
     threads_num = int(threads_num)
     interval_count = 1000
     # vector_field_name = get_float_vec_field_name(collection)
@@ -103,6 +103,7 @@ def search(collection, index_0, nq, topk, threads_num, output_fields, expr, grou
     dim = get_dim_by_field_name(collection, vector_field_name)
     index_params = get_index_params(collection, index_name=index_name)
     search_params = get_search_params(collection, topk, index_name=index_name)
+    num_partitions = len(collection.partitions)
     logging.info(f"search on vector_field_name:{vector_field_name}, dim:{dim}")
     logging.info(f"index_name:{index_name}, index_param: {index_params}")
     logging.info(f"search_param: {search_params}")
@@ -120,9 +121,17 @@ def search(collection, index_0, nq, topk, threads_num, output_fields, expr, grou
             search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
             parkey = random.randint(1, 1000)
             exact_expr = None if expr is None else expr+str(parkey)
+            partition_names = None
+            if partitions is None:
+                partition_names = None
+            elif partitions.__class__ == "str" and partitions.upper() == "RANDOM" and num_partitions > 1:
+                partition_names = [f"partition_{random.randint(0, num_partitions-2)}"]
+            elif partitions.__class__ == "list":
+                partition_names = partitions
             t1 = time.time()
             try:
                 res = col.search(data=search_vectors, anns_field=vector_field_name,
+                                 partition_names=partition_names,
                                  param=search_params, limit=topk,
                                  expr=exact_expr, group_by_field=group_by_field,
                                  output_fields=output_fields)
@@ -162,9 +171,17 @@ def search(collection, index_0, nq, topk, threads_num, output_fields, expr, grou
             search_vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
             parkey = random.randint(1, 1000)
             exact_expr = None if expr is None else expr+str(parkey)
+            partition_names = None
+            if partitions is None:
+                partition_names = None
+            elif partitions.__class__ == "str" and partitions.upper() == "RANDOM" and num_partitions > 1:
+                partition_names = [f"partition_{random.randint(0, num_partitions - 2)}"]
+            elif partitions.__class__ == "list":
+                partition_names = partitions
             t1 = time.time()
             try:
                 res = collection.search(data=search_vectors, anns_field=vector_field_name,
+                                        partition_names=partition_names,
                                         output_fields=output_fields, expr=exact_expr,
                                         group_by_field=group_by_field,
                                         param=search_params, limit=topk)
@@ -235,8 +252,7 @@ if __name__ == '__main__':
     # check and get the collection info
     if not utility.has_collection(collection_name=name):
         logging.error(f"collection: {name} does not exit, create 10m-128d as default")
-        create_n_insert(collection_name=name, dim=128, nb=20000, insert_times=50,
-                        index_type="HNSW", metric_type="L2")
+        exit(-1)
 
     collection = Collection(name=name)
     if len(collection.indexes) == 0:
@@ -270,6 +286,7 @@ if __name__ == '__main__':
         if vec_field_names is None:
             vec_field_names = get_float_vec_field_names(collection)
         index = get_index_by_field_name(collection, vec_field_names[0])
-        search(collection, index, nq, topk, th, output_fields, expr, group_by_field, timeout)
+        partitions = "random"
+        search(collection, partitions, index, nq, topk, th, output_fields, expr, group_by_field, timeout)
 
     logging.info(f"search completed")
