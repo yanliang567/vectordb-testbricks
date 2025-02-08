@@ -124,10 +124,10 @@ def search(collection, partitions, index_0, nq, topk, threads_num, output_fields
             partition_names = None
             if partitions is None:
                 partition_names = None
-            elif partitions.__class__ == "str" and partitions.upper() == "RANDOM" and num_partitions > 1:
+            elif partitions.__class__ is str and partitions.upper() == "RANDOM" and num_partitions > 1:
                 partition_names = [f"partition_{random.randint(0, num_partitions-2)}"]
                 logging.info(f"1.search on partition: {partition_names}")
-            elif partitions.__class__ == "list":
+            elif partitions.__class__ is list:
                 partition_names = partitions
             t1 = time.time()
             try:
@@ -176,9 +176,9 @@ def search(collection, partitions, index_0, nq, topk, threads_num, output_fields
             partition_names = None
             if partitions is None:
                 partition_names = None
-            elif partitions.__class__ == "str" and partitions.upper() == "RANDOM" and num_partitions > 1:
+            elif partitions.__class__ is str and partitions.upper() == "RANDOM" and num_partitions > 1:
                 partition_names = [f"partition_{random.randint(0, num_partitions - 2)}"]
-            elif partitions.__class__ == "list":
+            elif partitions.__class__ is list:
                 partition_names = partitions
             t1 = time.time()
             try:
