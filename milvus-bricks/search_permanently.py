@@ -126,6 +126,7 @@ def search(collection, partitions, index_0, nq, topk, threads_num, output_fields
                 partition_names = None
             elif partitions.__class__ == "str" and partitions.upper() == "RANDOM" and num_partitions > 1:
                 partition_names = [f"partition_{random.randint(0, num_partitions-2)}"]
+                logging.info(f"search on partition: {partition_names}")
             elif partitions.__class__ == "list":
                 partition_names = partitions
             t1 = time.time()
@@ -286,7 +287,7 @@ if __name__ == '__main__':
         if vec_field_names is None:
             vec_field_names = get_float_vec_field_names(collection)
         index = get_index_by_field_name(collection, vec_field_names[0])
-        partitions = "random"
+        partitions = "RANDOM"
         search(collection, partitions, index, nq, topk, th, output_fields, expr, group_by_field, timeout)
 
     logging.info(f"search completed")
