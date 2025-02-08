@@ -126,7 +126,6 @@ def search(collection, partitions, index_0, nq, topk, threads_num, output_fields
                 partition_names = None
             elif partitions.__class__ is str and partitions.upper() == "RANDOM" and num_partitions > 1:
                 partition_names = [f"partition_{random.randint(0, num_partitions-2)}"]
-                logging.info(f"1.search on partition: {partition_names}")
             elif partitions.__class__ is list:
                 partition_names = partitions
             t1 = time.time()
@@ -136,7 +135,6 @@ def search(collection, partitions, index_0, nq, topk, threads_num, output_fields
                                  param=search_params, limit=topk,
                                  expr=exact_expr, group_by_field=group_by_field,
                                  output_fields=output_fields)
-                logging.info(f"2.search on partition: {partition_names}")
                 if len(res[0]) != topk:
                     logging.info(f"search results do not meet topk, expected:{topk}, actual:{len(res[0])}")
             except Exception as e:
