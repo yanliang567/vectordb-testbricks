@@ -113,6 +113,7 @@ def search(collection, partitions, index_0, nq, topk, threads_num, output_fields
 
     def search_th(col, thread_no):
         search_latency = []
+        searched_partitions = []
         count = 0
         failures = 0
         start_time = time.time()
@@ -122,7 +123,6 @@ def search(collection, partitions, index_0, nq, topk, threads_num, output_fields
             parkey = random.randint(1, 1000)
             exact_expr = None if expr is None else expr+str(parkey)
             partition_names = None
-            searched_partitions = []
             if partitions is None:
                 partition_names = None
             elif partitions.__class__ is str and partitions.upper() == "RANDOM" and num_partitions > 1:
