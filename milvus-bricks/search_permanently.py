@@ -122,10 +122,12 @@ def search(collection, partitions, index_0, nq, topk, threads_num, output_fields
             parkey = random.randint(1, 1000)
             exact_expr = None if expr is None else expr+str(parkey)
             partition_names = None
+            searched_partitions = []
             if partitions is None:
                 partition_names = None
             elif partitions.__class__ is str and partitions.upper() == "RANDOM" and num_partitions > 1:
                 partition_names = [f"partition_{random.randint(0, num_partitions-2)}"]
+                searched_partitions.append(partition_names[0])
             elif partitions.__class__ is list:
                 partition_names = partitions
             t1 = time.time()
@@ -147,10 +149,13 @@ def search(collection, partitions, index_0, nq, topk, threads_num, output_fields
                 p99 = round(np.percentile(search_latency, 99), 4)
                 avg = round(np.mean(search_latency), 4)
                 qps = round(interval_count / total, 4)
-                logging.info(f"collection {col.description} total failures: {failures}, search {interval_count} times "
+                distict_partitions_num = len(set(searched_partitions))
+                logging.info(f"collection {col.description} on {distict_partitions_num} partitions, "
+                             f"total failures: {failures}, search {interval_count} times "
                              f"in thread{thread_no}: cost {total}, qps {qps}, avg {avg}, p99 {p99} ")
                 count = 0
                 search_latency = []
+                searched_partitions = []
 
     threads = []
     if threads_num > 1:
