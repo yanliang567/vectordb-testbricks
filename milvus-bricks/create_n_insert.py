@@ -17,7 +17,7 @@ category_field = FieldSchema(name="category", dtype=DataType.INT64,     # is_clu
 groupid_field = FieldSchema(name="groupid", dtype=DataType.INT64, description="groupid")
 device_field = FieldSchema(name="device", dtype=DataType.VARCHAR, max_length=500, description="device")
 fname_field = FieldSchema(name="fname", dtype=DataType.VARCHAR, max_length=256, description="fname")
-ext_field = FieldSchema(name="ext", dtype=DataType.VARCHAR, max_length=20, description="ext")
+ext_field = FieldSchema(name="ext", dtype=DataType.VARCHAR, max_length=20, description="ext", is_partition_key=True)
 ver_field = FieldSchema(name="version", dtype=DataType.VARCHAR, max_length=200, description="data version")
 content_field = FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535, description="content")
 flag_field = FieldSchema(name="flag", dtype=DataType.BOOL, description="flag")
