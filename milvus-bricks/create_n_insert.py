@@ -68,7 +68,7 @@ def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector
                 logging.info(f"{vec_field_name} index already exists: {idx.params}")
         # build index for all the scalar fields
         for field in collection.schema.fields:
-            if field.name not in vec_field_names and field.dtype == DataType.JSON:
+            if field.name not in vec_field_names and field.dtype != DataType.JSON:
                 logging.info(f"build index for {field.name}")
                 collection.create_index(field_name=field.name)
     else:
