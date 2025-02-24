@@ -12,7 +12,7 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 intpk_field = FieldSchema(name="id", dtype=DataType.INT64, description="primary id")
 strpk_field = FieldSchema(name="id", dtype=DataType.VARCHAR, description="primary id", max_length=65535)
 
-category_field = FieldSchema(name="category", dtype=DataType.INT64, is_clustering_key=True,
+category_field = FieldSchema(name="category", dtype=DataType.INT64,     # is_clustering_key=True,
                              description="category for partition key or clustering key")
 groupid_field = FieldSchema(name="groupid", dtype=DataType.INT64, description="groupid")
 device_field = FieldSchema(name="device", dtype=DataType.VARCHAR, max_length=500, description="device")
@@ -29,7 +29,8 @@ def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector
                     build_index=True, shards_num=1, is_flush=True, use_insert=True,
                     schema=None, new_version="0"):
     id_field = strpk_field if use_str_pk else intpk_field
-    fields = [id_field, category_field, groupid_field, ver_field]
+    fields = [id_field, category_field, groupid_field, device_field, fname_field, ext_field,
+              content_field, flag_field, json_field, ver_field]
     # vec_field_names = []
     if not utility.has_collection(collection_name=collection_name):
         for i in range(len(dims)):
@@ -47,14 +48,8 @@ def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector
         logging.info(f"{collection_name} already exists")
 
     logging.info(f"{collection_name} collection schema: {collection.schema}")
-    # insert data
-    insert_entities(collection=collection, nb=nb, rounds=insert_times,
-                    use_insert=use_insert, new_version=new_version)
-    collection = Collection(name=collection_name)
-    if is_flush:
-        collection.flush()
-    logging.info(f"collection entities: {collection.num_entities}")
 
+    # build index
     if build_index:
         vec_field_names = get_float_vec_field_names(collection)
         logging.info(f"build index for {vec_field_names}")
@@ -71,8 +66,21 @@ def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector
             else:
                 idx = collection.index(index_name=vec_field_name)
                 logging.info(f"{vec_field_name} index already exists: {idx.params}")
+        # build index for all the scalar fields
+        for field in collection.schema.fields:
+            if field.name not in vec_field_names:
+                logging.info(f"build index for {field.name}")
+                collection.create_index(field_name=field.name)
     else:
         logging.info("skip build index")
+
+    # insert data
+    insert_entities(collection=collection, nb=nb, rounds=insert_times,
+                    use_insert=use_insert, new_version=new_version)
+    collection = Collection(name=collection_name)
+    if is_flush:
+        collection.flush()
+    logging.info(f"collection entities: {collection.num_entities}")
 
 
 if __name__ == '__main__':
