@@ -40,7 +40,7 @@ def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector
         if schema is None:
             schema = CollectionSchema(fields=fields, auto_id=auto_id, primary_field=id_field.name,
                                       description=f"{collection_name}")    # do not change the description
-        collection = Collection(name=collection_name, schema=schema,
+        collection = Collection(name=collection_name, schema=schema, num_partitions=64,
                                 shards_num=shards_num, properties={"collection.ttl.seconds": ttl})
         # collection.set_properties({'mmap.enabled': True})
     else:
