@@ -64,7 +64,7 @@ if __name__ == '__main__':
                 create_n_insert(collection_name=collection_name, vector_types=[DataType.FLOAT_VECTOR],
                                 dims=[dim], nb=nb, insert_times=insert_times_per_partition, auto_id=auto_id,
                                 index_types=[index_type], metric_types=[metric_type], build_index=need_build_index,
-                                shards_num=shards_num)
+                                shards_num=shards_num, use_insert=False)
             else:
                 num_partitions = 64 if partition_num == 0 else partition_num
                 create_n_insert_parkey(collection_name=collection_name, dim=dim, nb=nb, insert_times=insert_times_per_partition,
