@@ -19,7 +19,7 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 if __name__ == '__main__':
     host = sys.argv[1]
     collection_name = sys.argv[2]                       # collection mame prefix
-    build_times = int(sys.argv[3]).upper()              # build index times
+    build_times = int(sys.argv[3])                        # build index times
     pool_size = int(sys.argv[4])                       # thread pool size
     api_key = str(sys.argv[5])                         # api key to connect to milvu
 
