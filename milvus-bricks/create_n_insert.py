@@ -29,19 +29,16 @@ def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector
                     build_index=True, shards_num=1, is_flush=True, use_insert=True,
                     schema=None, new_version="0"):
     id_field = strpk_field if use_str_pk else intpk_field
-    fields = [id_field, category_field, groupid_field, device_field, fname_field, ext_field,
-              content_field, flag_field, json_field, ver_field]
-    # vec_field_names = []
+    fields = [id_field, category_field, groupid_field, device_field, fname_field, flag_field, ver_field]
     if not utility.has_collection(collection_name=collection_name):
         for i in range(len(dims)):
             embedding_field = FieldSchema(name=f"embedding_{i}", dtype=vector_types[i], dim=int(dims[i]))
             fields.append(embedding_field)
-            # vec_field_names.append(embedding_field.name)
         if schema is None:
             schema = CollectionSchema(fields=fields, auto_id=auto_id, primary_field=id_field.name,
                                       description=f"{collection_name}")    # do not change the description
-        collection = Collection(name=collection_name, schema=schema, num_partitions=64,
-                                shards_num=shards_num, properties={"collection.ttl.seconds": ttl})
+        collection = Collection(name=collection_name, schema=schema, shards_num=shards_num,
+                                properties={"collection.ttl.seconds": ttl})
         # collection.set_properties({'mmap.enabled': True})
     else:
         collection = Collection(name=collection_name)
