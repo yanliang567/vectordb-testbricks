@@ -26,7 +26,7 @@ json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=6553
 
 def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector_types=[DataType.FLOAT_VECTOR],
                     metric_types=["L2"], auto_id=True, use_str_pk=False, ttl=0,
-                    build_index=True, shards_num=1, is_flush=True, use_insert=True,
+                    build_index=True, shards_num=1, is_flush=True, use_insert=True, pre_load=False,
                     schema=None, new_version="0"):
     id_field = strpk_field if use_str_pk else intpk_field
     fields = [id_field, category_field, groupid_field, device_field, fname_field, flag_field, ver_field]
@@ -70,6 +70,10 @@ def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector
                 collection.create_index(field_name=field.name)
     else:
         logging.info("skip build index")
+
+    # pre load before insert/upsert
+    if pre_load:
+        collection.load()
 
     # insert data
     insert_entities(collection=collection, nb=nb, rounds=insert_times,
