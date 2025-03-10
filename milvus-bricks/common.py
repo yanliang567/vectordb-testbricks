@@ -126,8 +126,7 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
             continue
         if field.dtype == DataType.INT64:
             if nullable:
-                seed = random.randint(0, 100)
-                if seed % 5 == 0:
+                if r % 5 == 0:
                     data.append([None for _ in range(start_uid, start_uid + nb)])
                     continue
             if field.is_primary:
@@ -146,24 +145,21 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
                 continue
         if field.dtype == DataType.INT8:
             if nullable:
-                seed = random.randint(0, 100)
-                if seed % 5 == 0:
+                if r % 5 == 0:
                     data.append([None for _ in range(start_uid, start_uid + nb)])
                     continue
             data.append([random.randint(-128, 127) for _ in range(nb)])
             continue
         if field.dtype == DataType.INT16:
             if nullable:
-                seed = random.randint(0, 100)
-                if seed % 5 == 0:
+                if r % 5 == 0:
                     data.append([None for _ in range(start_uid, start_uid + nb)])
                     continue
             data.append([random.randint(-32768, 32767) for _ in range(nb)])
             continue
         if field.dtype == DataType.INT32:
             if nullable:
-                seed = random.randint(0, 100)
-                if seed % 5 == 0:
+                if r % 5 == 0:
                     data.append([None for _ in range(start_uid, start_uid + nb)])
                     continue
             if field.name == "version":
@@ -173,8 +169,7 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
             continue
         if field.dtype == DataType.VARCHAR:
             if nullable:
-                seed = random.randint(0, 100)
-                if seed % 5 == 0:
+                if r % 5 == 0:
                     data.append([None for _ in range(start_uid, start_uid + nb)])
                     continue
             if field.is_primary:
@@ -196,8 +191,7 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
                 continue
         if field.dtype == DataType.JSON:
             if nullable:
-                seed = random.randint(0, 100)
-                if seed % 5 == 0:
+                if r % 5 == 0:
                     data.append([None for _ in range(start_uid, start_uid + nb)])
                     continue
             # data.append([{"number": i, "float": i * 1.0} for i in range(start_uid, start_uid + nb)])
@@ -205,16 +199,14 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
             continue
         if field.dtype in [DataType.FLOAT, DataType.DOUBLE]:
             if nullable:
-                seed = random.randint(0, 100)
-                if seed % 5 == 0:
+                if r % 5 == 0:
                     data.append([None for _ in range(start_uid, start_uid + nb)])
                     continue
             data.append([random.random() for _ in range(nb)])
             continue
         if field.dtype == DataType.BOOL:
             if nullable:
-                seed = random.randint(0, 100)
-                if seed % 5 == 0:
+                if r % 5 == 0:
                     data.append([None for _ in range(start_uid, start_uid + nb)])
                     continue
             data.append([False for _ in range(nb)])
