@@ -61,7 +61,7 @@ if __name__ == '__main__':
             create_n_insert(collection_name=collection_name, dims=[dim], nb=2000, insert_times=0, index_types=["HNSW"],
                             auto_id=False, vector_types=[DataType.FLOAT_VECTOR], metric_types=["L2"],
                             build_index=True, schema=schema)
-            collection_names = [collection_name]
+        collection_names = [collection_name]
 
     for collection_name in collection_names:
         c = Collection(name=collection_name)
