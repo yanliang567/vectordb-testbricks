@@ -38,6 +38,10 @@ def parse_args():
                       help='Name of the collection to create')
     parser.add_argument('--dim', type=int, default=32,
                       help='Dimension of the vector field')
+    parser.add_argument('--batch-size', type=int, default=300,
+                      help='Number of entities to insert in each batch')
+    parser.add_argument('--num-batches', type=int, default=5,
+                      help='Number of batches to insert')
     return parser.parse_args()
 
 def main():
@@ -89,14 +93,13 @@ def main():
     client.create_collection(collection_name=collection_name, schema=schema)
 
     # insert data for n times, each time insert nb entities
-    nb = 300
-    num_inserts = 5
-    for batch in range(num_inserts):
-        vectors = gen_vectors(nb, dim)
+    logging.info("Starting data insertion with batch size %d and %d batches", args.batch_size, args.num_batches)
+    for batch in range(args.num_batches):
+        vectors = gen_vectors(args.batch_size, dim)
         rows = []
-        start_id = args.start_id + batch * nb  # Start from args.start_id to avoid duplicate IDs
+        start_id = args.start_id + batch * args.batch_size  # Start from args.start_id to avoid duplicate IDs
 
-        for i in range(nb):
+        for i in range(args.batch_size):
             id = start_id + i
             row = {
                 "id": id,  # Use incremental IDs starting from args.start_id to ensure uniqueness
@@ -141,7 +144,7 @@ def main():
             }
             rows.append(row)
         client.insert(collection_name=collection_name, data=rows)
-        logging.info("Inserted %d entities for batch %d", nb, batch)
+        logging.info("Inserted %d entities for batch %d", args.batch_size, batch)
 
     # create vector index for the collection
     logging.info("Creating vector index")
