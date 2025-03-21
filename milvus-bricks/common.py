@@ -3,6 +3,8 @@ import sys
 import string
 import random
 import logging
+from faker import Faker
+from sklearn import preprocessing
 import json
 import numpy as np
 from pymilvus import utility, connections, DataType, \
@@ -107,6 +109,97 @@ def delete_entities(collection, nb, search_params, rounds):
             collection.delete(expr=f"{primary_field_name} in [{start_uid}, {end_uid}]")
             logging.info(f"deleted entities {start_uid}-{end_uid}")
 
+def gen_bf16_vectors(num, dim):
+    """
+    generate brain float16 vector data
+    raw_vectors : the vectors
+    bf16_vectors: the bytes used for insert
+    return: raw_vectors and bf16_vectors
+    """
+    raw_vectors = []
+    bf16_vectors = []
+    for _ in range(num):
+        raw_vector = [random.random() for _ in range(dim)]
+        raw_vectors.append(raw_vector)
+        bf16_vector = np.array(raw_vector, dtype=bfloat16)
+        bf16_vectors.append(bf16_vector)
+
+    return raw_vectors, bf16_vectors
+
+
+def gen_fp16_vectors(num, dim):
+    """
+    generate float16 vector data
+    raw_vectors : the vectors
+    fp16_vectors: the bytes used for insert
+    return: raw_vectors and fp16_vectors
+    """
+    raw_vectors = []
+    fp16_vectors = []
+    for _ in range(num):
+        raw_vector = [random.random() for _ in range(dim)]
+        raw_vectors.append(raw_vector)
+        fp16_vector = np.array(raw_vector, dtype=np.float16)
+        fp16_vectors.append(fp16_vector)
+
+    return raw_vectors, fp16_vectors
+
+
+def gen_sparse_vectors(nb, dim=1000, sparse_format="dok", empty_percentage=0):
+    # default sparse format is dok, dict of keys
+    # another option is coo, coordinate List
+
+    rng = np.random.default_rng()
+    vectors = [{
+        d: rng.random() for d in list(set(random.sample(range(dim), random.randint(20, 30)) + [0, 1]))
+    } for _ in range(nb)]
+    if empty_percentage > 0:
+        empty_nb = int(nb * empty_percentage / 100)
+        empty_ids = random.sample(range(nb), empty_nb)
+        for i in empty_ids:
+            vectors[i] = {}
+    if sparse_format == "coo":
+        vectors = [
+            {"indices": list(x.keys()), "values": list(x.values())} for x in vectors
+        ]
+    return vectors
+
+def gen_text_vectors(nb, language="en"):
+
+    fake = Faker("en_US")
+    if language == "zh":
+        fake = Faker("zh_CN")
+    vectors = [" milvus " + fake.text() for _ in range(nb)]
+    return vectors
+
+def gen_vectors(nb, dim, vector_data_type="FLOAT_VECTOR"):
+    vectors = []
+    if vector_data_type == "FLOAT_VECTOR":
+        vectors = [[random.random() for _ in range(dim)] for _ in range(nb)]
+    elif vector_data_type == "FLOAT16_VECTOR":
+        vectors = gen_fp16_vectors(nb, dim)[1]
+    elif vector_data_type == "BFLOAT16_VECTOR":
+        vectors = gen_bf16_vectors(nb, dim)[1]
+    elif vector_data_type == "SPARSE_FLOAT_VECTOR":
+        vectors = gen_sparse_vectors(nb, dim)
+    elif vector_data_type == "TEXT_SPARSE_VECTOR":
+        vectors = gen_text_vectors(nb)
+    else:
+        log.error(f"Invalid vector data type: {vector_data_type}")
+        raise Exception(f"Invalid vector data type: {vector_data_type}")
+    if dim > 1:
+        if vector_data_type == "FLOAT_VECTOR":
+            vectors = preprocessing.normalize(vectors, axis=1, norm='l2')
+            vectors = vectors.tolist()
+    return vectors
+
+def gen_str_by_length(length=8, letters_only=False, contain_numbers=False):
+    if letters_only:
+        return "".join(random.choice(string.ascii_letters) for _ in range(length))
+    if contain_numbers:
+        return "".join(random.choice(string.ascii_letters) for _ in range(length-1)) + \
+            "".join(random.choice(string.digits))
+    return "".join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
 
 def gen_data_by_collection(collection, nb, r, new_version=0):
     data = []
