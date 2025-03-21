@@ -30,7 +30,7 @@ def parse_args():
                       help='Milvus server URI')
     parser.add_argument('--token', type=str, default="root:Milvus",
                       help='Milvus authentication token')
-    parser.add_argument('--create-scalar-index', type=bool, default=False,
+    parser.add_argument('--create-scalar-index', type=str, default="false",
                       help='Whether to create scalar indexes')
     parser.add_argument('--start-id', type=int, default=0,
                       help='Start ID for primary key')
@@ -154,7 +154,8 @@ def main():
     logging.info("Vector index created successfully")
 
     # create scalar index for the collection if specified
-    if args.create_scalar_index:
+    create_scalar_index = True if str(args.create_scalar_index).upper() == "TRUE" else False
+    if create_scalar_index is True:
         logging.info("Creating scalar indexes")
         index_params = client.prepare_index_params()
         index_params.add_index(field_name="id", index_type="AUTOINDEX")
