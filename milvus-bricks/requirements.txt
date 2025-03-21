@@ -6,4 +6,4 @@ pymilvus==2.5.5
 git+https://github.com/Projectplace/pytest-tags
 kubernetes==29.0.0a1
 urllib3==2.1.0
-
+Faker==19.2.0
