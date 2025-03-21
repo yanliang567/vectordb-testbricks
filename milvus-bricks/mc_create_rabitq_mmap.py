@@ -30,7 +30,7 @@ def parse_args():
                       help='Milvus server URI')
     parser.add_argument('--token', type=str, default="root:Milvus",
                       help='Milvus authentication token')
-    parser.add_argument('--create-scalar-index', action='store_true', default=True,
+    parser.add_argument('--create-scalar-index', type=bool, default=False,
                       help='Whether to create scalar indexes')
     parser.add_argument('--start-id', type=int, default=0,
                       help='Start ID for primary key')
