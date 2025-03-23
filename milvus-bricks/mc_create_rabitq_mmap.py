@@ -42,6 +42,8 @@ def parse_args():
                       help='Number of entities to insert in each batch')
     parser.add_argument('--num-batches', type=int, default=5,
                       help='Number of batches to insert')
+    parser.add_argument('--pre-load', type=str, default="false",
+                      help='Whether to load the collection before insert')
     return parser.parse_args()
 
 def main():
@@ -63,7 +65,33 @@ def main():
 
     collection_name = args.collection_name
     dim = args.dim
+    create_scalar_index = True if str(args.create_scalar_index).upper() == "TRUE" else False
+    pre_load = True if str(args.pre_load).upper() == "TRUE" else False
+
     logging.info("Creating collection '%s' with dimension %d", collection_name, dim)
+
+    def create_index(client, collection_name, field_names, index_type="AUTOINDEX"):
+        """Create index for specified fields
+        Args:
+            client: Milvus client instance
+            collection_name: Name of the collection
+            field_names: List of field names to create index on
+            index_type: Index type, defaults to AUTOINDEX
+        """
+        logging.info(f"Creating index for fields: {field_names}")
+        index_params = client.prepare_index_params()
+        for field_name in field_names:
+            index_params.add_index(field_name=field_name, index_type=index_type)
+        client.create_index(collection_name=collection_name, index_params=index_params)
+        logging.info(f"Index created successfully for fields: {field_names}")
+
+    
+    scalar_fields = [
+            "id", "bool_1", "bool_2", "int32_1", "int32_2",
+            "int64_1", "int64_2", "float_1", "float_2",
+            "double_1", "double_2", "string_1", "string_2",
+            "int64_array", "string_array"
+        ]
 
     schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True)
     schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=dim)
@@ -91,6 +119,15 @@ def main():
     schema.add_field(field_name="json", datatype=DataType.JSON)
 
     client.create_collection(collection_name=collection_name, schema=schema)
+    if pre_load is True:
+        logging.info("Pre-loading collection")
+         # Create vector index
+        create_index(client, collection_name, ["vector"])
+        # Create scalar indexes if specified
+        if create_scalar_index:
+            create_index(client, collection_name, scalar_fields)
+        client.load_collection(collection_name=collection_name)
+        logging.info("Collection loaded successfully")
 
     # insert data for n times, each time insert nb entities
     logging.info("Starting data insertion with batch size %d and %d batches", args.batch_size, args.num_batches)
@@ -146,41 +183,17 @@ def main():
         client.insert(collection_name=collection_name, data=rows)
         logging.info("Inserted %d entities for batch %d", args.batch_size, batch)
 
-    # create vector index for the collection
-    logging.info("Creating vector index")
-    index_params = client.prepare_index_params()  # Prepare IndexParams object
-    index_params.add_index(field_name="vector", index_type="AUTOINDEX")
-    client.create_index(collection_name=collection_name, index_params=index_params)
-    logging.info("Vector index created successfully")
+    if pre_load is False:
+        # Create vector index
+        create_index(client, collection_name, ["vector"])
+        # Create scalar indexes if specified
+        if create_scalar_index:
+            create_index(client, collection_name, scalar_fields)
 
-    # create scalar index for the collection if specified
-    create_scalar_index = True if str(args.create_scalar_index).upper() == "TRUE" else False
-    if create_scalar_index is True:
-        logging.info("Creating scalar indexes")
-        index_params = client.prepare_index_params()
-        index_params.add_index(field_name="id", index_type="AUTOINDEX")
-        index_params.add_index(field_name="bool_1", index_type="AUTOINDEX")
-        index_params.add_index(field_name="bool_2", index_type="AUTOINDEX")
-        index_params.add_index(field_name="int32_1", index_type="AUTOINDEX")
-        index_params.add_index(field_name="int32_2", index_type="AUTOINDEX") 
-        index_params.add_index(field_name="int64_1", index_type="AUTOINDEX")
-        index_params.add_index(field_name="int64_2", index_type="AUTOINDEX")
-        index_params.add_index(field_name="float_1", index_type="AUTOINDEX")
-        index_params.add_index(field_name="float_2", index_type="AUTOINDEX")
-        index_params.add_index(field_name="double_1", index_type="AUTOINDEX")
-        index_params.add_index(field_name="double_2", index_type="AUTOINDEX")
-        index_params.add_index(field_name="string_1", index_type="AUTOINDEX")
-        index_params.add_index(field_name="string_2", index_type="AUTOINDEX")
-        index_params.add_index(field_name="int64_array", index_type="AUTOINDEX")
-        index_params.add_index(field_name="string_array", index_type="AUTOINDEX")
+        # load the collection
+        client.load_collection(collection_name=collection_name)
+        logging.info("Collection loaded successfully")
 
-        client.create_index(collection_name=collection_name, index_params=index_params)
-        logging.info("Scalar indexes created successfully")
-
-    # load the collection
-    logging.info("Loading collection")
-    client.load_collection(collection_name=collection_name)
-    logging.info("Collection loaded successfully")
     logging.info("Collection creation completed successfully")
 
 if __name__ == "__main__":
