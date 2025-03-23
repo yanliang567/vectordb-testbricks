@@ -141,7 +141,7 @@ def main():
             row = {
                 "id": id,  # Use incremental IDs starting from args.start_id to ensure uniqueness
                 "vector": list(vectors[i]),
-                "padding_string": gen_str_by_length(length=1000),
+                "padding_string": gen_str_by_length(length=500),
                 "bool_1": True,
                 "bool_2": False,
                 "int32_1": 1,
