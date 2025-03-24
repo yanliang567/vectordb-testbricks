@@ -2,11 +2,11 @@ import sys
 import logging
 import random
 import argparse
-from pymilvus import MilvusClient
 from common import gen_vectors, gen_str_by_length
 import os
-
+import time
 from pymilvus import MilvusClient, DataType
+
 
 def setup_logging():
     # Create log directory if it doesn't exist
@@ -41,9 +41,11 @@ def parse_args():
     parser.add_argument('--batch-size', type=int, default=300,
                       help='Number of entities to insert in each batch')
     parser.add_argument('--num-batches', type=int, default=5,
-                      help='Number of batches to insert')
+                      help='Number of batches to insert if --max-deny-times is 0')
     parser.add_argument('--pre-load', type=str, default="false",
                       help='Whether to load the collection before insert')
+    parser.add_argument('--max-deny-times', type=int, default=0,
+                      help='Maximum number of times to retry insert due to denied errors')
     return parser.parse_args()
 
 def main():
@@ -67,6 +69,7 @@ def main():
     dim = args.dim
     create_scalar_index = True if str(args.create_scalar_index).upper() == "TRUE" else False
     pre_load = True if str(args.pre_load).upper() == "TRUE" else False
+    max_deny_times = args.max_deny_times if args.max_deny_times > 0 else 0
 
     logging.info("Creating collection '%s' with dimension %d", collection_name, dim)
 
@@ -129,17 +132,14 @@ def main():
         client.load_collection(collection_name=collection_name)
         logging.info("Collection loaded successfully")
 
-    # insert data for n times, each time insert nb entities
-    logging.info("Starting data insertion with batch size %d and %d batches", args.batch_size, args.num_batches)
-    for batch in range(args.num_batches):
-        vectors = gen_vectors(args.batch_size, dim)
+    
+    def gen_rows(batch_size, dim, start_id):
+        vectors = gen_vectors(batch_size, dim)
         rows = []
-        start_id = args.start_id + batch * args.batch_size  # Start from args.start_id to avoid duplicate IDs
-
-        for i in range(args.batch_size):
+        for i in range(batch_size):
             id = start_id + i
             row = {
-                "id": id,  # Use incremental IDs starting from args.start_id to ensure uniqueness
+                "id": id,
                 "vector": list(vectors[i]),
                 "padding_string": gen_str_by_length(length=500),
                 "bool_1": True,
@@ -158,7 +158,7 @@ def main():
                 "string_array": [gen_str_by_length(length=10) for _ in range(20)],
                 "json": {
                     "key1": id,
-                    "key2": True if id % 2 == 0 else False,  # if odd, True, else False
+                    "key2": True if id % 2 == 0 else False,
                     "key3": id * 1.0,
                     "key4": [id, id+1, id+2, id+3, id+4, id+5, id+6, id+7, id+8, id+9],
                     "key5": "value5",
@@ -180,8 +180,39 @@ def main():
                 }
             }
             rows.append(row)
-        client.insert(collection_name=collection_name, data=rows)
-        logging.info("Inserted %d entities for batch %d", args.batch_size, batch)
+        return rows
+
+    # insert data
+    if max_deny_times != 0:
+        logging.info(f"Insert data until {max_deny_times} times denied")
+        deny_times = 0
+        r = 0
+        msg = "memory quota exceeded"
+        msg_cloud = "cu quota exhausted"
+        while True and deny_times < max_deny_times:
+            rows = gen_rows(args.batch_size, dim, args.start_id + r * args.batch_size)
+            try:
+                client.insert(collection_name=collection_name, data=rows)
+            except Exception as e:
+                if msg in str(e) or msg_cloud in str(e):
+                    logging.error(f"insert expected error: {e}")
+                    deny_times += 1
+                    if deny_times >= max_deny_times:
+                        break
+                    logging.error(f"wait for 15 minutes and retry, deny times: {deny_times}")
+                    time.sleep(900)
+                else:
+                    logging.error(f"insert error: {e}")
+                    break
+            r += 1
+    else:
+        # insert data for n times, each time insert nb entities
+        logging.info("Insert data with batch size %d and %d batches", args.batch_size, args.num_batches)
+        for batch in range(args.num_batches):
+            start_id = args.start_id + batch * args.batch_size
+            rows = gen_rows(args.batch_size, dim, start_id)
+            client.insert(collection_name=collection_name, data=rows)
+            logging.info("Inserted %d entities for batch %d", args.batch_size, batch)
 
     if pre_load is False:
         # Create vector index
