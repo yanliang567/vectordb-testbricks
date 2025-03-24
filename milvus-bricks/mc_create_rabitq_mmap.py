@@ -90,30 +90,30 @@ def main():
 
     
     scalar_fields = [
-            "id", "bool_1", "bool_2", "int32_1", "int32_2",
-            "int64_1", "int64_2", "float_1", "float_2",
-            "double_1", "double_2", "string_1", "string_2",
+            "id", "bool_1", "int32_1",
+            "int64_1", "float_1", "double_1",
+            "string_1", "string_2",
             "int64_array", "string_array"
         ]
 
     schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True)
     schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=dim)
-    schema.add_field(field_name="padding_string", datatype=DataType.VARCHAR, max_length=1500, mmap_enabled=False)
+    # schema.add_field(field_name="padding_string", datatype=DataType.VARCHAR, max_length=1500, mmap_enabled=False)
     # Other Mmap columns:
     #     Numeric: (bool) (int32), (int64) (float) (double) two columns each
     #     String: (string1 short column, len 10), (string2 long column, len 100) one column each
     #     Array:  int64_array(len = 10),  string_array(len = 20, string_len = 10) 
     #     Json: (json, 20keys) 
     schema.add_field(field_name="bool_1", datatype=DataType.BOOL)
-    schema.add_field(field_name="bool_2", datatype=DataType.BOOL)
+    # schema.add_field(field_name="bool_2", datatype=DataType.BOOL)
     schema.add_field(field_name="int32_1", datatype=DataType.INT32)
-    schema.add_field(field_name="int32_2", datatype=DataType.INT32)
+    # schema.add_field(field_name="int32_2", datatype=DataType.INT32)
     schema.add_field(field_name="int64_1", datatype=DataType.INT64)
-    schema.add_field(field_name="int64_2", datatype=DataType.INT64)
+    # schema.add_field(field_name="int64_2", datatype=DataType.INT64)
     schema.add_field(field_name="float_1", datatype=DataType.FLOAT)
-    schema.add_field(field_name="float_2", datatype=DataType.FLOAT)
+    # schema.add_field(field_name="float_2", datatype=DataType.FLOAT)
     schema.add_field(field_name="double_1", datatype=DataType.DOUBLE)
-    schema.add_field(field_name="double_2", datatype=DataType.DOUBLE)
+    # schema.add_field(field_name="double_2", datatype=DataType.DOUBLE)
     schema.add_field(field_name="string_1", datatype=DataType.VARCHAR, max_length=10)
     schema.add_field(field_name="string_2", datatype=DataType.VARCHAR, max_length=100)
     schema.add_field(field_name="int64_array", datatype=DataType.ARRAY, max_capacity=10, element_type=DataType.INT64)
@@ -141,17 +141,17 @@ def main():
             row = {
                 "id": id,
                 "vector": list(vectors[i]),
-                "padding_string": gen_str_by_length(length=500),
+                # "padding_string": gen_str_by_length(length=500),
                 "bool_1": True,
-                "bool_2": False,
+                # "bool_2": False,
                 "int32_1": 1,
-                "int32_2": 2,
+                # "int32_2": 2,
                 "int64_1": id,
-                "int64_2": id + id,
+                # "int64_2": id + id,
                 "float_1": id * 1.0,
-                "float_2": id * 2.0,
+                # "float_2": id * 2.0,
                 "double_1": id * 1.0,
-                "double_2": id * 2.0,
+                # "double_2": id * 2.0,
                 "string_1": gen_str_by_length(length=10),
                 "string_2": gen_str_by_length(length=100),
                 "int64_array": [id, id+1, id+2, id+3, id+4, id+5, id+6, id+7, id+8, id+9],
