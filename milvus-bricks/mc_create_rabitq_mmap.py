@@ -44,7 +44,7 @@ def parse_args():
                       help='Number of batches to insert if --max-deny-times is 0')
     parser.add_argument('--pre-load', type=str, default="false",
                       help='Whether to load the collection before insert')
-    parser.add_argument('--max-deny-times', type=int, default=0,
+    parser.add_argument('--max-deny-times', type=int, default=1,
                       help='Maximum number of times to retry insert due to denied errors')
     return parser.parse_args()
 
@@ -69,7 +69,7 @@ def main():
     dim = args.dim
     create_scalar_index = True if str(args.create_scalar_index).upper() == "TRUE" else False
     pre_load = True if str(args.pre_load).upper() == "TRUE" else False
-    max_deny_times = args.max_deny_times if args.max_deny_times > 0 else 0
+    max_deny_times = 1 if args.max_deny_times < 1 else args.max_deny_times
 
     logging.info("Creating collection '%s' with dimension %d", collection_name, dim)
 
@@ -183,37 +183,31 @@ def main():
         return rows
 
     # insert data
-    if max_deny_times != 0:
-        logging.info(f"Insert data until {max_deny_times} times denied")
-        deny_times = 0
-        r = 0
-        msg = "memory quota exceeded"
-        msg_cloud = "cu quota exhausted"
-        while True and deny_times < max_deny_times:
-            rows = gen_rows(args.batch_size, dim, args.start_id + r * args.batch_size)
-            try:
-                client.insert(collection_name=collection_name, data=rows)
-                logging.info(f"Inserted batch {r} with {len(rows)} entities")
-            except Exception as e:
-                if msg in str(e) or msg_cloud in str(e):
-                    logging.error(f"insert expected error: {e}")
-                    deny_times += 1
-                    if deny_times >= max_deny_times:
-                        break
-                    logging.error(f"wait for 15 minutes and retry, deny times: {deny_times}")
-                    time.sleep(900)
-                else:
-                    logging.error(f"insert error: {e}")
-                    break
-            r += 1
-    else:
-        # insert data for n times, each time insert nb entities
-        logging.info("Insert data with batch size %d and %d batches", args.batch_size, args.num_batches)
-        for batch in range(args.num_batches):
-            start_id = args.start_id + batch * args.batch_size
-            rows = gen_rows(args.batch_size, dim, start_id)
+    logging.info("Insert data with batch size %d and %d batches", args.batch_size, args.num_batches)
+    deny_times = 0
+    batch = 0
+    msg = "memory quota exceeded"
+    msg_cloud = "cu quota exhausted"
+    
+    while batch < args.num_batches and deny_times < max_deny_times:
+        start_id = args.start_id + batch * args.batch_size
+        rows = gen_rows(args.batch_size, dim, start_id)
+        try:
             client.insert(collection_name=collection_name, data=rows)
             logging.info("Inserted %d entities for batch %d", args.batch_size, batch)
+            batch += 1
+        except Exception as e:
+            if msg in str(e) or msg_cloud in str(e):
+                logging.error(f"insert expected error: {e}")
+                deny_times += 1
+                if deny_times >= max_deny_times:
+                    logging.error(f"Reached max deny times {max_deny_times}, stopping insertion")
+                    break
+                logging.error(f"wait for 15 minutes and retry, deny times: {deny_times}")
+                time.sleep(900)
+            else:
+                logging.error(f"insert error: {e}")
+                break
 
     if pre_load is False:
         # Create vector index
