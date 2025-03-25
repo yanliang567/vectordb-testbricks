@@ -193,6 +193,7 @@ def main():
             rows = gen_rows(args.batch_size, dim, args.start_id + r * args.batch_size)
             try:
                 client.insert(collection_name=collection_name, data=rows)
+                logging.info(f"Inserted batch {r} with {len(rows)} entities")
             except Exception as e:
                 if msg in str(e) or msg_cloud in str(e):
                     logging.error(f"insert expected error: {e}")

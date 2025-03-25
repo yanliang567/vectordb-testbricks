@@ -25,12 +25,13 @@ if __name__ == '__main__':
     insert_times_per_partition = int(sys.argv[8])       # how many times to insert for each partition
     need_insert = str(sys.argv[9]).upper()              # insert or not, if yes, it inserts random vectors
     need_build_index = str(sys.argv[10]).upper()        # build index or not after insert
-    post_load = str(sys.argv[11]).upper()               # load the collection or not at the end
-    partition_key_field = str(sys.argv[12]).upper()     # partition key field name, set None to disable it
-    api_key = str(sys.argv[13])                         # api key to connect to milvus
-    pool_size = int(sys.argv[14])                       # thread pool size
-    index_type = str(sys.argv[15])                      # index type
-    pre_load = str(sys.argv[16])                        # load the collection before insert or not
+    build_scalar_index = str(sys.argv[11]).upper()      # build scalar index or not after insert
+    post_load = str(sys.argv[12]).upper()               # load the collection or not at the end
+    partition_key_field = str(sys.argv[13]).upper()     # partition key field name, set None to disable it
+    api_key = str(sys.argv[14])                         # api key to connect to milvus
+    pool_size = int(sys.argv[15])                       # thread pool size
+    index_type = str(sys.argv[16])                      # index type
+    pre_load = str(sys.argv[17])                        # load the collection before insert or not
 
     port = 19530
 
@@ -50,6 +51,7 @@ if __name__ == '__main__':
     need_build_index = True if need_build_index == "TRUE" else False
     need_load = True if post_load == "TRUE" else False
     pre_load = True if pre_load.upper() == "TRUE" else False
+    build_scalar_index = True if build_scalar_index == "TRUE" else False
     if partition_key_field == "" or partition_key_field == "NONE":
         partition_key_enabled = False
     else:
@@ -66,14 +68,14 @@ if __name__ == '__main__':
                 create_n_insert(collection_name=collection_name, vector_types=[DataType.FLOAT_VECTOR],
                                 dims=[dim], nb=nb, insert_times=insert_times_per_partition, auto_id=auto_id,
                                 index_types=[index_type], metric_types=[metric_type], build_index=need_build_index,
-                                shards_num=shards_num, pre_load=pre_load)
+                                shards_num=shards_num, pre_load=pre_load, build_scalar_index=build_scalar_index)
             else:
                 num_partitions = 64 if partition_num == 0 else partition_num
                 create_n_insert_parkey(collection_name=collection_name, dim=dim, nb=nb, insert_times=insert_times_per_partition,
                                        index_type=index_type, metric_type=metric_type,
                                        parkey_collection_only=True,
                                        parkey_values_evenly=True, num_partitions=num_partitions,
-                                       pre_load=False, shards_num=shards_num)
+                                       pre_load=False, shards_num=shards_num, build_scalar_index=build_scalar_index)
                 collection_name = f"{collection_name}_parkey"
             logging.info(f"create {collection_name}  successfully")
         else:

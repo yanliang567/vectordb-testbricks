@@ -27,7 +27,7 @@ json_field = FieldSchema(name="json_field", dtype=DataType.JSON, max_length=6553
 def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector_types=[DataType.FLOAT_VECTOR],
                     metric_types=["L2"], auto_id=True, use_str_pk=False, ttl=0,
                     build_index=True, shards_num=1, is_flush=True, use_insert=True, pre_load=False,
-                    schema=None, new_version="0"):
+                    schema=None, new_version="0", build_scalar_index=False):
     id_field = strpk_field if use_str_pk else intpk_field
     fields = [id_field, category_field, groupid_field, device_field, fname_field, flag_field, ver_field]
     if not utility.has_collection(collection_name=collection_name):
@@ -64,10 +64,11 @@ def create_n_insert(collection_name, dims, nb, insert_times, index_types, vector
                 idx = collection.index(index_name=vec_field_name)
                 logging.info(f"{vec_field_name} index already exists: {idx.params}")
         # build index for all the scalar fields
-        for field in collection.schema.fields:
-            if field.name not in vec_field_names and field.dtype != DataType.JSON:
-                logging.info(f"build index for {field.name}")
-                collection.create_index(field_name=field.name)
+        if build_scalar_index:
+            for field in collection.schema.fields:
+                if field.name not in vec_field_names and field.dtype != DataType.JSON:
+                    logging.info(f"build index for {field.name}")
+                    collection.create_index(field_name=field.name)
     else:
         logging.info("skip build index")
 
