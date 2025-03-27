@@ -304,6 +304,22 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
                     continue
             data.append([False for _ in range(nb)])
             continue
+        if field.dtype == DataType.ARRAY:
+            if nullable:
+                if r % 5 == 0:
+                    data.append([None for _ in range(nb)])
+                    continue
+            element_type = field.element_type
+            max_capacity = field.params.get("max_capacity")
+            if element_type == DataType.INT64:
+                data.append([[random.randint(-2147483648, 2147483647) for _ in range(max_capacity)] for _ in range(nb)])
+            elif element_type == DataType.VARCHAR:
+                max_length = field.params.get("max_length")
+                data.append([[gen_str_by_length(max_length // 10) for _ in range(max_capacity)] for _ in range(nb)])
+            else:
+                logging.error(f"found undefined datatype: {element_type} in field {field.name} in collection {collection.name}")
+                exit(-1)
+            continue
         else:
             logging.error(f"found undefined datatype: {field.dtype} in field {field.name} in collection {collection.name}")
             exit(-1)
