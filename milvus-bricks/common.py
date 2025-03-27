@@ -263,7 +263,7 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
             if nullable:
                 values = [None if i % 5 == 0 else "bb_" + gen_str_by_length(field.params.get("max_length")//10) for i in range(nb)]
                 data.append(values)
-                logging.info(f"{field.name} data len: {values}")
+                logging.info(f"{field.name} data len: {len(values)}")
                 continue
             if field.is_primary:
                 if not auto_id:
