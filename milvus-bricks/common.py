@@ -109,6 +109,7 @@ def delete_entities(collection, nb, search_params, rounds):
             collection.delete(expr=f"{primary_field_name} in [{start_uid}, {end_uid}]")
             logging.info(f"deleted entities {start_uid}-{end_uid}")
 
+
 def gen_bf16_vectors(num, dim):
     """
     generate brain float16 vector data
@@ -185,13 +186,14 @@ def gen_vectors(nb, dim, vector_data_type="FLOAT_VECTOR"):
     elif vector_data_type == "TEXT_SPARSE_VECTOR":
         vectors = gen_text_vectors(nb)
     else:
-        log.error(f"Invalid vector data type: {vector_data_type}")
+        logging.error(f"Invalid vector data type: {vector_data_type}")
         raise Exception(f"Invalid vector data type: {vector_data_type}")
     if dim > 1:
         if vector_data_type == "FLOAT_VECTOR":
             vectors = preprocessing.normalize(vectors, axis=1, norm='l2')
             vectors = vectors.tolist()
     return vectors
+
 
 def gen_str_by_length(length=8, letters_only=False, contain_numbers=False):
     if letters_only:
@@ -200,6 +202,7 @@ def gen_str_by_length(length=8, letters_only=False, contain_numbers=False):
         return "".join(random.choice(string.ascii_letters) for _ in range(length-1)) + \
             "".join(random.choice(string.digits))
     return "".join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
+
 
 def gen_data_by_collection(collection, nb, r, new_version=0):
     data = []
@@ -219,9 +222,8 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
             continue
         if field.dtype == DataType.INT64:
             if nullable:
-                if r % 5 == 0:
-                    data.append([None for _ in range(start_uid, start_uid + nb)])
-                    continue
+                data.append([None if i % 5 == 0 else i for i in range(start_uid, start_uid + nb)])
+                continue
             if field.is_primary:
                 if not auto_id:
                     pks = [_ for _ in range(start_uid, start_uid + nb)]
@@ -238,23 +240,20 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
                 continue
         if field.dtype == DataType.INT8:
             if nullable:
-                if r % 5 == 0:
-                    data.append([None for _ in range(start_uid, start_uid + nb)])
-                    continue
+                data.append([None if i % 5 == 0 else random.randint(-128, 127) for i in range(nb)])
+                continue
             data.append([random.randint(-128, 127) for _ in range(nb)])
             continue
         if field.dtype == DataType.INT16:
             if nullable:
-                if r % 5 == 0:
-                    data.append([None for _ in range(start_uid, start_uid + nb)])
-                    continue
+                data.append([None if i % 5 == 0 else random.randint(-32768, 32767) for i in range(nb)])
+                continue
             data.append([random.randint(-32768, 32767) for _ in range(nb)])
             continue
         if field.dtype == DataType.INT32:
             if nullable:
-                if r % 5 == 0:
-                    data.append([None for _ in range(start_uid, start_uid + nb)])
-                    continue
+                data.append([None if i % 5 == 0 else random.randint(-2147483648, 2147483647) for i in range(nb)])
+                continue
             if field.name == "version":
                 data.append([new_version for _ in range(nb)])
             else:
@@ -262,9 +261,8 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
             continue
         if field.dtype == DataType.VARCHAR:
             if nullable:
-                if r % 5 == 0:
-                    data.append([None for _ in range(start_uid, start_uid + nb)])
-                    continue
+                data.append([None if i % 5 == 0 else "bb_" + gen_str_by_length(field.params.get("max_length")//10) for i in range(nb)])
+                continue
             if field.is_primary:
                 if not auto_id:
                     pks = [pk_prefix + str(j) for j in range(start_uid, start_uid + nb)]
@@ -284,38 +282,36 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
                 continue
         if field.dtype == DataType.JSON:
             if nullable:
-                if r % 5 == 0:
-                    data.append([None for _ in range(start_uid, start_uid + nb)])
-                    continue
+                data.append([None if i % 5 == 0 else json.loads(s) for i in range(nb)])
+                continue
             # data.append([{"number": i, "float": i * 1.0} for i in range(start_uid, start_uid + nb)])
             data.append([json.loads(s) for _ in range(start_uid, start_uid + nb)])
             continue
         if field.dtype in [DataType.FLOAT, DataType.DOUBLE]:
             if nullable:
-                if r % 5 == 0:
-                    data.append([None for _ in range(start_uid, start_uid + nb)])
-                    continue
+                data.append([None if i % 5 == 0 else random.random() for i in range(nb)])
+                continue
             data.append([random.random() for _ in range(nb)])
             continue
         if field.dtype == DataType.BOOL:
             if nullable:
-                if r % 5 == 0:
-                    data.append([None for _ in range(start_uid, start_uid + nb)])
-                    continue
+                data.append([None if i % 5 == 0 else False for i in range(nb)])
+                continue
             data.append([False for _ in range(nb)])
             continue
         if field.dtype == DataType.ARRAY:
-            if nullable:
-                if r % 5 == 0:
-                    data.append([None for _ in range(nb)])
-                    continue
             element_type = field.element_type
             max_capacity = field.params.get("max_capacity")
             if element_type == DataType.INT64:
-                data.append([[random.randint(-2147483648, 2147483647) for _ in range(max_capacity)] for _ in range(nb)])
+                if nullable:
+                    data.append([None if i % 5 == 0 else [random.randint(-2147483648, 2147483647) for _ in range(max_capacity)] for i in range(nb)])
+                else:
+                    data.append([[random.randint(-2147483648, 2147483647) for _ in range(max_capacity)] for _ in range(nb)])
             elif element_type == DataType.VARCHAR:
-                max_length = field.params.get("max_length")
-                data.append([[gen_str_by_length(max_length // 10) for _ in range(max_capacity)] for _ in range(nb)])
+                if nullable:
+                    data.append([None if i % 5 == 0 else [gen_str_by_length(field.params.get("max_length") // 10) for _ in range(max_capacity)] for i in range(nb)])
+                else:
+                    data.append([[gen_str_by_length(field.params.get("max_length") // 10) for _ in range(max_capacity)] for _ in range(nb)])
             else:
                 logging.error(f"found undefined datatype: {element_type} in field {field.name} in collection {collection.name}")
                 exit(-1)
