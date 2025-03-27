@@ -261,7 +261,9 @@ def gen_data_by_collection(collection, nb, r, new_version=0):
             continue
         if field.dtype == DataType.VARCHAR:
             if nullable:
-                data.append([None if i % 5 == 0 else "bb_" + gen_str_by_length(field.params.get("max_length")//10) for i in range(nb)])
+                values = [None if i % 5 == 0 else "bb_" + gen_str_by_length(field.params.get("max_length")//10) for i in range(nb)]
+                data.append(values)
+                logging.info(f"{field.name} data len: {values}")
                 continue
             if field.is_primary:
                 if not auto_id:
