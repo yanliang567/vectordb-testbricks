@@ -1,0 +1,44 @@
+dataset_params:
+  metric_type: COSINE
+  dim: 128
+  vector_field: float_vector
+collection_params:
+  collection_name: fouram_4h8iaOKm
+index_params:
+  # Supoort AUTOINDEX, HNSW, IVF_FLAT, IVF_SQ8, FLAT, DISKANN, SCANN, SPARSE_WAND, SPARSE_INVERTED_INDEX, BIN_IVF_FLAT, BIN_FLAT
+  index_type: AUTOINDEX
+concurrent_params:
+  concurrent_number: 10  # Total concurrent
+  during_time: 600  # seconds
+  interval: 20  # seconds, time interval for printing intermediate states
+concurrent_tasks:
+  - type: query
+    weight: 1
+    params:
+      expr: null
+      timeout: 30
+
+      # `query` parameters can be added dynamically
+      output_fields: ["varchar_1", "array_int64", "json_1"]
+#       partition_names: []
+
+      # other params
+      # random_data=true will enable random expr, append it to the `expr` above
+      # `expr` above can be set to "", or endswith "&&" and "||", only when random_data is enabled
+      # e.g.: `expr` = `expr` + "id in [1, 0]"
+      random_data: true
+      # select `random_count` elements from `random_range` and generate an expr
+      random_count: 1000
+      # length of `random_range` must be equal to 2
+      random_range: [0, 2200000]
+      # scalar field name
+      field_name: int64_1
+      # `field_type` only support "int64" and "varchar"
+      field_type: int64
+
+      # append it to the `expr` above
+      # e.g.:
+      custom_expr: array_contains_any(array_varchar, [\"{0}0\"]) || array_contains_any(array_int64, [\"{0}1\"]) || array_contains_any(array_int64, [\"{0}2\"]) || array_contains_any(array_int64, [\"{0}3\"]) || array_contains_any(array_int64, [\"{0}4\"]) || array_contains_any(array_int64, [\"{0}5\"]) || array_contains_any(array_int64, [\"{0}6\"]) || array_contains_any(array_int64, [\"{0}7\"]) || array_contains_any(array_int64, [\"{0}8\"]) || array_contains_any(array_int64, [\"{0}9\"])
+      # `expr` += `random data expr` + " || " + "!(random_value <= int64_inverted < random_value)"
+      custom_range: [0, 100]
+      limit: 16384
