@@ -19,6 +19,10 @@ def do_insert(collection, threads_num, ins_times_per_thread, sleep_interval):
     def insert_th(collection, rounds, thread_no):
         for r in range(rounds):
             data = gen_data_by_collection(collection, nb, r)
+            for j in range(len(data)):
+                if len(data[j]) != nb:
+                    logging.error(f"generate data wrong on {j} field, "
+                                  f"expected_len={nb}, actual_len={len(data[j])}")
             t1 = time.time()
             res = collection.insert(data)
             t2 = round(time.time() - t1, 3)
