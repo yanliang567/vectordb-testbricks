@@ -53,6 +53,7 @@ if __name__ == '__main__':
     num_threads = int(sys.argv[5])              # insert thread num
     ins_per_thread = int(sys.argv[6])           # insert times per thread
     sleep_interval = int(sys.argv[7])               # sleep time between every insert request
+    pre_load = str(sys.argv[8])                     # pre load data before insert
     port = 19530
 
     file_handler = logging.FileHandler(filename=f"/tmp/insert_perf_{collection_name}.log")
@@ -62,9 +63,10 @@ if __name__ == '__main__':
     logger = logging.getLogger('LOGGER_NAME')
 
     conn = connections.connect('default', host=host, port=port)
+    pre_load = True if pre_load.lower() == 'true' else False
     logging.info(f"host={host}, collection_name={collection_name}, dim={dim}, "
                  f"nb={nb}, num_threads={num_threads}, ins_times_per_thread={ins_per_thread}, "
-                 f"sleep_interval={sleep_interval}")
+                 f"sleep_interval={sleep_interval}, pre_load={pre_load}")
     logging.info("Insert perf start... ...")
 
     # check and get the collection info
@@ -74,6 +76,8 @@ if __name__ == '__main__':
                         dims=[dim], nb=nb, insert_times=0, index_types=['HNSW'])
 
     c = Collection(collection_name)
+    if pre_load:
+        c.load()
     # insert
     t1 = time.time()
     do_insert(c, num_threads, ins_per_thread, sleep_interval)
