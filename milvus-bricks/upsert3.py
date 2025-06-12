@@ -43,6 +43,9 @@ if __name__ == '__main__':
 
     conn = connections.connect('default', host=host, port=port)
 
+    # print the milvus version
+    logging.info(f"milvus version: {utility.get_server_version()}")
+
     collection_names = None
     # check and get the collection info
     if rand_c:
