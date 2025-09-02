@@ -577,7 +577,8 @@ def gen_row_data_by_schema(nb=2000, schema=None, start=0, random_pk=False, skip_
         for i in range(nb):
             tmp = {}
             for field in fields_needs_data:
-                tmp[field.get('name', None)] = gen_data_by_collection_field(field, random_pk=random_pk)
+                field_value = gen_data_by_collection_field(field, random_pk=random_pk)
+                tmp[field.get('name', None)] = field_value
                 if field.get('is_primary', False) is True and field.get('type', None) == DataType.INT64:
                     tmp[field.get('name', None)] = start
                     start += 1
@@ -586,6 +587,16 @@ def gen_row_data_by_schema(nb=2000, schema=None, start=0, random_pk=False, skip_
                     start += 1
                 if field.get('name', None) == 'version':
                     tmp[field.get('name')] = str(new_version)
+                if field.get('name', None) == 'content':
+                    seed = random.randint(1, 4)
+                    if seed == 1:
+                        tmp[field.get('name')] =  field_value + " content"
+                    elif seed == 2:
+                        tmp[field.get('name')] =  "content " + field_value
+                    elif seed == 3:
+                        tmp[field.get('name')] =  field_value[:len(field_value)//2] + " content" + field_value[len(field_value)//2:]
+                    else:
+                        tmp[field.get('name')] =  field_value
             data.append(tmp)
     else:
         # a schema object is usually form orm schema object
@@ -608,7 +619,8 @@ def gen_row_data_by_schema(nb=2000, schema=None, start=0, random_pk=False, skip_
         for i in range(nb):
             tmp = {}
             for field in fields_needs_data:
-                tmp[field.name] = gen_data_by_collection_field(field, random_pk=random_pk)
+                field_value = gen_data_by_collection_field(field, random_pk=random_pk)
+                tmp[field.name] = field_value
                 if field.is_primary is True and field.dtype == DataType.INT64:
                     tmp[field.name] = start
                     start += 1
@@ -617,6 +629,16 @@ def gen_row_data_by_schema(nb=2000, schema=None, start=0, random_pk=False, skip_
                     start += 1
                 if field.get('name', None) == 'version':
                     tmp[field.get('name')] = str(new_version)
+                if field.get('name', None) == 'content':
+                    seed = random.randint(1, 4)
+                    if seed == 1:
+                        tmp[field.get('name')] =  field_value + " content"
+                    elif seed == 2:
+                        tmp[field.get('name')] =  "content " + field_value
+                    elif seed == 3:
+                        tmp[field.get('name')] =  field_value[:len(field_value)//2] + " content" + field_value[len(field_value)//2:]
+                    else:
+                        tmp[field.get('name')] =  field_value
             data.append(tmp)
     return data
 
@@ -866,10 +888,10 @@ def create_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False)
             nullable=True
         ),
         FieldSchema(
-            name="device",
+            name="content",
             dtype=DataType.VARCHAR,
             max_length=500,
-            description="device",
+            description="content",
             nullable=True
         ),
         # FieldSchema(
