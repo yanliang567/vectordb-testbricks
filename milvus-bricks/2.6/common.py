@@ -324,6 +324,8 @@ def gen_data_by_collection_field(field, nb=None, start=0, random_pk=False):
         enable_analyzer = field.params.get("enable_analyzer", False)
         is_primary = field.is_primary
 
+    enable_analyzer = True    # TODO: to be removed, debug for specific cases
+
     # generate data according to the data type
     if data_type == DataType.BOOL:
         if nb is None:
@@ -870,24 +872,24 @@ def create_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False)
             description="device",
             nullable=True
         ),
-        FieldSchema(
-            name="fname",
-            dtype=DataType.VARCHAR,
-            max_length=256,
-            description="fname",
-            nullable=True
-        ),
+        # FieldSchema(
+        #     name="fname",
+        #     dtype=DataType.VARCHAR,
+        #     max_length=256,
+        #     description="fname",
+        #     nullable=True
+        # ),
+        # FieldSchema(
+        #     name="version",
+        #     dtype=DataType.VARCHAR,
+        #     max_length=500,
+        #     description="data version",
+        #     nullable=True
+        # ),
         FieldSchema(
             name="flag",
             dtype=DataType.BOOL,
             description="flag",
-            nullable=True
-        ),
-        FieldSchema(
-            name="version",
-            dtype=DataType.VARCHAR,
-            max_length=200,
-            description="data version",
             nullable=True
         )
     ])
