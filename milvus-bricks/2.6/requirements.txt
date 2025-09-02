@@ -8,4 +8,4 @@ kubernetes==29.0.0a1
 urllib3==2.1.0
 Faker==19.2.0
 numpy>=1.21.0
-shapely==2.1.1
+shapely==2.0.1
