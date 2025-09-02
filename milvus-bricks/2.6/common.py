@@ -587,7 +587,7 @@ def gen_row_data_by_schema(nb=2000, schema=None, start=0, random_pk=False, skip_
                     start += 1
                 if field.get('name', None) == 'version':
                     tmp[field.get('name')] = str(new_version)
-                if field.get('name', None) == 'content':
+                if field.get('name', None) == 'content' and field_value is not None:
                     seed = random.randint(1, 4)
                     if seed == 1:
                         tmp[field.get('name')] =  field_value + " content"
@@ -629,7 +629,7 @@ def gen_row_data_by_schema(nb=2000, schema=None, start=0, random_pk=False, skip_
                     start += 1
                 if field.get('name', None) == 'version':
                     tmp[field.get('name')] = str(new_version)
-                if field.get('name', None) == 'content':
+                if field.get('name', None) == 'content' and field_value is not None:
                     seed = random.randint(1, 4)
                     if seed == 1:
                         tmp[field.get('name')] =  field_value + " content"
