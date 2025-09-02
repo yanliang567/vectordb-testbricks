@@ -138,7 +138,7 @@ if __name__ == '__main__':
                  f"metrics: {metrics},  nb: {nb}, shards: {shards}, insert_times: {insert_times},  "
                  f"auto_id: {auto_id}, use_str_pk: {use_str_pk}, ttl: {ttl}, "
                  f"build_index: {need_build_index}, load: {need_load}, api_key: {api_key}")
-    logging.info("start")
+    
     if api_key is None or api_key == "" or api_key.upper() == "NONE":
         conn = connections.connect('default', host=host, port=port)
     else:
