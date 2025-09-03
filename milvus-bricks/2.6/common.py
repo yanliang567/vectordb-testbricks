@@ -324,7 +324,7 @@ def gen_data_by_collection_field(field, nb=None, start=0, random_pk=False):
         enable_analyzer = field.params.get("enable_analyzer", False)
         is_primary = field.is_primary
 
-    enable_analyzer = True    # TODO: to be removed, debug for specific cases
+    # enable_analyzer = True    # TODO: to be removed, debug for specific cases
 
     # generate data according to the data type
     if data_type == DataType.BOOL:
@@ -588,15 +588,9 @@ def gen_row_data_by_schema(nb=2000, schema=None, start=0, random_pk=False, skip_
                 if field.get('name', None) == 'version':
                     tmp[field.get('name')] = str(new_version)
                 if field.get('name', None) == 'content' and field_value is not None:
-                    seed = random.randint(1, 4)
-                    if seed == 1:
-                        tmp[field.get('name')] = field_value + " content"
-                    elif seed == 2:
-                        tmp[field.get('name')] = "content " + field_value
-                    elif seed == 3:
-                        tmp[field.get('name')] = field_value[:len(field_value)//2] + " content" + field_value[len(field_value)//2:]
-                    else:
-                        tmp[field.get('name')] = field_value
+                    json_keywords = ["stadium", "park", "content", "library", "hospital", "restaurant", "office", "store"]
+                    keyword = json_keywords[random.randint(0, len(json_keywords) - 1)]
+                    tmp[field.get('name')] = f"This is a {keyword} building"
             data.append(tmp)
     else:
         # a schema object is usually form orm schema object
