@@ -295,7 +295,7 @@ def verify_collection_setup(client, collection_name):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) not in [8]:
+    if len(sys.argv) not in [9]:
         print("Usage: python3 query_permanently_optimized.py <host> <collection> <threads> <timeout> <output_fields> <expression> <api_key> [batch_size]")
         print("Parameters:")
         print("  host         : Milvus server host")
