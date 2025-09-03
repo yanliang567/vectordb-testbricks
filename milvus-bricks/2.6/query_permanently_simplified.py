@@ -266,7 +266,7 @@ def verify_collection_setup(client, collection_name):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) not in [8, 9]:
+    if len(sys.argv) not in [10]:
         print("Usage: python3 query_permanently_simplified.py <host> <collection> <max_workers> <timeout> <output_fields> <expression> <api_key> <batch_size> [batch_concurrency]")
         print("Parameters:")
         print("  host             : Milvus server host")
@@ -304,7 +304,7 @@ if __name__ == '__main__':
     expr = str(sys.argv[6]).strip()
     api_key = str(sys.argv[7])
     batch_size = int(sys.argv[8])
-    batch_concurrency = int(sys.argv[9]) if len(sys.argv) == 10 else None
+    batch_concurrency = int(sys.argv[9])
 
     port = 19530
     

@@ -12,6 +12,13 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
+def generate_random_expression():
+    """生成随机查询表达式"""
+    keywords = ["con%", "%nt", "%con%", "%content%", "%co%nt", "%con_ent%", "%co%nt%"]
+    keyword = random.choice(keywords)
+    return f'content like "{keyword}"'
+
+
 def query_permanently(client, collection_name, threads_num, output_fields, expr, timeout):
     """
     Execute queries permanently using MilvusClient
@@ -37,15 +44,7 @@ def query_permanently(client, collection_name, threads_num, output_fields, expr,
             t1 = time.time()
             
             # Handle random expressions
-            current_expr = expr
-            if expr in ["random", "RANDOM", "Random"]:
-                seed = random.randint(0, 2000)
-                current_expr = f"category >= {seed-100} and category <= {seed+100}"
-            elif expr == "random_content":
-                # Random content-based query for full-text search testing
-                keywords = ["content", "test", "data", "vector", "search", "milvus"]
-                keyword = random.choice(keywords)
-                current_expr = f'content like "{keyword}%"'
+            current_expr = generate_random_expression()
             
             try:
                 # Execute query
@@ -53,14 +52,10 @@ def query_permanently(client, collection_name, threads_num, output_fields, expr,
                     collection_name=collection_name,
                     filter=current_expr,
                     output_fields=output_fields,
-                    timeout=10
+                    timeout=100
                 )
                 result_count = len(res) if res else 0
-                
-                # Log detailed results occasionally
-                if count % 50 == 0:
-                    logging.debug(f"Thread {thread_no}: Query returned {result_count} results")
-                    
+
             except Exception as e:
                 failures += 1
                 logging.error(f"Thread {thread_no} query failed: {e}")
