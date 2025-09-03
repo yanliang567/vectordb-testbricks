@@ -884,7 +884,7 @@ def create_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False)
         FieldSchema(
             name="content",
             dtype=DataType.VARCHAR,
-            max_length=500,
+            max_length=50,
             description="content",
             nullable=True
         ),
