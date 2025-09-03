@@ -310,7 +310,7 @@ def gen_data_by_collection_field(field, nb=None, start=0, random_pk=False):
         - For vector fields, generates random vectors of specified dimension
         - For array fields, generates arrays filled with random values of element type
     """
-
+    enable_analyzer = False
     if isinstance(field, dict):
         # for v2 client, it accepts a dict of field info
         nullable = field.get('nullable', False)
@@ -590,13 +590,13 @@ def gen_row_data_by_schema(nb=2000, schema=None, start=0, random_pk=False, skip_
                 if field.get('name', None) == 'content' and field_value is not None:
                     seed = random.randint(1, 4)
                     if seed == 1:
-                        tmp[field.get('name')] =  field_value + " content"
+                        tmp[field.get('name')] = field_value + " content"
                     elif seed == 2:
-                        tmp[field.get('name')] =  "content " + field_value
+                        tmp[field.get('name')] = "content " + field_value
                     elif seed == 3:
-                        tmp[field.get('name')] =  field_value[:len(field_value)//2] + " content" + field_value[len(field_value)//2:]
+                        tmp[field.get('name')] = field_value[:len(field_value)//2] + " content" + field_value[len(field_value)//2:]
                     else:
-                        tmp[field.get('name')] =  field_value
+                        tmp[field.get('name')] = field_value
             data.append(tmp)
     else:
         # a schema object is usually form orm schema object
@@ -632,13 +632,13 @@ def gen_row_data_by_schema(nb=2000, schema=None, start=0, random_pk=False, skip_
                 if field.get('name', None) == 'content' and field_value is not None:
                     seed = random.randint(1, 4)
                     if seed == 1:
-                        tmp[field.get('name')] =  field_value + " content"
+                        tmp[field.get('name')] = field_value + " content"
                     elif seed == 2:
-                        tmp[field.get('name')] =  "content " + field_value
+                        tmp[field.get('name')] = "content " + field_value
                     elif seed == 3:
-                        tmp[field.get('name')] =  field_value[:len(field_value)//2] + " content" + field_value[len(field_value)//2:]
+                        tmp[field.get('name')] = field_value[:len(field_value)//2] + " content" + field_value[len(field_value)//2:]
                     else:
-                        tmp[field.get('name')] =  field_value
+                        tmp[field.get('name')] = field_value
             data.append(tmp)
     return data
 
