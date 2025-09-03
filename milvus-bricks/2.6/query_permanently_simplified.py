@@ -81,7 +81,7 @@ def generate_random_expression(base_expr):
     return f'content like "{keyword}"'
 
 
-def single_query_task(client, collection_name, base_expr, output_fields, timeout=60):
+def single_query_task(client, collection_name, base_expr, output_fields, limit, timeout=60):
     """
     单个查询任务 - 直接使用共享的 MilvusClient
     
@@ -97,7 +97,7 @@ def single_query_task(client, collection_name, base_expr, output_fields, timeout
             collection_name=collection_name,
             filter=current_expr,
             output_fields=output_fields,
-            limit=100,
+            limit=limit,
             timeout=timeout
         )
         
@@ -115,12 +115,12 @@ def single_query_task(client, collection_name, base_expr, output_fields, timeout
             'success': False,
             'latency': latency,
             'error': str(e),
-            'expression': generate_random_expression(base_expr)
+            'expression': current_expr
         }
 
 
 def execute_concurrent_batch(client, collection_name, expr, output_fields, 
-                           batch_size, batch_concurrency):
+                           batch_size, batch_concurrency, limit):
     """
     执行并发批次 - 使用共享客户端
     """
@@ -133,7 +133,7 @@ def execute_concurrent_batch(client, collection_name, expr, output_fields,
             # 所有线程共享同一个 client 实例
             future = batch_executor.submit(
                 single_query_task,
-                client, collection_name, expr, output_fields
+                client, collection_name, expr, output_fields, limit
             )
             futures.append(future)
         
@@ -141,7 +141,7 @@ def execute_concurrent_batch(client, collection_name, expr, output_fields,
         batch_results = []
         for future in as_completed(futures, timeout=60):
             try:
-                result = future.result(timeout=10.0)
+                result = future.result(timeout=60.0)
                 batch_results.append(result)
             except Exception as e:
                 logging.warning(f"Batch task failed: {e}")
@@ -156,7 +156,7 @@ def execute_concurrent_batch(client, collection_name, expr, output_fields,
 
 def query_permanently_simplified(client, collection_name, max_workers, 
                                 output_fields, expr, timeout, batch_size=100, 
-                                batch_concurrency=None):
+                                batch_concurrency=None, limit=None):
     """
     简化版本的持续查询测试 - 无连接池
     
@@ -198,7 +198,7 @@ def query_permanently_simplified(client, collection_name, max_workers,
             batch_future = main_executor.submit(
                 execute_concurrent_batch,
                 client, collection_name, expr, output_fields,
-                current_batch_size, batch_concurrency
+                current_batch_size, batch_concurrency, limit
             )
             
             try:
@@ -266,7 +266,7 @@ def verify_collection_setup(client, collection_name):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) not in [10]:
+    if len(sys.argv) not in [11]:
         print("Usage: python3 query_permanently_simplified.py <host> <collection> <max_workers> <timeout> <output_fields> <expression> <api_key> <batch_size> [batch_concurrency]")
         print("Parameters:")
         print("  host             : Milvus server host")
@@ -275,19 +275,20 @@ if __name__ == '__main__':
         print("  timeout          : Test timeout in seconds")
         print("  output_fields    : Fields to return (comma-separated or '*')")
         print("  expression       : Query filter expression")
+        print("  limit            : Query limit")
         print("  api_key          : API key (or 'None' for local)")
         print("  batch_size       : Number of queries per batch")
         print("  batch_concurrency: Concurrent threads within each batch (optional)")
         print()
         print("Examples:")
         print("  # 基础使用 - 单客户端，无连接池")
-        print("  python3 query_permanently_simplified.py localhost test_collection 1 60 'id' 'id>0' None 5")
+        print("  python3 query_permanently_simplified.py localhost test_collection 1 60 'id' 'id>0' None 50 5")
         print()
         print("  # 批次内并发")
-        print("  python3 query_permanently_simplified.py localhost test_collection 1 60 'id' 'id>0' None 10 5")
+        print("  python3 query_permanently_simplified.py localhost test_collection 1 60 'id' 'id>0' None 50 10 5")
         print()
         print("  # 高性能配置")
-        print("  python3 query_permanently_simplified.py localhost test_collection 2 60 'id' 'id>0' None 20 10")
+        print("  python3 query_permanently_simplified.py localhost test_collection 2 60 'id' 'id>0' None 50 20 10")
         print()
         print("🔧 关键改进:")
         print("  ✅ 移除了客户端连接池")
@@ -302,9 +303,10 @@ if __name__ == '__main__':
     timeout = int(sys.argv[4])
     output_fields = str(sys.argv[5]).strip()
     expr = str(sys.argv[6]).strip()
-    api_key = str(sys.argv[7])
-    batch_size = int(sys.argv[8])
-    batch_concurrency = int(sys.argv[9])
+    limit = int(sys.argv[7])
+    api_key = str(sys.argv[8])
+    batch_size = int(sys.argv[9])
+    batch_concurrency = int(sys.argv[10])
 
     port = 19530
     
@@ -319,7 +321,9 @@ if __name__ == '__main__':
     
     if expr in ["None", "none", "NONE"] or expr == "":
         expr = "None"
-    
+    if limit in [None, "None", "none", "NONE"] or limit == "":
+        limit = None
+        
     # 设置日志
     log_filename = f"/tmp/query_simplified_{name}_{int(time.time())}.log"
     file_handler = logging.FileHandler(filename=log_filename)
@@ -334,6 +338,7 @@ if __name__ == '__main__':
     logging.info(f"  Timeout: {timeout}s")
     logging.info(f"  Output Fields: {output_fields}")
     logging.info(f"  Expression: {expr}")
+    logging.info(f"  Limit: {limit}")
     logging.info(f"  Batch Size: {batch_size}")
     logging.info(f"  Batch Concurrency: {batch_concurrency or 'auto'}")
 
@@ -366,7 +371,8 @@ if __name__ == '__main__':
             expr=expr,
             timeout=timeout,
             batch_size=batch_size,
-            batch_concurrency=batch_concurrency
+            batch_concurrency=batch_concurrency,
+            limit=limit
         )
         end_time = time.time()
         

@@ -119,7 +119,7 @@ def generate_random_expression(base_expr):
     return f'content like "{keyword}"'
 
 
-def single_query_task(client_pool, collection_name, base_expr, output_fields, timeout=60):
+def single_query_task(client_pool, collection_name, base_expr, output_fields, limit, timeout=60):
     """单个查询任务"""
     client = None
     start_time = time.time()
@@ -132,7 +132,7 @@ def single_query_task(client_pool, collection_name, base_expr, output_fields, ti
             collection_name=collection_name,
             filter=current_expr,
             output_fields=output_fields,
-            limit=100,
+            limit=limit,
             timeout=timeout
         )
         
@@ -150,7 +150,7 @@ def single_query_task(client_pool, collection_name, base_expr, output_fields, ti
             'success': False,
             'latency': latency,
             'error': str(e),
-            'expression': generate_random_expression(base_expr)
+            'expression': current_expr
         }
     
     finally:
@@ -159,7 +159,7 @@ def single_query_task(client_pool, collection_name, base_expr, output_fields, ti
 
 
 def query_permanently_optimized(client_pool, collection_name, max_workers, 
-                               output_fields, expr, timeout, batch_size=100):
+                               output_fields, expr, timeout, batch_size=100, limit=None):
     """
     优化版本的持续查询测试
     
@@ -170,6 +170,7 @@ def query_permanently_optimized(client_pool, collection_name, max_workers,
     :param expr: 查询表达式
     :param timeout: 超时时间
     :param batch_size: 批处理大小
+    :param limit: 查询限制
     """
     stats = OptimizedStats()
     end_time = time.time() + timeout
@@ -203,7 +204,7 @@ def query_permanently_optimized(client_pool, collection_name, max_workers,
                 
                 future = executor.submit(
                     single_query_task,
-                    client_pool, collection_name, expr, output_fields
+                    client_pool, collection_name, expr, output_fields, limit
                 )
                 futures.append(future)
             
@@ -295,7 +296,7 @@ def verify_collection_setup(client, collection_name):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) not in [9]:
+    if len(sys.argv) not in [10]:
         print("Usage: python3 query_permanently_optimized.py <host> <collection> <threads> <timeout> <output_fields> <expression> <api_key> [batch_size]")
         print("Parameters:")
         print("  host         : Milvus server host")
@@ -304,11 +305,12 @@ if __name__ == '__main__':
         print("  timeout      : Test timeout in seconds")
         print("  output_fields: Fields to return (comma-separated or '*')")
         print("  expression   : Query filter expression")
+        print("  limit        : Query limit")
         print("  batch_size   : Batch size for task submission")
         print("  api_key      : API key (or 'None' for local)")
         print()
         print("Examples:")
-        print("  python3.11 query_permanently_optimized.py 10.104.33.161 test_aa 1 3600 'id,content' 'dd' 2 None")
+        print("  python3.11 query_permanently_optimized.py 10.104.33.161 test_aa 1 3600 'id,content' 'dd' 50 2 None")
         print("actual len of argv is: ", len(sys.argv), "argv is: ", sys.argv)
         sys.exit(1)
     
@@ -318,8 +320,9 @@ if __name__ == '__main__':
     timeout = int(sys.argv[4])
     output_fields = str(sys.argv[5]).strip()
     expr = str(sys.argv[6]).strip()
-    batch_size = int(sys.argv[7]) 
-    api_key = str(sys.argv[8])
+    limit = int(sys.argv[7])
+    batch_size = int(sys.argv[8]) 
+    api_key = str(sys.argv[9])
 
     port = 19530
     
@@ -334,6 +337,8 @@ if __name__ == '__main__':
     
     if expr in ["None", "none", "NONE"] or expr == "":
         expr = "None"
+    if limit in [None, "None", "none", "NONE"] or limit == "":
+        limit = None
     
     # 设置日志
     log_filename = f"/tmp/query_optimized_{name}_{int(time.time())}.log"
@@ -349,6 +354,7 @@ if __name__ == '__main__':
     logging.info(f"  Timeout: {timeout}s")
     logging.info(f"  Output Fields: {output_fields}")
     logging.info(f"  Expression: {expr}")
+    logging.info(f"  Limit: {limit}")
     logging.info(f"  Batch Size: {batch_size}")
     logging.info(f"  Connection Pool Size: {max_workers}")
 
@@ -381,7 +387,8 @@ if __name__ == '__main__':
             output_fields=output_fields,
             expr=expr,
             timeout=timeout,
-            batch_size=batch_size
+            batch_size=batch_size,
+            limit=limit
         )
         end_time = time.time()
         

@@ -19,7 +19,7 @@ def generate_random_expression():
     return f'content like "{keyword}"'
 
 
-def query_permanently(client, collection_name, threads_num, output_fields, expr, timeout):
+def query_permanently(client, collection_name, threads_num, output_fields, expr, timeout, limit):
     """
     Execute queries permanently using MilvusClient
     :param client: MilvusClient object
@@ -28,6 +28,7 @@ def query_permanently(client, collection_name, threads_num, output_fields, expr,
     :param output_fields: list, output fields
     :param expr: str, query expression
     :param timeout: int, timeout in seconds
+    :param limit: int, query limit
     """
     threads_num = int(threads_num)
     interval_count = 100
@@ -52,7 +53,7 @@ def query_permanently(client, collection_name, threads_num, output_fields, expr,
                     collection_name=collection_name,
                     filter=current_expr,
                     output_fields=output_fields,
-                    timeout=100
+                    limit=limit,
                 )
                 result_count = len(res) if res else 0
 
@@ -125,7 +126,8 @@ if __name__ == '__main__':
     timeout = int(sys.argv[4])                         # query timeout, permanently if 0
     output_fields = str(sys.argv[5]).strip()           # output fields, default is None
     expr = str(sys.argv[6]).strip()                    # query expression, default is None
-    api_key = str(sys.argv[7])                         # api key for cloud instances
+    limit = int(sys.argv[7])                           # query limit, default is None
+    api_key = str(sys.argv[8])                         # api key for cloud instances
 
     port = 19530
     
@@ -141,7 +143,9 @@ if __name__ == '__main__':
     
     # Parse expression
     if expr in ["None", "none", "NONE"] or expr == "":
-        expr = "category >= 0"  # Default expression
+        expr = None  # Default expression
+    if limit in [None, "None", "none", "NONE"] or limit == "":
+        limit = None
     
     # Setup logging
     log_filename = f"/tmp/query_permanently_{name}.log"
@@ -158,6 +162,7 @@ if __name__ == '__main__':
     logging.info(f"  Timeout: {timeout}s")
     logging.info(f"  Output fields: {output_fields}")
     logging.info(f"  Expression: {expr}")
+    logging.info(f"  Limit: {limit}")
     logging.info(f"  API key: {'***' if api_key != 'None' else 'None'}")
 
     # Create MilvusClient instance
@@ -182,7 +187,7 @@ if __name__ == '__main__':
     logging.info(f"Starting query test with {th} threads for {timeout} seconds...")
     
     start_time = time.time()
-    query_permanently(client, name, th, output_fields, expr, timeout)
+    query_permanently(client, name, th, output_fields, expr, timeout, limit)
     end_time = time.time()
     total_time = round(end_time - start_time, 2)
     
