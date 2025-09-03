@@ -295,7 +295,7 @@ def verify_collection_setup(client, collection_name):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) not in [8, 9]:
+    if len(sys.argv) not in [8]:
         print("Usage: python3 query_permanently_optimized.py <host> <collection> <threads> <timeout> <output_fields> <expression> <api_key> [batch_size]")
         print("Parameters:")
         print("  host         : Milvus server host")
@@ -304,12 +304,11 @@ if __name__ == '__main__':
         print("  timeout      : Test timeout in seconds")
         print("  output_fields: Fields to return (comma-separated or '*')")
         print("  expression   : Query filter expression")
+        print("  batch_size   : Batch size for task submission")
         print("  api_key      : API key (or 'None' for local)")
-        print("  batch_size   : Batch size for task submission (default: 100)")
         print()
         print("Examples:")
-        print("  python3 query_permanently_optimized.py localhost test_collection 8 60 'id,category' 'random' None")
-        print("  python3 query_permanently_optimized.py localhost test_collection 8 60 '*' 'category >= 0' None 200")
+        print("  python3.11 query_permanently_optimized.py 10.104.33.161 test_aa 1 3600 'id,content' 'dd' 2 None")
         sys.exit(1)
     
     host = sys.argv[1]
@@ -318,8 +317,8 @@ if __name__ == '__main__':
     timeout = int(sys.argv[4])
     output_fields = str(sys.argv[5]).strip()
     expr = str(sys.argv[6]).strip()
-    api_key = str(sys.argv[7])
-    batch_size = int(sys.argv[8]) if len(sys.argv) == 9 else 100  # 默认batch_size=100
+    batch_size = int(sys.argv[7]) 
+    api_key = str(sys.argv[8])
 
     port = 19530
     
