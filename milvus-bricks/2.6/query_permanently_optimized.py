@@ -309,6 +309,7 @@ if __name__ == '__main__':
         print()
         print("Examples:")
         print("  python3.11 query_permanently_optimized.py 10.104.33.161 test_aa 1 3600 'id,content' 'dd' 2 None")
+        print("actual len of argv is: ", len(sys.argv), "argv is: ", sys.argv)
         sys.exit(1)
     
     host = sys.argv[1]
