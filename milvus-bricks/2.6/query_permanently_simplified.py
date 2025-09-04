@@ -150,6 +150,10 @@ def query_permanently_simplified(client, collection_name, max_workers,
     logging.info(f"  架构: 单 MilvusClient + 单 ThreadPoolExecutor")
     logging.info(f"  无连接池，无批次分层，最简架构")
     
+    # 日志控制变量
+    last_logged_milestone = 0
+    log_interval = max_workers * 100  # 进一步减少日志频率
+    
     # 单一线程池，直接管理所有查询任务
     with ThreadPoolExecutor(max_workers=max_workers, 
                            thread_name_prefix="QueryWorker") as executor:
@@ -193,24 +197,25 @@ def query_permanently_simplified(client, collection_name, max_workers,
             # 移除已完成的任务
             pending_futures -= completed_futures
             
-            # 定期输出统计信息
-            if submitted_tasks % (max_workers * 100) == 0:
+            # 定期输出统计信息 - 避免重复打印
+            if submitted_tasks >= last_logged_milestone + log_interval:
                 current_stats = stats.get_stats()
                 logging.info(
-                    f"Submitted: {submitted_tasks}, "
-                    f"Pending: {len(pending_futures)}, "
+                    f"Progress: {submitted_tasks} submitted, "
+                    f"{len(pending_futures)} pending | "
                     f"QPS: {current_stats['qps']:.1f}, "
                     f"Avg: {current_stats['avg_latency']:.3f}s, "
                     f"P99: {current_stats['p99_latency']:.3f}s, "
-                    f"Success Rate: {current_stats['success_rate']:.1f}%"
+                    f"Success: {current_stats['success_rate']:.1f}%"
                 )
+                last_logged_milestone = submitted_tasks
                 
                 # 重置样本数据
                 if submitted_tasks % (max_workers * 1000) == 0:
                     stats.reset_samples()
             
-            # 短暂休息，避免CPU过载
-            time.sleep(0.001)
+            # # 短暂休息，避免CPU过载
+            # time.sleep(0.001)
         
         # 等待所有剩余任务完成
         logging.info(f"Waiting for {len(pending_futures)} remaining tasks to complete...")
