@@ -42,8 +42,11 @@ class OptimizedStats:
             if not success:
                 self.total_failures += 1
     
-    def get_stats(self):
-        """获取统计信息"""
+    def get_stats(self, actual_elapsed_time=None):
+        """获取统计信息
+        
+        :param actual_elapsed_time: 实际测试耗时，用于准确计算QPS
+        """
         with self.lock:
             if not self.latencies:
                 return {
@@ -54,14 +57,19 @@ class OptimizedStats:
                     'p99_latency': 0
                 }
             
-            elapsed_time = time.time() - self.start_time
+            # 优先使用传入的实际耗时，否则使用内部计算的时间
+            if actual_elapsed_time is not None:
+                elapsed_time = actual_elapsed_time
+            else:
+                elapsed_time = time.time() - self.start_time
+            
             latency_array = np.array(self.latencies)
             
             return {
                 'total_queries': self.total_queries,
                 'failures': self.total_failures,
                 'success_rate': (self.total_queries - self.total_failures) / max(self.total_queries, 1) * 100,
-                'qps': self.total_queries / max(elapsed_time, 0.001),
+                'qps': self.total_queries / max(elapsed_time, 0.001),  # 使用实际耗时计算QPS
                 'avg_latency': float(np.mean(latency_array)),
                 'p95_latency': float(np.percentile(latency_array, 95)),
                 'p99_latency': float(np.percentile(latency_array, 99)),
@@ -210,14 +218,17 @@ def query_permanently_simplified(client, collection_name, max_workers,
                 logging.warning(f"Final task failed: {e}")
                 stats.record_query(0.1, False)
     
-    # 最终统计
-    final_stats = stats.get_stats()
+    # 最终统计 - 使用实际测试时间计算准确的QPS
+    actual_test_time = time.time() - stats.start_time
+    final_stats = stats.get_stats(actual_elapsed_time=actual_test_time)
+    
     logging.info("=" * 80)
     logging.info("FINAL PERFORMANCE STATISTICS (ULTRA-SIMPLIFIED):")
+    logging.info(f"  Actual Test Duration: {actual_test_time:.2f}s")
     logging.info(f"  Total Queries: {final_stats['total_queries']}")
     logging.info(f"  Total Failures: {final_stats['failures']}")
     logging.info(f"  Success Rate: {final_stats['success_rate']:.2f}%")
-    logging.info(f"  Overall QPS: {final_stats['qps']:.2f}")
+    logging.info(f"  Overall QPS: {final_stats['qps']:.2f} (总查询数 ÷ 实际耗时)")
     logging.info(f"  Average Latency: {final_stats['avg_latency']:.3f}s")
     logging.info(f"  P95 Latency: {final_stats['p95_latency']:.3f}s")
     logging.info(f"  P99 Latency: {final_stats['p99_latency']:.3f}s")
@@ -333,33 +344,23 @@ if __name__ == '__main__':
         sys.exit(1)
     
     # 运行简化的查询测试
-    try:
-        start_time = time.time()
-        final_stats = query_permanently_simplified(
-            client=client,  # 传递单个客户端
-            collection_name=name,
-            max_workers=max_workers,  # 直接控制并发数，无分层
-            output_fields=output_fields,
-            expr=expr,
-            timeout=timeout,
-            limit=limit
-        )
-        end_time = time.time()
-        
-        logging.info(f"✅ Ultra-simplified query test completed in {end_time - start_time:.2f} seconds")
-        logging.info(f"📊 Final QPS: {final_stats['qps']:.2f}")
-        logging.info(f"📁 Log file: {log_filename}")
-        
-    except KeyboardInterrupt:
-        logging.info("⚠️ Query test interrupted by user")
-    except Exception as e:
-        logging.error(f"❌ Query test failed: {e}")
-        raise
-    finally:
-        # 简化的清理：只需要关闭一个客户端
-        try:
-            if hasattr(client, 'close'):
-                client.close()
-            logging.info("🔌 MilvusClient closed")
-        except Exception as e:
-            logging.warning(f"Failed to close client: {e}")
+    start_time = time.time()
+    final_stats = query_permanently_simplified(
+        client=client,  # 传递单个客户端
+        collection_name=name,
+        max_workers=max_workers,  # 直接控制并发数，无分层
+        output_fields=output_fields,
+        expr=expr,
+        timeout=timeout,
+        limit=limit
+    )
+    end_time = time.time()
+    
+    actual_duration = end_time - start_time
+    # 重新计算准确的最终QPS
+    accurate_qps = final_stats['total_queries'] / max(actual_duration, 0.001)
+    
+    logging.info(f"✅ Simplified query test completed in {actual_duration:.2f} seconds")
+    logging.info(f"📊 Accurate Final QPS: {accurate_qps:.2f} ({final_stats['total_queries']} queries ÷ {actual_duration:.2f}s)")
+    logging.info(f"📁 Log file: {log_filename}")
+   
