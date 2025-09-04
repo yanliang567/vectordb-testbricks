@@ -87,15 +87,32 @@ def query_permanently(client, collection_name, threads_num, output_fields, expr,
             t = threading.Thread(target=query_thread, args=(i,))
             threads.append(t)
             t.start()
+        # Wait for all threads to complete
+        for t in threads:
+            t.join()
     else:
-        # Single-threaded execution
-        t = threading.Thread(target=query_thread, args=(0,))
-        threads.append(t)
-        t.start()
-    
-    # Wait for all threads to complete
-    for t in threads:
-        t.join()
+        query_latency = []
+        count = 0
+        start_time = time.time()
+        while time.time() < start_time + timeout:
+            count += 1
+            t1 = time.time()
+            current_expr = generate_random_expression()
+            try:
+                res = client.query(collection_name=collection_name, filter=current_expr, output_fields=output_fields, limit=limit, timeout=60)
+                # logging.info(f"res: {res}")
+            except Exception as e:
+                logging.error(e)
+            t2 = round(time.time() - t1, 4)
+            query_latency.append(t2)
+            if count == interval_count:
+                total = round(np.sum(query_latency), 4)
+                p99 = round(np.percentile(query_latency, 99), 4)
+                avg = round(np.mean(query_latency), 4)
+                qps = round(interval_count / total, 4)
+                logging.info(f"collection {collection_name} query {interval_count} times single thread: cost {total}, qps {qps}, avg {avg}, p99 {p99} ")
+                count = 0
+                query_latency = []
 
 
 def verify_collection_setup(client, collection_name):
