@@ -243,7 +243,7 @@ def verify_collection_setup(client, collection_name):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 8:
+    if len(sys.argv) != 9:
         print("Usage: python3 query_permanently_simplified.py <host> <collection> <max_workers> <timeout> <output_fields> <expression> <limit> <api_key>")
         print("Parameters:")
         print("  host             : Milvus server host")
