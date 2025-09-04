@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-简化版并发查询测试 - 移除客户端连接池
+超级简化版并发查询测试 - 单线程池架构
 
 关键简化:
-1. 移除 MilvusClientPool，使用单个 MilvusClient 实例
-2. 依赖 Milvus 服务端的连接复用机制
-3. 减少代码复杂度和内存开销
-4. 保持并发查询能力
+1. ✅ 移除客户端连接池，使用单个 MilvusClient 实例
+2. ✅ 移除双层线程池（BatchController + QueryTasks）
+3. ✅ max_workers 直接等于并发查询数量
+4. ✅ 单个 ThreadPoolExecutor 直接管理所有查询任务
+5. ✅ 依赖 Milvus 服务端连接复用，无分层复杂性
 """
 
 import time
@@ -119,124 +120,100 @@ def single_query_task(client, collection_name, base_expr, output_fields, limit, 
         }
 
 
-def execute_concurrent_batch(client, collection_name, expr, output_fields, 
-                           batch_size, batch_concurrency, limit):
-    """
-    执行并发批次 - 使用共享客户端
-    """
-    with ThreadPoolExecutor(max_workers=batch_concurrency, 
-                           thread_name_prefix=f"BatchWorker") as batch_executor:
-        
-        # 提交批次内的所有任务
-        futures = []
-        for _ in range(batch_size):
-            # 所有线程共享同一个 client 实例
-            future = batch_executor.submit(
-                single_query_task,
-                client, collection_name, expr, output_fields, limit
-            )
-            futures.append(future)
-        
-        # 收集结果
-        batch_results = []
-        for future in as_completed(futures, timeout=60):
-            try:
-                result = future.result(timeout=60.0)
-                batch_results.append(result)
-            except Exception as e:
-                logging.warning(f"Batch task failed: {e}")
-                batch_results.append({
-                    'success': False,
-                    'latency': 0.1,
-                    'error': str(e)
-                })
-        
-        return batch_results
 
 
 def query_permanently_simplified(client, collection_name, max_workers, 
-                                output_fields, expr, timeout, batch_size=100, 
-                                batch_concurrency=None, limit=None):
+                                output_fields, expr, timeout, limit=100):
     """
-    简化版本的持续查询测试 - 无连接池
+    简化版本的持续查询测试 - 单线程池直接控制并发
     
     :param client: 单个共享的 MilvusClient 实例
+    :param max_workers: 直接控制并发查询数量
     """
     stats = OptimizedStats()
     end_time = time.time() + timeout
-    total_batches = 0
     
-    # 如果未指定批次并发数，默认等于batch_size
-    if batch_concurrency is None:
-        batch_concurrency = min(batch_size, 20)  # 合理限制，避免过多线程
+    logging.info(f"Starting ULTRA-SIMPLIFIED query test:")
+    logging.info(f"  Max Workers: {max_workers} (直接控制并发查询数)")
+    logging.info(f"  架构: 单 MilvusClient + 单 ThreadPoolExecutor")
+    logging.info(f"  无连接池，无批次分层，最简架构")
     
-    logging.info(f"Starting simplified query test:")
-    logging.info(f"  Max Workers: {max_workers} (批次控制)")
-    logging.info(f"  Batch Size: {batch_size} (每批次任务数)")
-    logging.info(f"  Batch Concurrency: {batch_concurrency} (批次内部并发)")
-    logging.info(f"  Client: Shared single MilvusClient instance")
-    
-    # 主控制循环
+    # 单一线程池，直接管理所有查询任务
     with ThreadPoolExecutor(max_workers=max_workers, 
-                           thread_name_prefix="BatchController") as main_executor:
+                           thread_name_prefix="QueryWorker") as executor:
+        
+        # 持续提交查询任务直到超时
+        submitted_tasks = 0
+        pending_futures = set()
         
         while time.time() < end_time:
-            if time.time() >= end_time:
-                logging.info("Timeout reached, exiting main loop")
-                break
-            
-            batch_start_time = time.time()
-            remaining_time = end_time - time.time()
+            current_time = time.time()
+            remaining_time = end_time - current_time
             
             if remaining_time <= 0:
                 break
             
-            # 动态调整批次大小
-            current_batch_size = min(batch_size, max(1, int(remaining_time * 10)))
+            # 控制未完成任务数量，避免内存无限增长
+            max_pending = max_workers * 2  # 允许一些缓冲
             
-            # 提交批次执行任务
-            batch_future = main_executor.submit(
-                execute_concurrent_batch,
-                client, collection_name, expr, output_fields,
-                current_batch_size, batch_concurrency, limit
-            )
+            # 提交新任务（如果有空间）
+            while len(pending_futures) < max_pending and time.time() < end_time:
+                future = executor.submit(
+                    single_query_task,
+                    client, collection_name, expr, output_fields, limit
+                )
+                pending_futures.add(future)
+                submitted_tasks += 1
             
+            # 收集已完成的任务
+            completed_futures = set()
+            for future in list(pending_futures):
+                if future.done():
+                    try:
+                        result = future.result(timeout=0.1)
+                        stats.record_query(result['latency'], result['success'])
+                        completed_futures.add(future)
+                    except Exception as e:
+                        logging.warning(f"Task failed: {e}")
+                        stats.record_query(0.1, False)
+                        completed_futures.add(future)
+            
+            # 移除已完成的任务
+            pending_futures -= completed_futures
+            
+            # 定期输出统计信息
+            if submitted_tasks % (max_workers * 10) == 0:
+                current_stats = stats.get_stats()
+                logging.info(
+                    f"Submitted: {submitted_tasks}, "
+                    f"Pending: {len(pending_futures)}, "
+                    f"QPS: {current_stats['qps']:.1f}, "
+                    f"Avg: {current_stats['avg_latency']:.3f}s, "
+                    f"P99: {current_stats['p99_latency']:.3f}s, "
+                    f"Success Rate: {current_stats['success_rate']:.1f}%"
+                )
+                
+                # 重置样本数据
+                if submitted_tasks % (max_workers * 1000) == 0:
+                    stats.reset_samples()
+            
+            # 短暂休息，避免CPU过载
+            time.sleep(0.001)
+        
+        # 等待所有剩余任务完成
+        logging.info(f"Waiting for {len(pending_futures)} remaining tasks to complete...")
+        for future in as_completed(pending_futures, timeout=30):
             try:
-                # 等待批次完成
-                batch_results = batch_future.result(timeout=min(remaining_time, 60))
-                
-                # 记录统计
-                for result in batch_results:
-                    stats.record_query(result['latency'], result['success'])
-                
-                total_batches += 1
-                batch_duration = time.time() - batch_start_time
-                
-                # 定期输出统计信息
-                logging_batch = 10
-                if total_batches % logging_batch == 0:
-                    current_stats = stats.get_stats()
-                    logging.info(
-                        f"Batch {total_batches}: {len(batch_results)} queries in {batch_duration:.2f}s, "
-                        f"QPS: {current_stats['qps']:.1f}, "
-                        f"Avg: {current_stats['avg_latency']:.3f}s, "
-                        f"P99: {current_stats['p99_latency']:.3f}s, "
-                        f"Success Rate: {current_stats['success_rate']:.1f}%, "
-                        f"Total: {current_stats['total_queries']}"
-                    )
-                    
-                    # 重置样本数据以避免内存无限增长
-                    if total_batches % (logging_batch * 100) == 0:
-                        stats.reset_samples()
-                        
+                result = future.result(timeout=1.0)
+                stats.record_query(result['latency'], result['success'])
             except Exception as e:
-                logging.warning(f"Batch execution failed: {e}")
-                break
+                logging.warning(f"Final task failed: {e}")
+                stats.record_query(0.1, False)
     
     # 最终统计
     final_stats = stats.get_stats()
     logging.info("=" * 80)
-    logging.info("FINAL PERFORMANCE STATISTICS:")
+    logging.info("FINAL PERFORMANCE STATISTICS (ULTRA-SIMPLIFIED):")
     logging.info(f"  Total Queries: {final_stats['total_queries']}")
     logging.info(f"  Total Failures: {final_stats['failures']}")
     logging.info(f"  Success Rate: {final_stats['success_rate']:.2f}%")
@@ -266,35 +243,31 @@ def verify_collection_setup(client, collection_name):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) not in [11]:
-        print("Usage: python3 query_permanently_simplified.py <host> <collection> <max_workers> <timeout> <output_fields> <expression> <api_key> <batch_size> [batch_concurrency]")
+    if len(sys.argv) != 8:
+        print("Usage: python3 query_permanently_simplified.py <host> <collection> <max_workers> <timeout> <output_fields> <expression> <limit> <api_key>")
         print("Parameters:")
         print("  host             : Milvus server host")
         print("  collection       : Collection name")
-        print("  max_workers      : Maximum concurrent batches")
+        print("  max_workers      : 并发查询数量 (直接控制)")
         print("  timeout          : Test timeout in seconds")
         print("  output_fields    : Fields to return (comma-separated or '*')")
         print("  expression       : Query filter expression")
         print("  limit            : Query limit")
         print("  api_key          : API key (or 'None' for local)")
-        print("  batch_size       : Number of queries per batch")
-        print("  batch_concurrency: Concurrent threads within each batch (optional)")
         print()
         print("Examples:")
-        print("  # 基础使用 - 单客户端，无连接池")
-        print("  python3 query_permanently_simplified.py localhost test_collection 1 60 'id' 'id>0' None 50 5")
+        print("  # 4 个并发查询")
+        print("  python3 query_permanently_simplified.py localhost test_collection 4 60 'id' 'id>0' 100 None")
         print()
-        print("  # 批次内并发")
-        print("  python3 query_permanently_simplified.py localhost test_collection 1 60 'id' 'id>0' None 50 10 5")
+        print("  # 16 个并发查询 (高并发)")
+        print("  python3 query_permanently_simplified.py localhost test_collection 16 60 'id' 'id>0' 100 None")
         print()
-        print("  # 高性能配置")
-        print("  python3 query_permanently_simplified.py localhost test_collection 2 60 'id' 'id>0' None 50 20 10")
-        print()
-        print("🔧 关键改进:")
-        print("  ✅ 移除了客户端连接池")
-        print("  ✅ 使用单个共享的 MilvusClient 实例")
+        print("🚀 超级简化架构:")
+        print("  ✅ 单个共享 MilvusClient")
+        print("  ✅ 单个 ThreadPoolExecutor") 
+        print("  ✅ max_workers = 并发查询数")
+        print("  ✅ 无连接池，无分层，最简单")
         print("  ✅ 依赖 Milvus 服务端连接复用")
-        print("  ✅ 显著降低内存使用和代码复杂度")
         sys.exit(1)
     
     host = sys.argv[1]
@@ -305,8 +278,7 @@ if __name__ == '__main__':
     expr = str(sys.argv[6]).strip()
     limit = int(sys.argv[7])
     api_key = str(sys.argv[8])
-    batch_size = int(sys.argv[9])
-    batch_concurrency = int(sys.argv[10])
+    
 
     port = 19530
     
@@ -321,26 +293,26 @@ if __name__ == '__main__':
     
     if expr in ["None", "none", "NONE"] or expr == "":
         expr = "None"
-    if limit in [None, "None", "none", "NONE"] or limit == "":
-        limit = None
+    
+    if limit <= 0:
+        limit = 100
         
     # 设置日志
-    log_filename = f"/tmp/query_simplified_{name}_{int(time.time())}.log"
+    log_filename = f"/tmp/query_ultra_simplified_{name}_{int(time.time())}.log"
     file_handler = logging.FileHandler(filename=log_filename)
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     
-    logging.info("🚀 Starting SIMPLIFIED query_permanently test:")
+    logging.info("🚀 Starting ULTRA-SIMPLIFIED query_permanently test:")
     logging.info(f"  Host: {host}")
     logging.info(f"  Collection: {name}")
-    logging.info(f"  Max Workers: {max_workers}")
+    logging.info(f"  Max Workers: {max_workers} (= 并发查询数)")
     logging.info(f"  Timeout: {timeout}s")
     logging.info(f"  Output Fields: {output_fields}")
     logging.info(f"  Expression: {expr}")
     logging.info(f"  Limit: {limit}")
-    logging.info(f"  Batch Size: {batch_size}")
-    logging.info(f"  Batch Concurrency: {batch_concurrency or 'auto'}")
+    logging.info(f"  架构: 单客户端 + 单线程池，最简单!")
 
     # 创建单个共享客户端 - 关键简化！
     try:
@@ -364,19 +336,17 @@ if __name__ == '__main__':
     try:
         start_time = time.time()
         final_stats = query_permanently_simplified(
-            client=client,  # 传递单个客户端而不是连接池
+            client=client,  # 传递单个客户端
             collection_name=name,
-            max_workers=max_workers,
+            max_workers=max_workers,  # 直接控制并发数，无分层
             output_fields=output_fields,
             expr=expr,
             timeout=timeout,
-            batch_size=batch_size,
-            batch_concurrency=batch_concurrency,
             limit=limit
         )
         end_time = time.time()
         
-        logging.info(f"✅ Simplified query test completed in {end_time - start_time:.2f} seconds")
+        logging.info(f"✅ Ultra-simplified query test completed in {end_time - start_time:.2f} seconds")
         logging.info(f"📊 Final QPS: {final_stats['qps']:.2f}")
         logging.info(f"📁 Log file: {log_filename}")
         
