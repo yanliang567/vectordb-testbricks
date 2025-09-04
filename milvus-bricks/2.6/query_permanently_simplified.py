@@ -50,11 +50,15 @@ class OptimizedStats:
         with self.lock:
             if not self.latencies:
                 return {
-                    'total_queries': 0,
-                    'failures': 0,
+                    'total_queries': self.total_queries,
+                    'failures': self.total_failures,
+                    'success_rate': 100.0 if self.total_queries == 0 else (self.total_queries - self.total_failures) / self.total_queries * 100,
                     'qps': 0,
                     'avg_latency': 0,
-                    'p99_latency': 0
+                    'p95_latency': 0,
+                    'p99_latency': 0,
+                    'min_latency': 0,
+                    'max_latency': 0
                 }
             
             # 优先使用传入的实际耗时，否则使用内部计算的时间
@@ -190,7 +194,7 @@ def query_permanently_simplified(client, collection_name, max_workers,
             pending_futures -= completed_futures
             
             # 定期输出统计信息
-            if submitted_tasks % (max_workers * 10) == 0:
+            if submitted_tasks % (max_workers * 100) == 0:
                 current_stats = stats.get_stats()
                 logging.info(
                     f"Submitted: {submitted_tasks}, "
