@@ -96,26 +96,26 @@ class SimpleStats:
             self.latencies.clear()
 
 
-def get_collection_info(client, collection_name):
-    """获取集合信息 - 优化为使用公共方法"""
-    try:
-        # 获取集合 schema （只调用一次）
-        schema = client.describe_collection(collection_name)
+# def get_collection_info(client, collection_name):
+#     """获取集合信息 - 优化为使用公共方法"""
+#     try:
+#         # 获取集合 schema （只调用一次）
+#         schema = client.describe_collection(collection_name)
         
-        # 使用简化的公共方法提取向量字段信息 - 只需传入schema
-        vector_fields = get_vector_field_info_from_schema(schema)
+#         # 使用简化的公共方法提取向量字段信息 - 只需传入schema
+#         vector_fields = get_vector_field_info_from_schema(schema)
         
-        # 获取索引信息
-        indexes = client.list_indexes(collection_name)
+#         # 获取索引信息
+#         indexes = client.list_indexes(collection_name)
         
-        return {
-            'schema': schema,
-            'vector_fields': vector_fields,
-            'indexes': indexes
-        }
-    except Exception as e:
-        logging.error(f"Failed to get collection info: {e}")
-        return None
+#         return {
+#             'schema': schema,
+#             'vector_fields': vector_fields,
+#             'indexes': indexes
+#         }
+#     except Exception as e:
+#         logging.error(f"Failed to get collection info: {e}")
+#         return None
 
 
 def generate_random_vectors(dim, nq):
@@ -157,7 +157,7 @@ def single_search_task(client, collection_name, search_params, timeout=60):
                 anns_field=search_params['anns_field'],
                 search_params=search_params.get('search_params', {}),
                 limit=search_params['limit'],
-                expr=search_params.get('expr'),
+                filter=search_params.get('filter'),
                 output_fields=search_params.get('output_fields'),
                 group_by_field=search_params.get('group_by_field'),
                 partition_names=search_params.get('partition_names'),
@@ -206,7 +206,7 @@ def create_search_params(search_type, collection_info, vec_field_names, nq, topk
                 "anns_field": field_name,
                 "param": {},
                 "limit": topk,
-                "expr": expr
+                "filter": expr
             }
             reqs.append(req)
         
@@ -241,9 +241,9 @@ def create_search_params(search_type, collection_info, vec_field_names, nq, topk
             'search_type': 'normal',
             'data': search_vectors,
             'anns_field': field_name,
-            'search_params': {"metric_type": "L2", "params": {"nprobe": 10}},
+            'search_params': {},
             'limit': topk,
-            'expr': expr,
+            'filter': expr,
             'output_fields': output_fields,
             'group_by_field': group_by_field,
             'partition_names': None  # 可以后续扩展支持分区
@@ -263,25 +263,15 @@ def search_permanently_simplified(client, collection_name, max_workers, search_t
     end_time = time.time() + timeout
     
     # 获取集合信息
-    collection_info = get_collection_info(client, collection_name)
-    if not collection_info:
-        raise ValueError(f"Failed to get collection info for {collection_name}")
+    collection_info = client.describe_collection(collection_name)
     
     # 确定向量字段 - 使用简化的公共方法
     if not vec_field_names:
         # 简化调用：只需传入schema
-        vec_field_names = get_float_vec_field_names(collection_info['schema'])
+        vec_field_names = get_float_vec_field_names(schema=collection_info)
     
     if not vec_field_names:
         raise ValueError("No vector fields found in collection")
-    
-    logging.info(f"Starting SEARCH test:")
-    logging.info(f"  Search Type: {search_type}")
-    logging.info(f"  Max Workers: {max_workers} (直接控制并发搜索数)")
-    logging.info(f"  Vector Fields: {vec_field_names}")
-    logging.info(f"  nq: {nq}, topk: {topk}")
-    logging.info(f"  Output Fields: {output_fields}")
-    logging.info(f"  Expression: {expr}")
     
     # 日志控制变量
     last_logged_milestone = 0
@@ -308,7 +298,7 @@ def search_permanently_simplified(client, collection_name, max_workers, search_t
             # 提交新任务（如果有空间）
             while len(pending_futures) < max_pending and time.time() < end_time:
                 # 创建搜索参数
-                expr = generate_random_expression()
+                expr = generate_random_expression() if expr is  not None else None
                 search_params = create_search_params(
                     search_type, collection_info, vec_field_names, 
                     nq, topk, output_fields, expr, group_by_field
@@ -406,7 +396,34 @@ def verify_collection_setup(client, collection_name):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 13:
+    try:
+        host = sys.argv[1]
+        name = str(sys.argv[2])
+        vec_field_names = str(sys.argv[3]).strip()
+        use_hybrid_search = str(sys.argv[4]).upper()
+        max_workers = int(sys.argv[5])
+        timeout = int(sys.argv[6])
+        output_fields = str(sys.argv[7]).strip()
+        expr = str(sys.argv[8]).strip()
+        nq = int(sys.argv[9])
+        topk = int(sys.argv[10])
+        group_by_field = str(sys.argv[11]).strip()
+        api_key = str(sys.argv[12])
+
+        # host = '10.104.33.161'
+        # name = 'test_aa'
+        # vec_field_names = 'none'
+        # use_hybrid_search = 'false'
+        # max_workers = 1
+        # timeout = 100
+        # output_fields = 'none'
+        # expr = 'none'
+        # nq = 1
+        # topk = 11
+        # group_by_field = 'none'
+        # api_key = 'none'
+    except Exception as e:
+        logging.error(f"Failed to get command line arguments: {e}")
         print("Usage: python3 search_permanently.py <host> <collection> <vec_field_names> <use_hybrid_search> <max_workers> <timeout> <output_fields> <expression> <nq> <topk> <group_by_field> <api_key>")
         print("Parameters:")
         print("  host               : Milvus server host")
@@ -424,31 +441,11 @@ if __name__ == '__main__':
         print()
         print("Examples:")
         print("  # 普通向量搜索，4个并发")
-        print("  python3 search_permanently.py localhost test_collection vector_field False 4 60 'id' 'None' 1 10 None None")
+        print("  python3.11 search_permanently.py 10.104.33.161 test_aa none false 1 120 none none 1 10 none none")
         print()
         print("  # 混合搜索，8个并发")
         print("  python3 search_permanently.py localhost test_collection 'field1,field2' True 8 60 'id' 'None' 1 10 None None")
-        print()
-        print("🚀 超级简化架构:")
-        print("  ✅ 单个共享 MilvusClient")
-        print("  ✅ 单个 ThreadPoolExecutor")
-        print("  ✅ max_workers = 并发搜索数")
-        print("  ✅ 支持普通搜索和混合搜索")
-        print("  ✅ 依赖 Milvus 服务端连接复用")
         sys.exit(1)
-    
-    host = sys.argv[1]
-    name = str(sys.argv[2])
-    vec_field_names = str(sys.argv[3]).strip()
-    use_hybrid_search = str(sys.argv[4]).upper()
-    max_workers = int(sys.argv[5])
-    timeout = int(sys.argv[6])
-    output_fields = str(sys.argv[7]).strip()
-    expr = str(sys.argv[8]).strip()
-    nq = int(sys.argv[9])
-    topk = int(sys.argv[10])
-    group_by_field = str(sys.argv[11]).strip()
-    api_key = str(sys.argv[12])
 
     port = 19530
     
@@ -487,7 +484,7 @@ if __name__ == '__main__':
     handlers = [file_handler, stdout_handler]
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     
-    logging.info("🚀 Starting ULTRA-SIMPLIFIED search_permanently test:")
+    logging.info("🚀 Starting search_permanently test:")
     logging.info(f"  Host: {host}")
     logging.info(f"  Collection: {name}")
     logging.info(f"  Search Type: {search_type}")
@@ -498,7 +495,6 @@ if __name__ == '__main__':
     logging.info(f"  Output Fields: {output_fields}")
     logging.info(f"  Expression: {expr}")
     logging.info(f"  Group By: {group_by_field}")
-    logging.info(f"  架构: 单客户端 + 单线程池，最简单!")
 
     # 创建单个共享客户端
     try:
