@@ -13,7 +13,7 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
 def generate_random_expression():
-    """生成随机查询表达式"""
+    """Generate random query expression"""
     keywords = ["con%", "%nt", "%con%", "%content%", "%co%nt", "%con_ent%", "%co%nt%"]
     keyword = random.choice(keywords)
     return f'content like "{keyword}"'

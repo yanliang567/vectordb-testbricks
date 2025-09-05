@@ -26,23 +26,23 @@ default_dim = 128
 
 def normalize_schema(schema):
     """
-    统一处理不同格式的 schema，减少调用者心智负担
-    :param schema: 可以是以下两种格式之一:
-                  1. describe_collection 返回的 dict
-                  2. CollectionSchema 对象 (create_collection 时使用)
-    :return: 统一格式的 dict，符合 describe_collection 的返回格式
+    Unified handling of different schema formats to reduce caller's cognitive burden
+    :param schema: can be one of the following two formats:
+                  1. dict returned by describe_collection
+                  2. CollectionSchema object (used in create_collection)
+    :return: unified format dict, conform to describe_collection return format
     """
     if schema is None:
         raise ValueError("Schema cannot be None")
     
-    # 如果已经是 dict 格式（describe_collection 的返回值），直接返回
+    # If already is dict format (return value from describe_collection), return directly
     if isinstance(schema, dict):
         if 'fields' in schema:
             return schema
         else:
             raise ValueError("Invalid schema dict: missing 'fields' key")
     
-    # 如果是 CollectionSchema 对象，转换为 dict 格式
+    # If is CollectionSchema object, convert to dict format
     elif isinstance(schema, CollectionSchema):
         fields = []
         for field in schema.fields:
@@ -53,19 +53,19 @@ def normalize_schema(schema):
                 'params': {}
             }
             
-            # 处理向量字段的维度参数
+            # Handle dimension parameters of vector field
             if field.dtype in ALL_VECTOR_TYPES and hasattr(field, 'params'):
                 if field.dtype == DataType.SPARSE_FLOAT_VECTOR:
-                    # 稀疏向量可能没有固定维度
+                    # Sparse vector may not have fixed dimension
                     field_dict['params'] = field.params or {}
                 else:
-                    # 密集向量需要维度参数
+                    # Dense vector needs dimension parameters
                     if hasattr(field, 'dim'):
                         field_dict['params']['dim'] = field.dim
                     elif 'dim' in (field.params or {}):
                         field_dict['params']['dim'] = field.params['dim']
             
-            # 处理其他字段参数
+            # Handle other field parameters
             if hasattr(field, 'params') and field.params:
                 field_dict['params'].update(field.params)
                 
@@ -102,10 +102,10 @@ def get_float_vec_dim(client, collection_name):
 
 def get_dim_by_field_name(schema, field_name):
     """
-    从schema中获取向量字段的维度
-    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
-    :param field_name: str, 字段名
-    :return: dim int 或 None
+    Get dimension of vector field from schema
+    :param schema: collection schema (can be dict returned by describe_collection or CollectionSchema object)
+    :param field_name: str, field name
+    :return: dim int or None
     """
     normalized_schema = normalize_schema(schema)
     fields = normalized_schema.get('fields', [])
@@ -119,8 +119,8 @@ def get_dim_by_field_name(schema, field_name):
 
 def get_dims(schema):
     """
-    从schema中获取所有向量字段的维度
-    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
+    Get dimensions of all vector fields from schema
+    :param schema: collection schema (can be dict returned by describe_collection or CollectionSchema object)
     :return: dict e.g. {"field1": dim1, "field2": dim2}
     """
     normalized_schema = normalize_schema(schema)
@@ -137,9 +137,9 @@ def get_dims(schema):
 
 def get_float_vec_field_name(schema):
     """
-    从schema中获取第一个float32向量字段的名称
-    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
-    :return: str 或 None
+    Get name of first float32 vector field from schema
+    :param schema: collection schema (can be dict returned by describe_collection or CollectionSchema object)
+    :return: str or None
     """
     normalized_schema = normalize_schema(schema)
     fields = normalized_schema.get('fields', [])
@@ -152,8 +152,8 @@ def get_float_vec_field_name(schema):
 
 def get_float_vec_field_names(schema):
     """
-    从schema中获取所有向量字段的名称
-    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
+    Get names of all vector fields from schema
+    :param schema: collection schema (can be dict returned by describe_collection or CollectionSchema object)
     :return: list
     """
     normalized_schema = normalize_schema(schema)
@@ -166,9 +166,9 @@ def get_float_vec_field_names(schema):
 
 def get_primary_field_name(schema):
     """
-    从schema中获取主键字段的名称
-    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
-    :return: str 或 None
+    Get name of primary field from schema
+    :param schema: collection schema (can be dict returned by describe_collection or CollectionSchema object)
+    :return: str or None
     """
     normalized_schema = normalize_schema(schema)
     fields = normalized_schema.get('fields', [])
@@ -181,8 +181,8 @@ def get_primary_field_name(schema):
 
 def get_vector_field_info_from_schema(schema):
     """
-    从schema中一次性提取所有向量字段信息
-    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
+    Extract all vector field information at once from schema
+    :param schema: collection schema (can be dict returned by describe_collection or CollectionSchema object)
     :return: list of dict with name, type, dim
     """
     normalized_schema = normalize_schema(schema)

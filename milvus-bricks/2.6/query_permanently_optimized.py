@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-优化版本的多线程查询测试脚本
+优化版本的多线程查询test脚本
 
 主要优化:
 1. 连接池管理
 2. ThreadPoolExecutor替代原生threading
 3. 优化的统计系统
 4. 减少锁竞争
-5. 批量处理
+5. 批量handle
 """
 
 import time
@@ -50,11 +50,11 @@ class MilvusClientPool:
         self.pool.put(client)
     
     def close_all(self):
-        """关闭所有连接"""
+        """closed所有连接"""
         while not self.pool.empty():
             try:
                 client = self.pool.get_nowait()
-                # MilvusClient没有显式的close方法，让GC处理
+                # MilvusClient没有显式的close方法，让GChandle
                 client.close()
             except queue.Empty:
                 break
@@ -106,13 +106,13 @@ class OptimizedStats:
             }
     
     def reset_samples(self):
-        """重置样本数据（保留总计数）"""
+        """Reset sample data（保留总计数）"""
         with self.lock:
             self.latencies.clear()
 
 
 def generate_random_expression(base_expr):
-    """生成随机查询表达式"""
+    """Generate random query expression"""
 
     keywords = ["con%", "%nt", "%con%", "%content%", "%co%nt", "%con_ent%", "%co%nt%"]
     keyword = random.choice(keywords)
@@ -161,15 +161,15 @@ def single_query_task(client_pool, collection_name, base_expr, output_fields, li
 def query_permanently_optimized(client_pool, collection_name, max_workers, 
                                output_fields, expr, timeout, batch_size=100, limit=None):
     """
-    优化版本的持续查询测试
+    优化版本的持续查询test
     
     :param client_pool: MilvusClientPool实例
-    :param collection_name: 集合名称
+    :param collection_name: collection name称
     :param max_workers: 最大工作线程数
-    :param output_fields: 输出字段
-    :param expr: 查询表达式
+    :param output_fields: Output Fields
+    :param expr: 查询Expression
     :param timeout: 超时时间
-    :param batch_size: 批处理大小
+    :param batch_size: 批handle大小
     :param limit: 查询限制
     """
     stats = OptimizedStats()
@@ -229,13 +229,13 @@ def query_permanently_optimized(client_pool, collection_name, max_workers,
                         completed_count += 1
                     except Exception as e:
                         logging.warning(f"Future execution failed: {e}")
-                        stats.record_query(0.1, False)  # 记录失败
+                        stats.record_query(0.1, False)  # 记录Failed to
                         completed_count += 1
                         
             except Exception as e:
-                # 处理 as_completed 的超时异常
+                # handle as_completed 的超时异常
                 logging.warning(f"Batch timeout or other error: {e}")
-                # 取消所有未完成的future
+                # 取消所有未completed的future
                 for f in futures:
                     if not f.done():
                         f.cancel()
@@ -244,7 +244,7 @@ def query_permanently_optimized(client_pool, collection_name, max_workers,
             total_batches += 1
             batch_duration = time.time() - batch_start_time
             
-            # 定期输出统计信息
+            # Periodically output statistics
             logging_batch = 10
             if total_batches % logging_batch == 0:  # 每10个批次输出一次
                 current_stats = stats.get_stats()
@@ -257,11 +257,11 @@ def query_permanently_optimized(client_pool, collection_name, max_workers,
                     f"Total: {current_stats['total_queries']}"
                 )
                 
-                # 重置样本数据以避免内存无限增长
+                # Reset sample data以to avoid infinite memory growth
                 if total_batches % (logging_batch * 100) == 0:
                     stats.reset_samples()
     
-    # 最终统计
+    # Final statistics
     final_stats = stats.get_stats()
     logging.info("=" * 80)
     logging.info("FINAL PERFORMANCE STATISTICS:")
@@ -280,12 +280,12 @@ def query_permanently_optimized(client_pool, collection_name, max_workers,
 
 
 def verify_collection_setup(client, collection_name):
-    """验证集合设置"""
+    """Verify collection setup"""
     if not client.has_collection(collection_name=collection_name):
         logging.error(f"Collection {collection_name} does not exist")
         return False
             
-    # 检查集合是否已加载
+    # Check if collection is loaded
     load_state = client.get_load_state(collection_name=collection_name)
     if load_state.get('state') != 'Loaded':
         logging.info(f"Loading collection {collection_name}...")
@@ -326,7 +326,7 @@ if __name__ == '__main__':
 
     port = 19530
     
-    # 参数处理
+    # Parameter processing
     if timeout <= 0:
         timeout = 2 * 3600
     
@@ -340,7 +340,7 @@ if __name__ == '__main__':
     if limit in [None, "None", "none", "NONE"] or limit == "":
         limit = None
     
-    # 设置日志
+    # Setup logging
     log_filename = f"/tmp/query_optimized_{name}_{int(time.time())}.log"
     file_handler = logging.FileHandler(filename=log_filename)
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -358,7 +358,7 @@ if __name__ == '__main__':
     logging.info(f"  Batch Size: {batch_size}")
     logging.info(f"  Connection Pool Size: {max_workers}")
 
-    # 创建客户端连接池
+    # Created客户端连接池
     try:
         pool_size = max_workers  
         if api_key is None or api_key == "" or api_key.upper() == "NONE":
@@ -366,7 +366,7 @@ if __name__ == '__main__':
         else:
             client_pool = MilvusClientPool(uri=host, token=api_key, pool_size=pool_size)
         
-        # 验证集合
+        # Verify collection
         test_client = client_pool.get_client()
         if not verify_collection_setup(test_client, name):
             logging.error(f"Collection '{name}' setup verification failed")
@@ -377,7 +377,7 @@ if __name__ == '__main__':
         logging.error(f"Failed to create client pool: {e}")
         sys.exit(1)
     
-    # 运行优化的查询测试
+    # 运行优化的查询test
     try:
         start_time = time.time()
         final_stats = query_permanently_optimized(

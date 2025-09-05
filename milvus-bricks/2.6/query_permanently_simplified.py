@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-超级简化版并发查询测试 - 单线程池架构
+Ultra-Simplified Concurrent Query Testing - Single Thread Pool Architecture
 
-关键简化:
-1. ✅ 移除客户端连接池，使用单个 MilvusClient 实例
-2. ✅ 移除双层线程池（BatchController + QueryTasks）
-3. ✅ max_workers 直接等于并发查询数量
-4. ✅ 单个 ThreadPoolExecutor 直接管理所有查询任务
-5. ✅ 依赖 Milvus 服务端连接复用，无分层复杂性
+Key Simplifications:
+1. ✅ Remove client connection pool, use single MilvusClient instance
+2. ✅ Remove dual-layer thread pools (BatchController + QueryTasks)
+3. ✅ max_workers directly equals concurrent query count
+4. ✅ Single ThreadPoolExecutor directly manages all query tasks
+5. ✅ Rely on Milvus server-side connection reuse, no layered complexity
 """
 
 import time
@@ -25,7 +25,7 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
 class OptimizedStats:
-    """优化的统计系统"""
+    """Optimized statistics system"""
     
     def __init__(self, max_samples=1000):
         self.latencies = deque(maxlen=max_samples)
@@ -35,7 +35,7 @@ class OptimizedStats:
         self.lock = Lock()
     
     def record_query(self, latency, success=True):
-        """记录查询结果"""
+        """Record query result"""
         with self.lock:
             self.latencies.append(latency)
             self.total_queries += 1
@@ -43,9 +43,9 @@ class OptimizedStats:
                 self.total_failures += 1
     
     def get_stats(self, actual_elapsed_time=None):
-        """获取统计信息
+        """Get statistics information
         
-        :param actual_elapsed_time: 实际测试耗时，用于准确计算QPS
+        :param actual_elapsed_time: Actual test duration for accurate QPS calculation
         """
         with self.lock:
             if not self.latencies:
@@ -61,7 +61,7 @@ class OptimizedStats:
                     'max_latency': 0
                 }
             
-            # 优先使用传入的实际耗时，否则使用内部计算的时间
+            # Prefer provided actual duration, otherwise use internal calculated time
             if actual_elapsed_time is not None:
                 elapsed_time = actual_elapsed_time
             else:
@@ -73,7 +73,7 @@ class OptimizedStats:
                 'total_queries': self.total_queries,
                 'failures': self.total_failures,
                 'success_rate': (self.total_queries - self.total_failures) / max(self.total_queries, 1) * 100,
-                'qps': self.total_queries / max(elapsed_time, 0.001),  # 使用实际耗时计算QPS
+                'qps': self.total_queries / max(elapsed_time, 0.001),  # Use actual duration to calculate QPS
                 'avg_latency': float(np.mean(latency_array)),
                 'p95_latency': float(np.percentile(latency_array, 95)),
                 'p99_latency': float(np.percentile(latency_array, 99)),
@@ -82,13 +82,13 @@ class OptimizedStats:
             }
     
     def reset_samples(self):
-        """重置样本数据（保留总计数）"""
+        """Reset sample data (keep total counts)"""
         with self.lock:
             self.latencies.clear()
 
 
 def generate_random_expression(base_expr):
-    """生成随机查询表达式"""
+    """Generate random query expression"""
     keywords = ["con%", "%nt", "%con%", "%content%", "%co%nt", "%con_ent%", "%co%nt%"]
     keyword = random.choice(keywords)
     return f'content like "{keyword}"'
@@ -96,16 +96,16 @@ def generate_random_expression(base_expr):
 
 def single_query_task(client, collection_name, base_expr, output_fields, limit, each_query_timeout=10):
     """
-    单个查询任务 - 直接使用共享的 MilvusClient
+    Single query task - directly use shared MilvusClient
     
-    注意: 依赖 MilvusClient 的线程安全性和 Milvus 服务端连接复用
+    Note: Relies on MilvusClient thread safety and Milvus server-side connection reuse
     """
     start_time = time.time()
     
     try:
         current_expr = generate_random_expression(base_expr)
         
-        # 直接使用共享的客户端实例
+        # Directly use shared client instance
         result = client.query(
             collection_name=collection_name,
             filter=current_expr,
@@ -137,23 +137,23 @@ def single_query_task(client, collection_name, base_expr, output_fields, limit, 
 def query_permanently_simplified(client, collection_name, max_workers, 
                                 output_fields, expr, timeout, limit=100, each_query_timeout=10):
     """
-    简化版本的持续查询测试 - 单线程池直接控制并发
+    Simplified version of continuous query testing - single thread pool directly controls concurrency
     
-    :param client: 单个共享的 MilvusClient 实例
-    :param max_workers: 直接控制并发查询数量
+    :param client: Single shared MilvusClient instance
+    :param max_workers: Directly control concurrent query count
     """
     stats = OptimizedStats()
     end_time = time.time() + timeout
     
-    # 日志控制变量
+    # Log control variables
     last_logged_milestone = 0
-    log_interval = max_workers * 100  # 进一步减少日志频率
+    log_interval = max_workers * 100  # Further reduce log frequency
     
-    # 单一线程池，直接管理所有查询任务
+    # Single thread pool, directly manage all query tasks
     with ThreadPoolExecutor(max_workers=max_workers, 
                            thread_name_prefix="QueryWorker") as executor:
         
-        # 持续提交查询任务直到超时
+        # Continuously submit query tasks until timeout
         submitted_tasks = 0
         pending_futures = set()
         
@@ -164,10 +164,10 @@ def query_permanently_simplified(client, collection_name, max_workers,
             if remaining_time <= 0:
                 break
             
-            # 控制未完成任务数量，避免内存无限增长
-            max_pending = max_workers * 2  # 允许一些缓冲
+            # Control number of pending tasks，to avoid infinite memory growth
+            max_pending = max_workers * 2  # Allow some buffering
             
-            # 提交新任务（如果有空间）
+            # Submit new tasks（if there's space）
             while len(pending_futures) < max_pending and time.time() < end_time:
                 future = executor.submit(
                     single_query_task,
@@ -176,7 +176,7 @@ def query_permanently_simplified(client, collection_name, max_workers,
                 pending_futures.add(future)
                 submitted_tasks += 1
             
-            # 收集已完成的任务
+            # Collect completed tasks
             completed_futures = set()
             for future in list(pending_futures):
                 if future.done():
@@ -189,10 +189,10 @@ def query_permanently_simplified(client, collection_name, max_workers,
                         stats.record_query(0.1, False)
                         completed_futures.add(future)
             
-            # 移除已完成的任务
+            # Remove completed tasks
             pending_futures -= completed_futures
             
-            # 定期输出统计信息 - 避免重复打印
+            # Periodically output statistics - avoid duplicate printing
             if submitted_tasks >= last_logged_milestone + log_interval:
                 current_stats = stats.get_stats()
                 logging.info(
@@ -205,14 +205,14 @@ def query_permanently_simplified(client, collection_name, max_workers,
                 )
                 last_logged_milestone = submitted_tasks
                 
-                # 重置样本数据
+                # Reset sample data
                 if submitted_tasks % (max_workers * 1000) == 0:
                     stats.reset_samples()
             
-            # # 短暂休息，避免CPU过载
+            # # Short break to avoid CPU overload
             # time.sleep(0.001)
         
-        # 等待所有剩余任务完成
+        # Wait for all remaining tasks to complete
         logging.info(f"Waiting for {len(pending_futures)} remaining tasks to complete...")
         for future in as_completed(pending_futures, timeout=30):
             try:
@@ -222,7 +222,7 @@ def query_permanently_simplified(client, collection_name, max_workers,
                 logging.warning(f"Final task failed: {e}")
                 stats.record_query(0.1, False)
     
-    # 最终统计 - 使用实际测试时间计算准确的QPS
+    # Final statistics - use actual test time to calculate accurate QPS
     actual_test_time = time.time() - stats.start_time
     final_stats = stats.get_stats(actual_elapsed_time=actual_test_time)
     
@@ -232,7 +232,7 @@ def query_permanently_simplified(client, collection_name, max_workers,
     logging.info(f"  Total Queries: {final_stats['total_queries']}")
     logging.info(f"  Total Failures: {final_stats['failures']}")
     logging.info(f"  Success Rate: {final_stats['success_rate']:.2f}%")
-    logging.info(f"  Overall QPS: {final_stats['qps']:.2f} (总查询数 ÷ 实际耗时)")
+    logging.info(f"  Overall QPS: {final_stats['qps']:.2f} (total queries ÷ actual duration)")
     logging.info(f"  Average Latency: {final_stats['avg_latency']:.3f}s")
     logging.info(f"  P95 Latency: {final_stats['p95_latency']:.3f}s")
     logging.info(f"  P99 Latency: {final_stats['p99_latency']:.3f}s")
@@ -242,12 +242,12 @@ def query_permanently_simplified(client, collection_name, max_workers,
 
 
 def verify_collection_setup(client, collection_name):
-    """验证集合设置"""
+    """Verify collection setup"""
     if not client.has_collection(collection_name=collection_name):
         logging.error(f"Collection {collection_name} does not exist")
         return False
             
-    # 检查集合是否已加载
+    # Check if collection is loaded
     load_state = client.get_load_state(collection_name=collection_name)
     if load_state.get('state') != 'Loaded':
         logging.info(f"Loading collection {collection_name}...")
@@ -273,7 +273,7 @@ if __name__ == '__main__':
         print("Parameters:")
         print("  host             : Milvus server host")
         print("  collection       : Collection name")
-        print("  max_workers      : 并发查询数量 (直接控制)")
+        print("  max_workers      : Concurrent query count (direct control)")
         print("  timeout          : Test timeout in seconds")
         print("  output_fields    : Fields to return (comma-separated or '*')")
         print("  expression       : Query filter expression")
@@ -281,24 +281,24 @@ if __name__ == '__main__':
         print("  api_key          : API key (or 'None' for local)")
         print()
         print("Examples:")
-        print("  # 4 个并发查询")
+        print("  # 4 concurrent queries")
         print("  python3 query_permanently_simplified.py localhost test_collection 4 60 'id' 'id>0' 100 None")
         print()
-        print("  # 16 个并发查询 (高并发)")
+        print("  # 16 concurrent queries (high concurrency)")
         print("  python3 query_permanently_simplified.py localhost test_collection 16 60 'id' 'id>0' 100 None")
         print()
-        print("🚀 超级简化架构:")
-        print("  ✅ 单个共享 MilvusClient")
-        print("  ✅ 单个 ThreadPoolExecutor") 
-        print("  ✅ max_workers = 并发查询数")
-        print("  ✅ 无连接池，无分层，最简单")
-        print("  ✅ 依赖 Milvus 服务端连接复用")
+        print("🚀 Ultra-Simplified Architecture:")
+        print("  ✅ Single shared MilvusClient")
+        print("  ✅ Single ThreadPoolExecutor") 
+        print("  ✅ max_workers = concurrent query count")
+        print("  ✅ No connection pool, no layering, simplest")
+        print("  ✅ Rely on Milvus server-side connection reuse")
         sys.exit(1)
     
 
     port = 19530
     
-    # 参数处理
+    # Parameter processing
     if timeout <= 0:
         timeout = 2 * 3600
     
@@ -315,7 +315,7 @@ if __name__ == '__main__':
     
     each_query_timeout = 10
         
-    # 设置日志
+    # Setup logging
     log_filename = f"/tmp/query_ultra_simplified_{name}_{int(time.time())}.log"
     file_handler = logging.FileHandler(filename=log_filename)
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -325,14 +325,14 @@ if __name__ == '__main__':
     logging.info("🚀 Starting ULTRA-SIMPLIFIED query_permanently test:")
     logging.info(f"  Host: {host}")
     logging.info(f"  Collection: {name}")
-    logging.info(f"  Max Workers: {max_workers} (= 并发查询数)")
+    logging.info(f"  Max Workers: {max_workers} (= concurrent query count)")
     logging.info(f"  THe Whole Test Timeout: {timeout}s")
     logging.info(f"  Output Fields: {output_fields}")
     logging.info(f"  Expression: {expr}")
     logging.info(f"  Limit: {limit}")
     logging.info(f"  Each Query Timeout: {each_query_timeout}s")
 
-    # 创建单个共享客户端 - 关键简化！
+    # Create single shared client - key simplification!
     try:
         if api_key is None or api_key == "" or api_key.upper() == "NONE":
             client = MilvusClient(uri=f"http://{host}:{port}")
@@ -341,7 +341,7 @@ if __name__ == '__main__':
         
         logging.info(f"✅ Created single shared MilvusClient for {host}")
         
-        # 验证集合
+        # Verify collection
         if not verify_collection_setup(client, name):
             logging.error(f"Collection '{name}' setup verification failed")
             sys.exit(1)
@@ -350,12 +350,12 @@ if __name__ == '__main__':
         logging.error(f"Failed to create MilvusClient: {e}")
         sys.exit(1)
     
-    # 运行简化的查询测试
+    # Run simplified query test
     start_time = time.time()
     final_stats = query_permanently_simplified(
-        client=client,  # 传递单个客户端
+        client=client,  # Pass single client
         collection_name=name,
-        max_workers=max_workers,  # 直接控制并发数，无分层
+        max_workers=max_workers,  # Direct concurrency control, no layering
         output_fields=output_fields,
         expr=expr,
         timeout=timeout,
@@ -365,7 +365,7 @@ if __name__ == '__main__':
     end_time = time.time()
     
     actual_duration = end_time - start_time
-    # 重新计算准确的最终QPS
+    # Recalculate accurate final QPS
     accurate_qps = final_stats['total_queries'] / max(actual_duration, 0.001)
     
     logging.info(f"✅ Simplified query test completed in {actual_duration:.2f} seconds")
