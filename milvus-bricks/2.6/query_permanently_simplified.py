@@ -147,7 +147,7 @@ def query_permanently_simplified(client, collection_name, max_workers,
     
     # Log control variables
     last_logged_milestone = 0
-    log_interval = max_workers * 100  # Further reduce log frequency
+    log_interval = min(max_workers * 100, 1000)
     
     # Single thread pool, directly manage all query tasks
     with ThreadPoolExecutor(max_workers=max_workers, 
@@ -165,7 +165,7 @@ def query_permanently_simplified(client, collection_name, max_workers,
                 break
             
             # Control number of pending tasks，to avoid infinite memory growth
-            max_pending = max_workers * 2  # Allow some buffering
+            max_pending = min(max_workers * 2, 50)
             
             # Submit new tasks（if there's space）
             while len(pending_futures) < max_pending and time.time() < end_time:

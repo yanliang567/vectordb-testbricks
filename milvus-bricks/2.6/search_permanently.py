@@ -96,28 +96,6 @@ class SimpleStats:
             self.latencies.clear()
 
 
-# def get_collection_info(client, collection_name):
-#     """Get collection information - 优化为使用公共方法"""
-#     try:
-#         # 获取集合 schema （只调用一次）
-#         schema = client.describe_collection(collection_name)
-        
-#         # Use simplified common methods提取Vector Fields信息 - only need to pass schema
-#         vector_fields = get_vector_field_info_from_schema(schema)
-        
-#         # 获取索引信息
-#         indexes = client.list_indexes(collection_name)
-        
-#         return {
-#             'schema': schema,
-#             'vector_fields': vector_fields,
-#             'indexes': indexes
-#         }
-#     except Exception as e:
-#         logging.error(f"Failed to get collection info: {e}")
-#         return None
-
-
 def generate_random_vectors(dim, nq):
     """Generate random vectors"""
     return [[random.random() for _ in range(dim)] for _ in range(nq)]
@@ -282,7 +260,7 @@ def search_permanently_simplified(client, collection_name, max_workers, search_t
     
     # Log control variables
     last_logged_milestone = 0
-    log_interval = max_workers * 100
+    log_interval = min(max_workers * 100, 1000)
     
     # Single thread pool，directly manage all search tasks
     with ThreadPoolExecutor(max_workers=max_workers, 
@@ -300,7 +278,7 @@ def search_permanently_simplified(client, collection_name, max_workers, search_t
                 break
             
             # Control number of pending tasks，to avoid infinite memory growth
-            max_pending = max_workers * 2
+            max_pending = min(max_workers * 2, 50)
             
             # Submit new tasks（if there's space）
             while len(pending_futures) < max_pending and time.time() < end_time:
