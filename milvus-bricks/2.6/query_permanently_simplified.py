@@ -94,7 +94,7 @@ def generate_random_expression(base_expr):
     return f'content like "{keyword}"'
 
 
-def single_query_task(client, collection_name, base_expr, output_fields, limit, timeout=60):
+def single_query_task(client, collection_name, base_expr, output_fields, limit, each_query_timeout=10):
     """
     单个查询任务 - 直接使用共享的 MilvusClient
     
@@ -111,7 +111,7 @@ def single_query_task(client, collection_name, base_expr, output_fields, limit, 
             filter=current_expr,
             output_fields=output_fields,
             limit=limit,
-            timeout=timeout
+            timeout=each_query_timeout
         )
         
         latency = time.time() - start_time
@@ -135,7 +135,7 @@ def single_query_task(client, collection_name, base_expr, output_fields, limit, 
 
 
 def query_permanently_simplified(client, collection_name, max_workers, 
-                                output_fields, expr, timeout, limit=100):
+                                output_fields, expr, timeout, limit=100, each_query_timeout=10):
     """
     简化版本的持续查询测试 - 单线程池直接控制并发
     
@@ -144,11 +144,6 @@ def query_permanently_simplified(client, collection_name, max_workers,
     """
     stats = OptimizedStats()
     end_time = time.time() + timeout
-    
-    logging.info(f"Starting ULTRA-SIMPLIFIED query test:")
-    logging.info(f"  Max Workers: {max_workers} (直接控制并发查询数)")
-    logging.info(f"  架构: 单 MilvusClient + 单 ThreadPoolExecutor")
-    logging.info(f"  无连接池，无批次分层，最简架构")
     
     # 日志控制变量
     last_logged_milestone = 0
@@ -176,7 +171,7 @@ def query_permanently_simplified(client, collection_name, max_workers,
             while len(pending_futures) < max_pending and time.time() < end_time:
                 future = executor.submit(
                     single_query_task,
-                    client, collection_name, expr, output_fields, limit
+                    client, collection_name, expr, output_fields, limit, each_query_timeout
                 )
                 pending_futures.add(future)
                 submitted_tasks += 1
@@ -263,7 +258,17 @@ def verify_collection_setup(client, collection_name):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 9:
+    try:
+        host = sys.argv[1]
+        name = str(sys.argv[2])
+        max_workers = int(sys.argv[3])
+        timeout = int(sys.argv[4])
+        output_fields = str(sys.argv[5]).strip()
+        expr = str(sys.argv[6]).strip()
+        limit = int(sys.argv[7])
+        api_key = str(sys.argv[8])
+    except Exception as e:
+        logging.error(f"Failed to get command line arguments: {e}")
         print("Usage: python3 query_permanently_simplified.py <host> <collection> <max_workers> <timeout> <output_fields> <expression> <limit> <api_key>")
         print("Parameters:")
         print("  host             : Milvus server host")
@@ -290,15 +295,6 @@ if __name__ == '__main__':
         print("  ✅ 依赖 Milvus 服务端连接复用")
         sys.exit(1)
     
-    host = sys.argv[1]
-    name = str(sys.argv[2])
-    max_workers = int(sys.argv[3])
-    timeout = int(sys.argv[4])
-    output_fields = str(sys.argv[5]).strip()
-    expr = str(sys.argv[6]).strip()
-    limit = int(sys.argv[7])
-    api_key = str(sys.argv[8])
-    
 
     port = 19530
     
@@ -316,6 +312,8 @@ if __name__ == '__main__':
     
     if limit <= 0:
         limit = 100
+    
+    each_query_timeout = 10
         
     # 设置日志
     log_filename = f"/tmp/query_ultra_simplified_{name}_{int(time.time())}.log"
@@ -328,11 +326,11 @@ if __name__ == '__main__':
     logging.info(f"  Host: {host}")
     logging.info(f"  Collection: {name}")
     logging.info(f"  Max Workers: {max_workers} (= 并发查询数)")
-    logging.info(f"  Timeout: {timeout}s")
+    logging.info(f"  THe Whole Test Timeout: {timeout}s")
     logging.info(f"  Output Fields: {output_fields}")
     logging.info(f"  Expression: {expr}")
     logging.info(f"  Limit: {limit}")
-    logging.info(f"  架构: 单客户端 + 单线程池，最简单!")
+    logging.info(f"  Each Query Timeout: {each_query_timeout}s")
 
     # 创建单个共享客户端 - 关键简化！
     try:
@@ -361,7 +359,8 @@ if __name__ == '__main__':
         output_fields=output_fields,
         expr=expr,
         timeout=timeout,
-        limit=limit
+        limit=limit,
+        each_query_timeout=each_query_timeout
     )
     end_time = time.time()
     

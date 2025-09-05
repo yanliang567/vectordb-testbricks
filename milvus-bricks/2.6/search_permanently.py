@@ -130,7 +130,7 @@ def generate_random_expression():
     return f'content like "{keyword}"'
 
 
-def single_search_task(client, collection_name, search_params, timeout=60):
+def single_search_task(client, collection_name, search_params, each_search_timeout=10):
     """
     单个搜索任务 - 支持普通搜索和混合搜索
     
@@ -147,7 +147,7 @@ def single_search_task(client, collection_name, search_params, timeout=60):
                 ranker=search_params.get('ranker'),
                 limit=search_params['limit'],
                 output_fields=search_params.get('output_fields'),
-                timeout=timeout
+                timeout=each_search_timeout
             )
         else:
             # 普通搜索
@@ -161,7 +161,7 @@ def single_search_task(client, collection_name, search_params, timeout=60):
                 output_fields=search_params.get('output_fields'),
                 group_by_field=search_params.get('group_by_field'),
                 partition_names=search_params.get('partition_names'),
-                timeout=timeout
+                timeout=each_search_timeout
             )
         
         latency = time.time() - start_time
@@ -252,7 +252,7 @@ def create_search_params(search_type, collection_info, vec_field_names, nq, topk
 
 def search_permanently_simplified(client, collection_name, max_workers, search_type,
                                  vec_field_names, nq, topk, output_fields, expr, 
-                                 group_by_field, timeout):
+                                 group_by_field, timeout, each_search_timeout):
     """
     简化版本的持续搜索测试
     
@@ -306,7 +306,7 @@ def search_permanently_simplified(client, collection_name, max_workers, search_t
                 
                 future = executor.submit(
                     single_search_task,
-                    client, collection_name, search_params
+                    client, collection_name, search_params, each_search_timeout
                 )
                 pending_futures.add(future)
                 submitted_tasks += 1
@@ -410,18 +410,6 @@ if __name__ == '__main__':
         group_by_field = str(sys.argv[11]).strip()
         api_key = str(sys.argv[12])
 
-        # host = '10.104.33.161'
-        # name = 'test_aa'
-        # vec_field_names = 'none'
-        # use_hybrid_search = 'false'
-        # max_workers = 1
-        # timeout = 100
-        # output_fields = 'none'
-        # expr = 'none'
-        # nq = 1
-        # topk = 11
-        # group_by_field = 'none'
-        # api_key = 'none'
     except Exception as e:
         logging.error(f"Failed to get command line arguments: {e}")
         print("Usage: python3 search_permanently.py <host> <collection> <vec_field_names> <use_hybrid_search> <max_workers> <timeout> <output_fields> <expression> <nq> <topk> <group_by_field> <api_key>")
@@ -477,6 +465,8 @@ if __name__ == '__main__':
     if topk <= 0:
         topk = 10
     
+    each_search_timeout = 10
+    
     # 设置日志
     log_filename = f"/tmp/search_{name}_{int(time.time())}.log"
     file_handler = logging.FileHandler(filename=log_filename)
@@ -490,11 +480,12 @@ if __name__ == '__main__':
     logging.info(f"  Search Type: {search_type}")
     logging.info(f"  Vector Fields: {vec_field_names or 'all'}")
     logging.info(f"  Max Workers: {max_workers} (= 并发搜索数)")
-    logging.info(f"  Timeout: {timeout}s")
+    logging.info(f"  The whole Test Timeout: {timeout}s")
     logging.info(f"  nq: {nq}, topk: {topk}")
     logging.info(f"  Output Fields: {output_fields}")
     logging.info(f"  Expression: {expr}")
     logging.info(f"  Group By: {group_by_field}")
+    logging.info(f"  Each Search Timeout: {each_search_timeout}s")
 
     # 创建单个共享客户端
     try:
@@ -527,7 +518,8 @@ if __name__ == '__main__':
         output_fields=output_fields,
         expr=expr,
         group_by_field=group_by_field,
-        timeout=timeout
+        timeout=timeout,
+        each_search_timeout=each_search_timeout
     )
     end_time = time.time()
     
