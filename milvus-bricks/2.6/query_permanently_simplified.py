@@ -205,9 +205,8 @@ def query_permanently_simplified(client, collection_name, max_workers,
                 )
                 last_logged_milestone = submitted_tasks
                 
-                # Reset sample data
-                if submitted_tasks % (max_workers * 1000) == 0:
-                    stats.reset_samples()
+                # Reset sample data after an interval
+                stats.reset_samples()
             
             # # Short break to avoid CPU overload
             # time.sleep(0.001)

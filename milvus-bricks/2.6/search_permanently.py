@@ -330,10 +330,8 @@ def search_permanently_simplified(client, collection_name, max_workers, search_t
                     f"Success: {current_stats['success_rate']:.1f}%"
                 )
                 last_logged_milestone = submitted_tasks
-                
-                # Reset sample data
-                if submitted_tasks % (max_workers * 1000) == 0:
-                    stats.reset_samples()
+                # Reset sample data after an interval
+                stats.reset_samples()
         
         # Wait for all remaining tasks to complete
         logging.info(f"Waiting for {len(pending_futures)} remaining tasks to complete...")
