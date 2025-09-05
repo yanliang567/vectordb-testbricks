@@ -24,6 +24,64 @@ fake = Faker()
 default_dim = 128
 
 
+def normalize_schema(schema):
+    """
+    统一处理不同格式的 schema，减少调用者心智负担
+    :param schema: 可以是以下两种格式之一:
+                  1. describe_collection 返回的 dict
+                  2. CollectionSchema 对象 (create_collection 时使用)
+    :return: 统一格式的 dict，符合 describe_collection 的返回格式
+    """
+    if schema is None:
+        raise ValueError("Schema cannot be None")
+    
+    # 如果已经是 dict 格式（describe_collection 的返回值），直接返回
+    if isinstance(schema, dict):
+        if 'fields' in schema:
+            return schema
+        else:
+            raise ValueError("Invalid schema dict: missing 'fields' key")
+    
+    # 如果是 CollectionSchema 对象，转换为 dict 格式
+    elif isinstance(schema, CollectionSchema):
+        fields = []
+        for field in schema.fields:
+            field_dict = {
+                'name': field.name,
+                'type': field.dtype,
+                'is_primary': field.is_primary,
+                'params': {}
+            }
+            
+            # 处理向量字段的维度参数
+            if field.dtype in ALL_VECTOR_TYPES and hasattr(field, 'params'):
+                if field.dtype == DataType.SPARSE_FLOAT_VECTOR:
+                    # 稀疏向量可能没有固定维度
+                    field_dict['params'] = field.params or {}
+                else:
+                    # 密集向量需要维度参数
+                    if hasattr(field, 'dim'):
+                        field_dict['params']['dim'] = field.dim
+                    elif 'dim' in (field.params or {}):
+                        field_dict['params']['dim'] = field.params['dim']
+            
+            # 处理其他字段参数
+            if hasattr(field, 'params') and field.params:
+                field_dict['params'].update(field.params)
+                
+            fields.append(field_dict)
+        
+        return {
+            'collection_name': getattr(schema, 'collection_name', 'unknown'),
+            'description': getattr(schema, 'description', ''),
+            'fields': fields
+        }
+    
+    else:
+        raise ValueError(f"Unsupported schema type: {type(schema)}. "
+                        f"Expected dict (from describe_collection) or CollectionSchema object")
+
+
 def get_float_vec_dim(client, collection_name):
     """
     return the dim of float32 vector field in collection
@@ -42,16 +100,16 @@ def get_float_vec_dim(client, collection_name):
     return None
 
 
-def get_dim_by_field_name(client, collection_name, field_name):
+def get_dim_by_field_name(schema, field_name):
     """
-    return the dim of vector field in collection by field name
-    :param client: MilvusClient object
-    :param collection_name: str, collection name
-    :param field_name: str, field name
-    :return: dim int
+    从schema中获取向量字段的维度
+    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
+    :param field_name: str, 字段名
+    :return: dim int 或 None
     """
-    schema = client.describe_collection(collection_name)
-    fields = schema.get('fields', [])
+    normalized_schema = normalize_schema(schema)
+    fields = normalized_schema.get('fields', [])
+    
     for field in fields:
         if field.get('name') == field_name:
             dim = field.get('params', {}).get('dim', None)
@@ -59,16 +117,16 @@ def get_dim_by_field_name(client, collection_name, field_name):
     return None
 
 
-def get_dims(client, collection_name):
+def get_dims(schema):
     """
-    return the dims of all vector fields in dict format
-    :param client: MilvusClient object
-    :param collection_name: str, collection name
+    从schema中获取所有向量字段的维度
+    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
     :return: dict e.g. {"field1": dim1, "field2": dim2}
     """
+    normalized_schema = normalize_schema(schema)
     dims = {}
-    schema = client.describe_collection(collection_name)
-    fields = schema.get('fields', [])
+    fields = normalized_schema.get('fields', [])
+    
     for field in fields:
         if field.get('type') in FLOAT_VECTOR_TYPES:
             dim = field.get('params', {}).get('dim')
@@ -77,49 +135,68 @@ def get_dims(client, collection_name):
     return dims
 
 
-def get_float_vec_field_name(client, collection_name):
+def get_float_vec_field_name(schema):
     """
-    return the name of float32 vector field in collection,
-    if there are multi float32 vector fields, return the first one
-    :param client: MilvusClient object
-    :param collection_name: str, collection name
-    :return: str
+    从schema中获取第一个float32向量字段的名称
+    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
+    :return: str 或 None
     """
-    schema = client.describe_collection(collection_name)
-    fields = schema.get('fields', [])
+    normalized_schema = normalize_schema(schema)
+    fields = normalized_schema.get('fields', [])
+    
     for field in fields:
         if field.get('type') == DataType.FLOAT_VECTOR:
             return field.get('name')
     return None
 
 
-def get_float_vec_field_names(client, collection_name):
+def get_float_vec_field_names(schema):
     """
-    return the names of all the float vector fields in collection
-    :param client: MilvusClient object
-    :param collection_name: str, collection name
+    从schema中获取所有向量字段的名称
+    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
     :return: list
     """
-    schema = client.describe_collection(collection_name)
-    fields = schema.get('fields', [])
+    normalized_schema = normalize_schema(schema)
+    fields = normalized_schema.get('fields', [])
+    
     vector_field_names = [field.get('name') for field in fields
                           if field.get('type') in ALL_VECTOR_TYPES]
     return vector_field_names
 
 
-def get_primary_field_name(client, collection_name):
+def get_primary_field_name(schema):
     """
-    return the name of primary field in collection
-    :param client: MilvusClient object
-    :param collection_name: str, collection name
-    :return: str
+    从schema中获取主键字段的名称
+    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
+    :return: str 或 None
     """
-    schema = client.describe_collection(collection_name)
-    fields = schema.get('fields', [])
+    normalized_schema = normalize_schema(schema)
+    fields = normalized_schema.get('fields', [])
+    
     for field in fields:
         if field.get('is_primary', False):
             return field.get('name')
     return None
+
+
+def get_vector_field_info_from_schema(schema):
+    """
+    从schema中一次性提取所有向量字段信息
+    :param schema: collection schema (可以是describe_collection返回的dict或CollectionSchema对象)
+    :return: list of dict with name, type, dim
+    """
+    normalized_schema = normalize_schema(schema)
+    vector_fields = []
+    fields = normalized_schema.get('fields', [])
+    
+    for field in fields:
+        if field.get('type') in ALL_VECTOR_TYPES:
+            vector_fields.append({
+                'name': field.get('name'),
+                'type': field.get('type'),
+                'dim': field.get('params', {}).get('dim', 128)
+            })
+    return vector_fields
 
 
 def delete_entities(client, collection_name, nb, search_params, rounds):
