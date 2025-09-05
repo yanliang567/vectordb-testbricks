@@ -110,7 +110,9 @@ def generate_random_expression(expr_key):
         keyword = random.choice(keywords)
         return f'content like "{keyword}"'
     elif expr_key.upper() == "RANGE":
-        return f'category >= 0'
+        filters = ['category >= 0', 'category <= 99999', 'category >= -199900', 'category <= 0', 'category > 100 and category < 2000000', 'category < 300000 and category > -10000000']
+        filter = random.choice(filters)
+        return filter
     else:
         return None
 
