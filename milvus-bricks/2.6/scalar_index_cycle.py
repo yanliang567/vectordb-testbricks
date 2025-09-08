@@ -151,16 +151,17 @@ class ScalarIndexManager:
         hard_code_keys = ['index_name', 'index_type', 'field_name', 'total_rows', 'pending_index_rows', 'indexed_rows', 'state']
         
         index_params = self.client.prepare_index_params()
-        for index_info in self.scalar_indexes:
-            index_name = index_info['index_name']
-            field_name = index_info['field_name']
+        for index in self.scalar_indexes:
+            index_name = index['index_name']
+            field_name = index['field_name']
             # Extract index parameters from original info
-            index_type = index_info.get('index_type', 'AUTOINDEX')
+            index_type = index.get('index_type', 'AUTOINDEX')
+            index_info = index['index_info']
             params = index_info.get('params', {})
-
-            for key, value in index_info.items():
-                if key not in hard_code_keys:
-                    params[key] = value
+            if not params:
+                for key, value in index_info.items():
+                    if key not in hard_code_keys:
+                        params[key] = value
             
             # Create index params
             index_params.add_index(
@@ -266,11 +267,16 @@ def verify_collection(client, collection_name):
 if __name__ == '__main__':
     # Parse command line arguments
     try:
+        # host = '10.104.14.244'
+        # collection_name = 'test_aa'
+        # wait_seconds = 100
+        # timeout = 1000
+        # api_key = None
         host = sys.argv[1]
         collection_name = sys.argv[2]
         wait_seconds = int(sys.argv[3])
         timeout = int(sys.argv[4])
-        api_key = sys.argv[5] 
+        api_key = sys.argv[5]
     except (IndexError, ValueError) as e:
         print("Usage: will drop and recreate scalar indexes in a loop until timeout")
         print("python3 scalar_index_cycle.py <host> <collection_name> <wait_seconds> <timeout> [api_key]")
