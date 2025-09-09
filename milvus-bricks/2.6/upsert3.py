@@ -329,7 +329,7 @@ def main():
         new_version = sys.argv[5]
         interval = int(sys.argv[6])
         check_diff = str(sys.argv[7]).upper()
-        api_key = sys.argv[8] if len(sys.argv) > 8 else None
+        api_key = sys.argv[8]
         
     except (IndexError, ValueError) as e:
         print("Usage: python3 upsert3.py <host> <collection_name> <upsert_rounds> <entities_per_round> <new_version> <interval> <check_diff> [api_key]")
