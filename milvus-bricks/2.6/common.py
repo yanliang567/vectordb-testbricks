@@ -487,16 +487,20 @@ def gen_data_by_collection_field(field, nb=None, start=0, random_pk=False):
             return [None if i % 2 == 0 and random.random() < 0.4 else
                     gen_varchar_data(length=length, nb=1, text_mode=enable_analyzer)[0] for i in range(nb)]
     elif data_type == DataType.JSON:
+        json_keywords = ["stadium", "park", "content", "library", "hospital", "restaurant", "office", "store"]
+        keyword = json_keywords[random.randint(0, len(json_keywords) - 1)]
         if nb is None:
-            return {"name": fake.name(), "address": fake.address(),
+            return {"name": fake.name(), "address": fake.address(), "content": f"this is a {keyword} building",
                     "count": random.randint(0, 100)} if random.random() < 0.8 or nullable is False else None
         if nullable is False:
-            return [{"name": str(i), "address": i, "count": random.randint(0, 100)} for i in range(nb)]
+            return [{"name": fake.name(), "address": fake.name(), "content": f"this is a {keyword} building",
+                     "count": random.randint(0, 100)} for i in range(nb)]
         else:
             # gen 20% none data for nullable field
-            return [None if i % 2 == 0 and random.random() < 0.4 else {"name": str(i), "address": i,
-                                                                       "count": random.randint(0, 100)} for i in
-                    range(nb)]
+            return [None if i % 2 == 0 and random.random() < 0.4 else {"name": fake.name(), "address": fake.name(),
+                                                                       "content": f"this is a {keyword} building",
+                                                                       "count": random.randint(0, 100)}
+                    for i in range(nb)]
     elif data_type in ALL_VECTOR_TYPES:
         if isinstance(field, dict):
             dim = default_dim if data_type == DataType.SPARSE_FLOAT_VECTOR else field.get('params')['dim']
@@ -812,11 +816,11 @@ def insert_entities(clients, collection_name, nb, rounds, use_insert=True, inter
         t1 = time.time()
         if not use_insert and auto_id is False:
             clients[0].upsert(collection_name=collection_name, data=data)
-            if clients[1] is not None:
+            if len(clients) > 1 and clients[1] is not None:
                 clients[1].upsert(collection_name=collection_name, data=data)
         else:
             clients[0].insert(collection_name=collection_name, data=data)
-            if clients[1] is not None:
+            if len(clients) > 1 and clients[1] is not None:
                 clients[1].insert(collection_name=collection_name, data=data)
         t2 = round(time.time() - t1, 3)
         logging.info(f"{collection_name} insert {r} costs {t2}")
@@ -965,20 +969,19 @@ def create_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False)
             description="content",
             nullable=True
         ),
-        # FieldSchema(
-        #     name="fname",
-        #     dtype=DataType.VARCHAR,
-        #     max_length=256,
-        #     description="fname",
-        #     nullable=True
-        # ),
-        # FieldSchema(
-        #     name="version",
-        #     dtype=DataType.VARCHAR,
-        #     max_length=500,
-        #     description="data version",
-        #     nullable=True
-        # ),
+        FieldSchema(
+            name="json_content",
+            dtype=DataType.JSON,
+            description="json_content",
+            nullable=True
+        ),
+        FieldSchema(
+            name="version",
+            dtype=DataType.VARCHAR,
+            max_length=100,
+            description="data version",
+            nullable=True
+        ),
         FieldSchema(
             name="flag",
             dtype=DataType.BOOL,

@@ -2,7 +2,7 @@ import time
 import sys
 import logging
 from pymilvus import MilvusClient, DataType
-from common import insert_entities, get_float_vec_field_names, get_default_params_by_index_type, create_collection_schema, create_n_insert
+from common import create_collection_schema, create_n_insert
 
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
