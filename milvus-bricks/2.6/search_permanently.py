@@ -113,6 +113,13 @@ def generate_random_expression(expr_key):
         filters = ['category >= 0', 'category <= 99999', 'category >= -199900', 'category <= 0', 'category > 100 and category < 2000000', 'category < 300000 and category > -10000000']
         filter = random.choice(filters)
         return filter
+    elif expr_key.upper() == "JSON-LIKE":
+        filters = ['json_content[\"content\"] like "%sta%"', 'json_content[\"content\"] like "%par%"', 
+        'json_content[\"content\"] like "%hos%"', 'json_content[\"content\"] like "%co%nt%"', 
+        'json_content[\"content\"] like "%lib%"', 'json_content[\"content\"] like "%res%"', 
+        'json_content[\"content\"] like "%off%"', 'json_content[\"content\"] like "%sto%re%"']
+        filter = random.choice(filters)
+        return filter
     else:
         return None
 
