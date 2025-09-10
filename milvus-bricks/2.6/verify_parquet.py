@@ -9,7 +9,7 @@ import sys
 import os
 import glob
 
-def find_latest_parquet_file(pattern="/tmp/query_iterator_*.parquet"):
+def find_latest_parquet_file(pattern="/var/test/query_iterator_*.parquet"):
     """Find the most recently created parquet file"""
     files = glob.glob(pattern)
     if not files:

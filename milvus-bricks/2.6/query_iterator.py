@@ -51,7 +51,7 @@ from common import (
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
-
+WORK_DIR = '/var/test'
 
 class QueryIteratorTester:
     """
@@ -64,7 +64,7 @@ class QueryIteratorTester:
     def __init__(self, client, collection_name):
         self.client = client
         self.collection_name = collection_name
-        self.checkpoint_file = f"/tmp/query_iterator_{collection_name}.checkpoint"
+        self.checkpoint_file = f"{WORK_DIR}/query_iterator_{collection_name}.checkpoint"
     
     def validate_collection(self):
         """
@@ -110,7 +110,8 @@ class QueryIteratorTester:
                 collection_name=self.collection_name,
                 filter=expr,
                 output_fields=output_fields,
-                batch_size=batch_size
+                batch_size=batch_size,
+                iterator_cp_file=self.checkpoint_file
             )
             
             # Iterate through all batches
@@ -136,7 +137,7 @@ class QueryIteratorTester:
                         file_batch_count += 1
                         
                         # Save every 100 batches to avoid large files
-                        if file_batch_count >= 5:
+                        if file_batch_count >= 100:
                             batch_start = batch_count - file_batch_count + 1
                             batch_end = batch_count
                             success, filename, file_size = self._save_batch_results_to_parquet(
@@ -149,7 +150,7 @@ class QueryIteratorTester:
                             current_batch_results = []
                             file_batch_count = 0
 
-                    logging.info(f"Batch {batch_count} result: {batch_result[:5]}...")  # Show only first 5 results
+                    # logging.info(f"Batch {batch_count} result: {batch_result[:5]}...")  # Show only first 5 results
                     
                     # Log progress periodically
                     if batch_count % 100 == 0:
@@ -238,7 +239,7 @@ class QueryIteratorTester:
             return False, None, 0
         
         timestamp = int(time.time())
-        parquet_filename = f"/tmp/query_iterator_{self.collection_name}_iter{iteration_num}_batch{batch_start}-{batch_end}_{timestamp}.parquet"
+        parquet_filename = f"{WORK_DIR}/query_iterator_{self.collection_name}_iter{iteration_num}_batch{batch_start}-{batch_end}_{timestamp}.parquet"
         
         try:
             # Convert results to DataFrame
@@ -281,23 +282,14 @@ def main():
     """Main query iterator testing function"""
     # Parse command line arguments
     try:
-        host = '10.104.14.244'
-        collection_name = 'test_aa'
-        iter_times = 7
-        output_fields = 'embedding_0'
-        expr = ''
-        batch_size = 2
-        save_in_file = True
-        api_key = 'none'
-
-        # host = sys.argv[1]
-        # collection_name = sys.argv[2]
-        # iter_times = int(sys.argv[3])
-        # output_fields = str(sys.argv[4]).strip()
-        # expr = str(sys.argv[5]).strip()
-        # batch_size = int(sys.argv[6])
-        # save_in_file = str(sys.argv[7]).upper() == "TRUE"
-        # api_key = sys.argv[8]
+        host = sys.argv[1]
+        collection_name = sys.argv[2]
+        iter_times = int(sys.argv[3])
+        output_fields = str(sys.argv[4]).strip()
+        expr = str(sys.argv[5]).strip()
+        batch_size = int(sys.argv[6])
+        save_in_file = str(sys.argv[7]).upper() == "TRUE"
+        api_key = sys.argv[8]
         
     except (IndexError, ValueError) as e:
         print("Usage: python3 query_iterator.py <host> <collection_name> <iter_times> <output_fields> <expr> <batch_size> <save_in_file> [api_key]")
@@ -345,7 +337,9 @@ def main():
         sys.exit(1)
     
     # Setup logging
-    log_filename = f"/tmp/query_iterator_{collection_name}_{int(time.time())}.log"
+    import os
+    os.makedirs(WORK_DIR, exist_ok=True)
+    log_filename = f"{WORK_DIR}/query_iterator_{collection_name}_{int(time.time())}.log"
     file_handler = logging.FileHandler(filename=log_filename)
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
