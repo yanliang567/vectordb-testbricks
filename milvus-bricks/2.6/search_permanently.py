@@ -119,6 +119,12 @@ def generate_random_expression(expr_key):
         'json_content[\"content\"] like "%off%"', 'json_content[\"content\"] like "%sto%re%"']
         filter = random.choice(filters)
         return filter
+    elif expr_key.upper() == "JSON-IN":
+        from faker import Faker
+        fake = Faker()
+        names = [fake.name() for _ in range(20)]
+        filter = f'json_content[\"name\"] in {names}'
+        return filter
     else:
         return None
 
