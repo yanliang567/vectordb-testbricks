@@ -116,7 +116,6 @@ def generate_random_expression(expr_key):
     elif expr_key.upper() == "JSON-LIKE":
         filters = ['json_content[\"content\"] like "%sta%"', 'json_content[\"content\"] like "%par%"', 
         'json_content[\"content\"] like "%hos%"', 'json_content[\"content\"] like "%co%nt%"', 
-        'json_content[\"content\"] like "%lib%"', 'json_content[\"content\"] like "%res%"', 
         'json_content[\"content\"] like "%off%"', 'json_content[\"content\"] like "%sto%re%"']
         filter = random.choice(filters)
         return filter

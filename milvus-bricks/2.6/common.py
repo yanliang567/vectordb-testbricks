@@ -1059,7 +1059,7 @@ def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims
 
         # Build index
         if build_index:
-            vec_field_names = get_float_vec_field_names(client, collection_name)
+            vec_field_names = get_float_vec_field_names(schema)
             logging.info(f"build index for {vec_field_names}")
             
             for i in range(len(dims)):
