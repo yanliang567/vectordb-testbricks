@@ -24,11 +24,14 @@ Key Features:
   * create_n_insert: Complete collection setup with indexing
 
 Usage:
-    python3 upsert3.py <host> <collection_name> <upsert_rounds> <entities_per_round> <new_version> <interval> <check_diff> [api_key]
+    python3 upsert3.py <hosts> <collection_name> <upsert_rounds> <entities_per_round> <new_version> <interval> <check_diff> [api_key]
 
 Examples:
-    # Single collection upsert test
+    # Single host upsert test
     python3 upsert3.py localhost my_collection 10 100 "v2.0" 5 TRUE None
+    
+    # Multi-host upsert test (comparison mode)
+    python3 upsert3.py "host1,host2" my_collection 10 100 "v2.0" 5 TRUE None
     
     # Random collections test (will pick 100 random collections)
     python3 upsert3.py localhost random 5 50 NONE 2 FALSE None
@@ -65,8 +68,9 @@ class UpsertTester:
     - Integrates with gen_upsert_data_by_pk_collection() for smart data generation
     """
     
-    def __init__(self, client, collection_name):
-        self.client = client
+    def __init__(self, clients, collection_name):
+        self.clients = clients if isinstance(clients, list) else [clients]
+        self.client = self.clients[0]  # Primary client for operations
         self.collection_name = collection_name
     
     def validate_collection_for_upsert(self):
@@ -199,7 +203,7 @@ class UpsertTester:
             # Use common utility function for upsert operations
             # This function handles round-by-round upsert with proper data generation
             insert_entities(
-                clients=[self.client],
+                clients=self.clients,
                 collection_name=self.collection_name,
                 nb=entities_per_round,
                 rounds=upsert_rounds,
@@ -322,7 +326,7 @@ def main():
     """Main upsert testing function"""
     # Parse command line arguments
     try:
-        host = sys.argv[1]
+        hosts = sys.argv[1]  # hosts ips or uris separated by comma, only 2 hosts max are supported for comparison tests
         collection_name = sys.argv[2]
         upsert_rounds = int(sys.argv[3])
         entities_per_round = int(sys.argv[4])
@@ -332,12 +336,13 @@ def main():
         api_key = sys.argv[8]
         
     except (IndexError, ValueError) as e:
-        print("Usage: python3 upsert3.py <host> <collection_name> <upsert_rounds> <entities_per_round> <new_version> <interval> <check_diff> [api_key]")
+        print("Usage: python3 upsert3.py <hosts> <collection_name> <upsert_rounds> <entities_per_round> <new_version> <interval> <check_diff> [api_key]")
         print("\nDescription:")
         print("  Upsert entities with same ID and new version field. Only works for INT64 primary key starting from 0.")
         print("  Will randomly select 100 collections if collection_name is 'rand' or 'random'.")
+        print("  Supports up to 2 hosts for comparison testing.")
         print("\nParameters:")
-        print("  host               : Milvus server host")
+        print("  hosts              : Milvus server hosts (comma-separated, max 2 hosts)")
         print("  collection_name    : Collection name (or 'rand'/'random' for random selection)")
         print("  upsert_rounds      : Number of upsert rounds")
         print("  entities_per_round : Number of entities to upsert per round")
@@ -346,14 +351,23 @@ def main():
         print("  check_diff         : Check for duplicate entities (TRUE/FALSE)")
         print("  api_key            : API key (optional, use 'None' for local)")
         print("\nExamples:")
-        print("  # Single collection upsert test")
+        print("  # Single host upsert test")
         print("  python3 upsert3.py localhost my_collection 10 100 'v2.0' 5 TRUE None")
+        print()
+        print("  # Multi-host comparison test")
+        print("  python3 upsert3.py 'host1,host2' my_collection 10 100 'v2.0' 5 TRUE None")
         print()
         print("  # Random collections test")
         print("  python3 upsert3.py localhost random 5 50 NONE 2 FALSE None")
         sys.exit(1)
     
     port = 19530
+    
+    # Parse and validate hosts
+    hosts = hosts.split(",")
+    if len(hosts) > 2:
+        logging.error("Only support 2 hosts max for now")
+        sys.exit(1)
     
     # Setup logging
     log_filename = f"/tmp/upsert3_{collection_name}_{int(time.time())}.log"
@@ -367,7 +381,7 @@ def main():
     is_random_collections = True if collection_name.upper() in ["RAND", "RANDOM"] else False
     
     logging.info("🚀 Starting Upsert3 Testing")
-    logging.info(f"  Host: {host}")
+    logging.info(f"  Hosts: {hosts}")
     logging.info(f"  Collection: {collection_name}")
     logging.info(f"  Random Collections: {is_random_collections}")
     logging.info(f"  Upsert Rounds: {upsert_rounds}")
@@ -377,25 +391,35 @@ def main():
     logging.info(f"  Check Duplicates: {check_diff}")
     logging.info(f"  API Key: {'***' if api_key and api_key.upper() != 'NONE' else 'None (local)'}")
     
-    # Create MilvusClient
+    # Create MilvusClients (similar to create_n_insert.py)
+    client_2 = None
     if api_key is None or api_key == "" or api_key.upper() == "NONE":
-        client = MilvusClient(uri=f"http://{host}:{port}")
+        client_1 = MilvusClient(uri=f"http://{hosts[0]}:{port}")
+        if len(hosts) > 1:
+            client_2 = MilvusClient(uri=f"http://{hosts[1]}:{port}")
     else:
-        client = MilvusClient(uri=host, token=api_key)
+        client_1 = MilvusClient(uri=f"http://{hosts[0]}:{port}", token=api_key)
+        if len(hosts) > 1:
+            client_2 = MilvusClient(uri=f"http://{hosts[1]}:{port}", token=api_key)
     
-    logging.info(f"✅ Connected to MilvusClient at {host}")
+    # Create client list for UpsertTester
+    clients = [client_1]
+    if client_2 is not None:
+        clients.append(client_2)
+    
+    logging.info(f"✅ Connected to MilvusClients: client_1={client_1}, client_2={client_2}")
 
     
     # Determine collections to test
     collections_to_test = []
     if is_random_collections:
-        collections_to_test = get_random_collections(client, 100)
+        collections_to_test = get_random_collections(client_1, 100)
         if not collections_to_test:
             logging.error("Failed to get random collections")
             sys.exit(1)
     else:
         # Single collection mode
-        if not client.has_collection(collection_name):
+        if not client_1.has_collection(collection_name):
             logging.error(f"Collection '{collection_name}' does not exist")
             sys.exit(1) 
         collections_to_test = [collection_name]
@@ -409,8 +433,8 @@ def main():
         logging.info(f"🧪 Processing collection: {test_collection}")
         
         try:
-            # Create upsert tester
-            tester = UpsertTester(client, test_collection)
+            # Create upsert tester with multiple clients
+            tester = UpsertTester(clients, test_collection)
             
             # Validate collection
             is_valid, error_message = tester.validate_collection_for_upsert()
