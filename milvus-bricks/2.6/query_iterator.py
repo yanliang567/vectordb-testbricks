@@ -42,16 +42,11 @@ import logging
 import pandas as pd
 from pymilvus import MilvusClient, DataType
 
-# Import common utility functions from 2.6 directory
-from common import (
-    get_float_vec_field_names,
-    get_primary_field_name,
-    get_float_vec_field_name
-)
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
-WORK_DIR = '/var/test'
+WORK_DIR = '/tmp'
+
 
 class QueryIteratorTester:
     """
@@ -162,6 +157,7 @@ class QueryIteratorTester:
                     break
             
             # Close iterator
+            logging.info(f"Closing iterator...batch_count: {batch_count}, iteration_num: {iteration_num}")
             iterator.close()
             
         except Exception as e:
@@ -221,7 +217,7 @@ class QueryIteratorTester:
             logging.info("")
             logging.info(f"📂 File Export Summary:")
             logging.info(f"    - Total files saved: {total_files_saved}")
-            logging.info(f"    - Files saved to: /tmp/query_iterator_{self.collection_name}_iter{iteration_num}_*")
+            logging.info(f"    - Files saved to: /{WORK_DIR}/query_iterator_{self.collection_name}_iter{iteration_num}_*")
         
         logging.info("=" * 80)
     
@@ -290,7 +286,6 @@ def main():
         batch_size = int(sys.argv[6])
         save_in_file = str(sys.argv[7]).upper() == "TRUE"
         api_key = sys.argv[8]
-        
     except (IndexError, ValueError) as e:
         print("Usage: python3 query_iterator.py <host> <collection_name> <iter_times> <output_fields> <expr> <batch_size> <save_in_file> [api_key]")
         print("\nDescription:")
