@@ -20,8 +20,8 @@ def setup_logging():
 
 
 uri = "https://in01-d1a7ec90ba92ad5.aws-us-west-2.vectordb-uat3.zillizcloud.com:19535"
-user = "yanliang"
-password = "Milvus123"
+user = "mock-tke-user"
+password = "mock-tke-password"
 
 expr_list = [
             'int64_1 == {0}', 

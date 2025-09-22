@@ -491,7 +491,7 @@ def main():
     
     # Parse command line arguments
     try:
-        host = 'https://in01-b33a6b4db009120.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530'       # sys.argv[1]
+        host = 'https://in01-mock.zilliz.cn:19530'       # sys.argv[1]
         oss_endpoint = 'oss-cn-hangzhou-internal.aliyuncs.com'       # sys.argv[2]
         oss_access_key_id = 'mock-tke-access-key-id'       # sys.argv[3]
         oss_access_key_secret = 'mock-tke-access-key-secret'       # sys.argv[4]

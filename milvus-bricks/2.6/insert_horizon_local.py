@@ -443,13 +443,13 @@ def main():
     
     # Parse command line arguments with defaults
     data_dir = '/root/test/data'                                                        #sys.argv[1] if len(sys.argv) > 1 else "./data"
-    host = 'https://in01-b33a6b4db009120.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530'     #sys.argv[2] if len(sys.argv) > 2 else "localhost"
+    host = 'https://localhost:19530'     #sys.argv[2] if len(sys.argv) > 2 else "localhost"
     collection_name = 'horizon_test_collection'                                         #sys.argv[3] if len(sys.argv) > 3 else "horizon_test_collection"
     batch_size = 2500                                                                   #int(sys.argv[4]) if len(sys.argv) > 4 else 2500
     feature_files_per_batch = 5                                                         #int(sys.argv[5]) if len(sys.argv) > 5 else 5
     
     # Use hardcoded API key from user's settings
-    api_key = 'cc5bf695ea9236e2c64617e9407a26cf0953034485d27216f8b3f145e3eb72396e042db2abb91c4ef6fde723af70e754d68ca787'
+    api_key = 'mock-tke-api-key'
     
     logging.info("🚀 Starting Local Horizon Data Insertion with Batch Processing")
     logging.info(f"  Data Directory: {data_dir}")
