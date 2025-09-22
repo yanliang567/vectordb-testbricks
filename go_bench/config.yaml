@@ -1,0 +1,45 @@
+dataset_params:
+  metric_type: L2
+  dim: 768
+  vector_field: feature
+collection_params:
+  collection_name: horizon_test_collection
+index_params:
+  # Supoort AUTOINDEX, HNSW, IVF_FLAT, IVF_SQ8, FLAT, DISKANN, SCANN, SPARSE_WAND, SPARSE_INVERTED_INDEX, BIN_IVF_FLAT, BIN_FLAT
+  index_type: AUTOINDEX
+concurrent_params:
+  concurrent_number: 10  # Total concurrent
+  during_time: 600  # seconds
+  interval: 30  # seconds, time interval for printing intermediate states
+concurrent_tasks:
+  - type: search
+    weight: 1
+    params:
+      nq: 1
+      top_k: 15000
+      expr: device_id == "SENSOR_A123"
+      timeout: 30
+      search_param: {"level": 1}
+      query_file: "/root/test/data/query_vectors_1.json"
+      output_fields: ["timestamp", "url", "device_id", "expert_collected", "sensor_lidar_type", "p_url"]
+  - type: hybrid_search
+    weight: 1
+    params:
+      top_k: 15000
+      timeout: 30
+      reqs:
+        - anns_field: float_vector
+          search_param: {"level": 1}
+          expr: device_id == "SENSOR_A123"
+          limit: 15000
+          query_file: "/root/test/data/query_vectors_1.json"
+        - anns_field: float_vector2
+          search_param: {"level": 1}
+          expr: device_id == "SENSOR_A123"
+          limit: 15000
+          query_file: "/root/test/data/query_vectors_1.json"
+      rerank:
+        # Only one set of ranker param can be set !!! RRFRanker and WeightedRanker cannot be set at the same time
+        # RRFRanker: [ [ 60 ], [ 70 ], [ 80 ] ]
+        WeightedRanker: [ 0.9, 0.1 ]
+      output_fields: ["timestamp", "url", "device_id", "expert_collected", "sensor_lidar_type", "p_url"]
