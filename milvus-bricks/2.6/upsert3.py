@@ -45,13 +45,8 @@ from pymilvus import MilvusClient, DataType, CollectionSchema, FieldSchema
 
 # Import common utility functions from 2.6 directory
 from common import (
-    create_collection_schema, 
-    create_n_insert,
-    gen_upsert_data_by_pk_collection,
     insert_entities,
-    gen_row_data_by_schema,
     get_primary_field_name,
-    get_float_vec_field_name
 )
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"

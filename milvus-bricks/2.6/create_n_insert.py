@@ -1,14 +1,108 @@
 import time
 import sys
 import logging
-from pymilvus import MilvusClient, DataType
-from common import create_collection_schema, create_n_insert
+from common import create_n_insert
+from pymilvus import MilvusClient, DataType, CollectionSchema, FieldSchema
 
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
+def create_customized_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False):
+    """
+    Create collection schema for MilvusClient using FieldSchema and CollectionSchema
+    :param dims: list of dimensions for vector fields
+    :param vector_types: list of vector types
+    :param auto_id: bool, whether to use auto id
+    :param use_str_pk: bool, whether to use string primary key
+    :return: CollectionSchema object
+    """
+    fields = []
+
+    # Primary key field
+    if use_str_pk:
+        id_field = FieldSchema(
+            name="id",
+            dtype=DataType.VARCHAR,
+            is_primary=True,
+            max_length=65535
+        )
+    else:
+        id_field = FieldSchema(
+            name="id",
+            dtype=DataType.INT64,
+            is_primary=True
+        )
+    fields.append(id_field)
+
+    # Scalar fields
+    fields.extend([
+        FieldSchema(
+            name="category",
+            dtype=DataType.INT64,
+            description="category for partition key or clustering key"
+        ),
+        FieldSchema(
+            name="groupid",
+            dtype=DataType.INT64,
+            description="groupid",
+            nullable=True
+        ),
+        FieldSchema(
+            name="content",
+            dtype=DataType.VARCHAR,
+            max_length=50,
+            description="content",
+            nullable=True
+        ),
+        FieldSchema(
+            name="json_content",
+            dtype=DataType.JSON,
+            description="json_content",
+            nullable=True
+        ),
+        FieldSchema(
+            name="version",
+            dtype=DataType.VARCHAR,
+            max_length=100,
+            description="data version",
+            nullable=True
+        ),
+        FieldSchema(
+            name="flag",
+            dtype=DataType.BOOL,
+            description="flag",
+            nullable=True
+        )
+    ])
+
+    # Vector fields
+    for i in range(len(dims)):
+        embedding_field = FieldSchema(
+            name=f"embedding_{i}",
+            dtype=vector_types[i],
+            dim=int(dims[i])
+        )
+        fields.append(embedding_field)
+
+    # add 50 more scalar fields
+    for i in range(50):
+        fields.append(FieldSchema(
+            name=f"scalar_{i}",
+            dtype=DataType.INT64,
+            description=f"scalar_{i}"
+        ))
+
+    # Create CollectionSchema object
+    schema = CollectionSchema(
+        fields=fields,
+        description="Collection created by MilvusClient",
+        auto_id=auto_id,
+        enable_dynamic_field=True
+    )
+
+    return schema
 
 if __name__ == '__main__':
     hosts = sys.argv[1]                              # host ips or uris separated by comma, only 2 hosts max are supported for comparision tests
@@ -27,23 +121,6 @@ if __name__ == '__main__':
     need_load = str(sys.argv[14]).upper()           # load the collection or not at the end
     use_insert = str(sys.argv[15]).upper()          # use insert or upsert
     api_key = str(sys.argv[16])                     # api key to connect to milvus, should be same for both hosts
-
-    # hosts = '10.104.33.208'                              # host ip or uri
-    # name = 'tesdaa'                       # collection name
-    # dims = '32,43'                              # collection dimensions for all the vector fields
-    # vec_types = 'FLOAT,F'                         # vector types for all the vector fields
-    # indexes = 'AUTOINDEX,HNSW'                           # index types for all the vector fields
-    # metrics = 'L2,COSINE'                           # metric types for all the vector fields
-    # nb = 1000                           # collection insert batch size
-    # shards = 2                       # collection shared number
-    # insert_times =3                 # collection insert times
-    # auto_id = 'false'              # auto id
-    # use_str_pk = 'FALSE'          # use varchar as pk type or not
-    # ttl = 0                         # ttl for the collection property
-    # need_build_index = 'TRUE'    # build index for vector fields or not after insert
-    # need_load = 'TRUE'           # load the collection or not at the end
-    # use_insert = 'TRUE'          # use insert or upsert
-    # api_key = 'None'                     # api key to connect to milvus, should be same for both hosts
 
     port = 19530
     log_name = f"prepare_{name}"
@@ -110,7 +187,7 @@ if __name__ == '__main__':
     logging.info(f"client_1: {client_1}, client_2: {client_2}")
 
     # Create collection schema in main
-    schema = create_collection_schema(dims=dims, vector_types=vector_types_in_enum, 
+    schema = create_customized_collection_schema(dims=dims, vector_types=vector_types_in_enum,
                                     auto_id=auto_id, use_str_pk=use_str_pk)
     logging.info(f"Created schema: {schema}")
 
