@@ -125,6 +125,11 @@ def generate_random_expression(expr_key):
         names = [fake.name() for _ in range(20)]
         filter = f'json_content[\"name\"] in {names}'
         return filter
+    elif expr_key.upper() == "USER-EQUAL":
+        user_ids = ['user_17', 'user_170', 'user_1700', 'user_17000','user_10000','user_20000','user_40000','user_60000','user_80000','user_100000','user_125000']
+        user_id = random.choice(user_ids)
+        filter=f'Tenant=="{user_id}"'
+        return filter
     else:
         return None
 
