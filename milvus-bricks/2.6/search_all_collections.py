@@ -142,7 +142,7 @@ def check_collection_status(client, collection_name):
         # Try to get load state
         try:
             load_state = client.get_load_state(collection_name=collection_name)
-            status['is_loaded'] = load_state.get('state') == 'Loaded'
+            status['is_loaded'] = load_state.get('state').name == 'Loaded'
         except Exception as e:
             status['is_loaded'] = False
             status['error'] = f"Load state check failed: {e}"
@@ -154,7 +154,18 @@ def check_collection_status(client, collection_name):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 9:
+    # Parse command line arguments
+    try:
+        host = sys.argv[1]
+        timeout = int(sys.argv[2])
+        ignore_growing = str(sys.argv[3]).upper()
+        output_fields = str(sys.argv[4]).strip()
+        expr = str(sys.argv[5]).strip()
+        nq = int(sys.argv[6])
+        topk = int(sys.argv[7])
+        api_key = str(sys.argv[8])
+    except Exception as e:
+        logging.error(f"fail to parse command line arguments: {e}")
         print("Usage: python3 search_all_collections.py <host> <timeout> <ignore_growing> <output_fields> <expr> <nq> <topk> <api_key>")
         print("\nParameters:")
         print("  host            : Milvus server host or cloud instance URI")
@@ -168,16 +179,6 @@ if __name__ == '__main__':
         print("\nExample:")
         print("  python3 search_all_collections.py localhost 60 FALSE 'id' 'None' 1 10 None")
         sys.exit(1)
-    
-    # Parse command line arguments
-    host = sys.argv[1]
-    timeout = int(sys.argv[2])
-    ignore_growing = str(sys.argv[3]).upper()
-    output_fields = str(sys.argv[4]).strip()
-    expr = str(sys.argv[5]).strip()
-    nq = int(sys.argv[6])
-    topk = int(sys.argv[7])
-    api_key = str(sys.argv[8])
     
     port = 19530
     
