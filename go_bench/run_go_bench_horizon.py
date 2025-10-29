@@ -22,9 +22,9 @@ def setup_logging():
     logging.info("Logging initialized. Log file: %s", log_file)
 
 
-uri = "https://in01-9028520cb1d63cf.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530"
-user = "yanliang"
-password = "Milvus123"
+uri = "https://in01-902852xxxx3cf.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530"
+user = "xxxx"
+password = "xxxx"
 
 def generate_random_expression(expr_key):
     """Generate random query expression"""

@@ -19,7 +19,7 @@ def setup_logging():
     logging.info("Logging initialized. Log file: %s", log_file)
 
 
-uri = "https://in01-d1a7ec90ba92ad5.aws-us-west-2.vectordb-uat3.zillizcloud.com:19535"
+uri = "https://in01-d1a7exxxx92ad5.aws-us-west-2.vectordb-uat3.zillizcloud.com:19535"
 user = "mock-tke-user"
 password = "mock-tke-password"
 

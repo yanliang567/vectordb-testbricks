@@ -374,14 +374,14 @@ def main():
     data_dir = '/root/horizon/horizonPoc/data/expanded_dataset_100M'  # sys.argv[1] if len(sys.argv) > 1 else "./data"
     # data_dir = '/Users/yanliang/Downloads/horizonPoc/data'
     # host = 'http://10.104.19.128:19530'
-    host = 'https://in01-3e1a7693c28817d.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530'  # sys.argv[2] if len(sys.argv) > 2 else "localhost"
+    host = 'https://in01-3e1axxxx28817d.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530'  # sys.argv[2] if len(sys.argv) > 2 else "localhost"
 
     collection_name = 'horizon_test_collection'  # sys.argv[3] if len(sys.argv) > 3 else "horizon_test_collection"
     batch_size = 2500  # int(sys.argv[4]) if len(sys.argv) > 4 else 2500
     concurrency = 2  # int(sys.argv[5]) if len(sys.argv) > 5 else 2  # Default concurrency: 2
 
     # Use hardcoded API key from user's settings
-    api_key = 'cc5bf695ea9236e2c64617e9407a26cf0953034485d27216f8b3f145e3eb72396e042db2abb91c4ef6fde723af70e754d68ca787'
+    api_key = 'token'
 
     logging.info("🚀 Starting Local Horizon Data Insertion with Concurrent Batch Processing")
     logging.info(f"  Data Directory: {data_dir}")

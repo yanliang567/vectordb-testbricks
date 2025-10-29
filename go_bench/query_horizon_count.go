@@ -701,9 +701,9 @@ func main() {
 		condition       = flag.String("condition", "entire", "Condition mode: 'entire' (count entire expression), 'each' (count each AND sub-expression), or a field name (count only expressions with that field)")
 
 		// Hardcoded values
-		host           = "https://in01-3e1a7693c28817d.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530"
+		host           = "https://in01-3e1accccxxxx8817d.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530"
 		collectionName = "horizon_test_collection"
-		apiKey         = "cc5bf695ea9236e2c64617e9407a26cf0953034485d27216f8b3f145e3eb72396e042db2abb91c4ef6fde723af70e754d68ca787"
+		apiKey         = "token"
 	)
 
 	flag.Parse()
