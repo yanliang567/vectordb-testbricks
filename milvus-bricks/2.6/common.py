@@ -668,6 +668,10 @@ def gen_row_data_by_schema(nb=2000, schema=None, start=0, random_pk=False, skip_
                     start += 1
                 if field.get('name', None) == 'version':
                     tmp[field.get('name')] = str(new_version)
+                if field.get('name', None) == 'doc_id':
+                    # generate a random value in 1-100,000
+                    doc_id = random.randint(1, 100000)
+                    tmp[field.get('name')] = f"doc_{doc_id}"
                 if field.get('name', None) == 'content' and field_value is not None:
                     json_keywords = ["stadium", "park", "content", "library", "hospital", "restaurant", "office", "store"]
                     keyword = json_keywords[random.randint(0, len(json_keywords) - 1)]
@@ -877,7 +881,7 @@ def get_default_params_by_index_type(index_type, metric_type):
     Get default index params by index type
     """
     index_params_dict = {
-            "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 30, "efConstruction": 360}},
+            "HNSW": {"index_type": "HNSW", "metric_type": metric_type, "params": {"M": 32, "efConstruction": 256}},
             "FLAT": {"index_type": "FLAT", "metric_type": metric_type, "params": {}},
             "IVF_FLAT": {"index_type": "IVF_FLAT", "metric_type": metric_type, "params": {"nlist": 1024}},
             "IVF_SQ8": {"index_type": "IVF_SQ8", "metric_type": metric_type, "params": {"nlist": 1024}},

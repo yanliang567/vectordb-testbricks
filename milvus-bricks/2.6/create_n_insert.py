@@ -44,9 +44,10 @@ def create_customized_collection_schema(dims, vector_types, auto_id=True, use_st
             description="category for partition key or clustering key"
         ),
         FieldSchema(
-            name="groupid",
-            dtype=DataType.INT64,
-            description="groupid",
+            name="doc_id",
+            dtype=DataType.VARCHAR,
+            description="doc_id",
+            max_length=32,
             nullable=True
         ),
         FieldSchema(
@@ -86,13 +87,13 @@ def create_customized_collection_schema(dims, vector_types, auto_id=True, use_st
         )
         fields.append(embedding_field)
 
-    # add 50 more scalar fields
-    for i in range(50):
-        fields.append(FieldSchema(
-            name=f"scalar_{i}",
-            dtype=DataType.INT64,
-            description=f"scalar_{i}"
-        ))
+    # # add 50 more scalar fields
+    # for i in range(50):
+    #     fields.append(FieldSchema(
+    #         name=f"scalar_{i}",
+    #         dtype=DataType.INT64,
+    #         description=f"scalar_{i}"
+    #     ))
 
     # Create CollectionSchema object
     schema = CollectionSchema(
