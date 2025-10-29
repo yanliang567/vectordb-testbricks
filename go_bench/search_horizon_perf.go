@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -117,24 +118,23 @@ func (s *SearchStats) GetStats() map[string]interface{} {
 		sortedLatencies := make([]int64, len(s.latencies))
 		copy(sortedLatencies, s.latencies)
 
-		// Simple sort for percentiles
-		for i := 0; i < len(sortedLatencies)-1; i++ {
-			for j := i + 1; j < len(sortedLatencies); j++ {
-				if sortedLatencies[i] > sortedLatencies[j] {
-					sortedLatencies[i], sortedLatencies[j] = sortedLatencies[j], sortedLatencies[i]
-				}
-			}
-		}
+		// Efficient sort using sort package
+		sort.Slice(sortedLatencies, func(i, j int) bool {
+			return sortedLatencies[i] < sortedLatencies[j]
+		})
 
 		p95Index := int(float64(len(sortedLatencies)) * 0.95)
 		p99Index := int(float64(len(sortedLatencies)) * 0.99)
 
-		if p95Index < len(sortedLatencies) {
-			p95Latency = float64(sortedLatencies[p95Index])
+		if p95Index >= len(sortedLatencies) {
+			p95Index = len(sortedLatencies) - 1
 		}
-		if p99Index < len(sortedLatencies) {
-			p99Latency = float64(sortedLatencies[p99Index])
+		if p99Index >= len(sortedLatencies) {
+			p99Index = len(sortedLatencies) - 1
 		}
+
+		p95Latency = float64(sortedLatencies[p95Index])
+		p99Latency = float64(sortedLatencies[p99Index])
 	}
 
 	return map[string]interface{}{
@@ -268,157 +268,110 @@ func (qvp *QueryVectorPool) GetVectors(nq int) [][]float32 {
 	return result
 }
 
+// PreGeneratedQuery represents a query with pre-generated expression
+type PreGeneratedQuery struct {
+	QueryID          int                    `json:"query_id"`
+	OriginalQuery    map[string]interface{} `json:"original_query"`
+	MilvusExpression string                 `json:"milvus_expression"`
+}
+
+// ExpressionFileData represents the structure of expression JSON files
+type ExpressionFileData struct {
+	SourceFile   string              `json:"source_file"`
+	TotalQueries int                 `json:"total_queries"`
+	Queries      []PreGeneratedQuery `json:"queries"`
+}
+
 // ExpressionGenerator generates random filter expressions
 type ExpressionGenerator struct {
-	deviceIDs            []string
-	polygons             []string
-	sensors              []string
-	jsonContainsPatterns []string
+	preGeneratedExprs []string // Pre-loaded expressions from JSON files
+	mu                sync.RWMutex
 }
 
 // NewExpressionGenerator creates a new expression generator
 func NewExpressionGenerator() *ExpressionGenerator {
 	return &ExpressionGenerator{
-		deviceIDs: []string{
-			"SENSOR_A123", "SENSOR_A233", "SENSOR_A108", "SENSOR_A172", "CAM_B112",
-			"CAM_B177", "DV348", "DV378", "DV081", "DV349",
-		},
-		polygons: []string{
-			// "'POLYGON((-74.0 40.7, -73.9 40.7, -73.9 40.8, -74.0 40.8, -74.0 40.7))'",
-			// "'POLYGON((-74.1 40.6, -73.8 40.6, -73.8 40.9, -74.1 40.9, -74.1 40.6))'",
-			// "'POLYGON((-74.05 40.75, -73.95 40.75, -73.95 40.85, -74.05 40.85, -74.05 40.75))'",
-			// 2 square kilometers
-			// "'POLYGON((-73.990494 40.729934, -73.973710 40.729934, -73.973710 40.742646, -73.990494 40.742646, -73.990494 40.729934))'",
-			// "'POLYGON((-74.010980 40.733392, -73.994194 40.733392, -73.994194 40.746104, -74.010980 40.746104, -74.010980 40.733392))'",
-			// "'POLYGON((-73.982670 40.784599, -73.965864 40.784599, -73.965864 40.797311, -73.982670 40.797311, -73.982670 40.784599))'",
-			// "'POLYGON((-74.009971 40.713026, -73.993189 40.713026, -73.993189 40.725738, -74.009971 40.725738, -74.009971 40.713026))'",
-			// "'POLYGON((-73.992444 40.737188, -73.975656 40.737188, -73.975656 40.749900, -73.992444 40.749900, -73.992444 40.737188))'",
-			// "'POLYGON((-73.978085 40.742888, -73.961295 40.742888, -73.961295 40.755600, -73.978085 40.755600, -73.978085 40.742888))'",
-			// "'POLYGON((-74.000351 40.715211, -73.983563 40.715211, -73.983563 40.727923, -74.000351 40.727923, -74.000351 40.715211))'",
-
-			// 1 square kilometer
-			"'POLYGON((-73.98803637970583 40.73179339493682, -73.97616762029416 40.73179339493682, -73.97616762029416 40.74078660506317, -73.98803637970583 40.74078660506317, -73.98803637970583 40.73179339493682))'",
-			"'POLYGON((-74.00852168819422 40.735251394936824, -73.99665231180579 40.735251394936824, -73.99665231180579 40.74424460506317, -74.00852168819422 40.74424460506317, -74.00852168819422 40.735251394936824))'",
-			"'POLYGON((-73.98020626266393 40.78645839493682, -73.96832773733607 40.78645839493682, -73.96832773733607 40.79545160506317, -73.98020626266393 40.79545160506317, -73.98020626266393 40.78645839493682))'",
-			"'POLYGON((-74.00751287211497 40.71488539493683, -73.99564712788504 40.71488539493683, -73.99564712788504 40.72387860506318, -74.00751287211497 40.72387860506318, -74.00751287211497 40.71488539493683))'",
-			"'POLYGON((-73.98998502689739 40.739047394936826, -73.97811497310258 40.739047394936826, -73.97811497310258 40.748040605063174, -73.98998502689739 40.748040605063174, -73.98998502689739 40.739047394936826))'",
-			"'POLYGON((-73.97562553560911 40.74474739493682, -73.96375446439089 40.74474739493682, -73.96375446439089 40.75374060506317, -73.97562553560911 40.75374060506317, -73.97562553560911 40.74474739493682))'",
-		},
-		sensors: []string{
-			"Thor_Trucks", "WeRide_Robobus", "Delphi_ESR", "Aptiv_SRR4", "AEye_iDAR", "DiDi_Gemini", "ADAS_Eyes",
-			"Embark_Guardian", "Hella_24GHz", "ST_VL53L1X", "TuSimple_AFV", "Locomation_AutonomousRelay", "Voyage_Telessport",
-			"Livox_Horizon", "Infineon_BGT24", "Aurora_FirstLight", "Ibeo_LUX", "Ouster_OS1_64", "Delphi_ESR",
-		},
-		jsonContainsPatterns: []string{
-			"JSON_CONTAINS_ALL(sensor_lidar_type,['Analog_ADAU1761', 'AEye_iDAR', 'ADAS_Eyes', 'Argo_Geiger']) AND NOT JSON_CONTAINS(sensor_lidar_type, 'Delphi_ESR')",
-			"JSON_CONTAINS_ALL(sensor_lidar_type,['Gatik_B2B', 'Bosch_LRR4', 'Mobileye_EyeQ4', 'Motional_Ioniq5']) AND NOT JSON_CONTAINS(sensor_lidar_type, 'Delphi_ESR')",
-			"JSON_CONTAINS_ALL(sensor_lidar_type,['TI_AWR1843', 'Continental_HFL110', 'Velodyne_VLS128', 'Analog_ADAU1761']) AND NOT JSON_CONTAINS(sensor_lidar_type, 'Delphi_ESR')",
-			"JSON_CONTAINS_ALL(sensor_lidar_type,['Thor_Trucks', 'Aptiv_SRR4', 'Leishen_C32', 'Pony_PonyAlpha']) AND NOT JSON_CONTAINS(sensor_lidar_type, 'Delphi_ESR')",
-			"JSON_CONTAINS_ALL(sensor_lidar_type,['Magna_Icon', 'ZF_AC1000', 'NXP_TEF810X', 'Ibeo_LUX']) AND NOT JSON_CONTAINS(sensor_lidar_type, 'Delphi_ESR')",
-			"JSON_CONTAINS_ALL(sensor_lidar_type,['Innoviz_One', 'ST_VL53L1X', 'May_Mobility', 'Embark_Guardian']) AND NOT JSON_CONTAINS(sensor_lidar_type, 'Delphi_ESR')",
-		},
+		preGeneratedExprs: make([]string, 0),
 	}
 }
 
-// GenerateExpression generates a random filter expression
-func (eg *ExpressionGenerator) GenerateExpression(exprType string) string {
-	switch strings.ToLower(exprType) {
-	case "equal":
-		deviceID := eg.deviceIDs[rand.Intn(len(eg.deviceIDs))]
-		return fmt.Sprintf(`device_id == "%s"`, deviceID)
+// LoadPreGeneratedExpressions loads pre-generated expressions from JSON files
+func (eg *ExpressionGenerator) LoadPreGeneratedExpressions(expressionFiles []string) error {
+	eg.mu.Lock()
+	defer eg.mu.Unlock()
 
-	case "equal_and_expert_collected":
-		device_id_keyword := eg.deviceIDs[rand.Intn(len(eg.deviceIDs))]
-		return fmt.Sprintf(`device_id == "%s" and expert_collected == True`, device_id_keyword)
+	var allExpressions []string
 
-	case "equal_and_timestamp_week":
-		deviceID := eg.deviceIDs[rand.Intn(len(eg.deviceIDs))]
-		// Generate 7-day window
-		startDate := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-		endDate := time.Date(2025, 8, 23, 0, 0, 0, 0, time.UTC)
-		days := int(endDate.Sub(startDate).Hours() / 24)
-		randomOffset := rand.Intn(days)
-		windowStart := startDate.AddDate(0, 0, randomOffset)
-		windowEnd := windowStart.AddDate(0, 0, 6)
-
-		startTS := windowStart.Unix() * 1000
-		endTS := windowEnd.Unix() * 1000
-		return fmt.Sprintf(`device_id == "%s" and timestamp >= %d and timestamp <= %d`,
-			deviceID, startTS, endTS)
-
-	case "equal_and_timestamp_month":
-		deviceID := eg.deviceIDs[rand.Intn(len(eg.deviceIDs))]
-		// Generate 30-day window
-		startDate := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-		endDate := time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC)
-		days := int(endDate.Sub(startDate).Hours() / 24)
-		randomOffset := rand.Intn(days)
-		windowStart := startDate.AddDate(0, 0, randomOffset)
-		windowEnd := windowStart.AddDate(0, 0, 29)
-
-		startTS := windowStart.Unix() * 1000
-		endTS := windowEnd.Unix() * 1000
-		return fmt.Sprintf(`device_id == "%s" and timestamp >= %d and timestamp <= %d`,
-			deviceID, startTS, endTS)
-
-	case "device_id_in_and_timestamp_1_month":
-		// Generate 30-day window
-		startDate := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-		endDate := time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC)
-		days := int(endDate.Sub(startDate).Hours() / 24)
-		randomOffset := rand.Intn(days)
-		windowStart := startDate.AddDate(0, 0, randomOffset)
-		windowEnd := windowStart.AddDate(0, 0, 29)
-
-		startTS := windowStart.Unix() * 1000
-		endTS := windowEnd.Unix() * 1000
-		// get 2 device_ids
-		idxs := rand.Perm(len(eg.deviceIDs))[:2]
-		device_ids := []string{
-			eg.deviceIDs[idxs[0]],
-			eg.deviceIDs[idxs[1]],
+	for _, filePath := range expressionFiles {
+		// Expand ~ path to full path
+		expandedPath, err := expandPath(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to expand file path %s: %v", filePath, err)
 		}
-		device_ids_str := strings.Join(device_ids, `","`)
-		return fmt.Sprintf(`device_id in ["%s"] and timestamp >= %d and timestamp <= %d`,
-			device_ids_str, startTS, endTS)
 
-	case "equal_and_timestamp_2_months":
-		deviceID := eg.deviceIDs[rand.Intn(len(eg.deviceIDs))]
-		// Generate 60-day window
-		startDate := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-		endDate := time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC)
-		days := int(endDate.Sub(startDate).Hours() / 24)
-		randomOffset := rand.Intn(days)
-		windowStart := startDate.AddDate(0, 0, randomOffset)
-		windowEnd := windowStart.AddDate(0, 0, 59)
-
-		startTS := windowStart.Unix() * 1000
-		endTS := windowEnd.Unix() * 1000
-		return fmt.Sprintf(`device_id == "%s" and timestamp >= %d and timestamp <= %d`,
-			deviceID, startTS, endTS)
-
-	case "geo_within":
-		polygon := eg.polygons[rand.Intn(len(eg.polygons))]
-		return fmt.Sprintf("ST_WITHIN(location, %s)", polygon)
-
-	case "sensor_contains":
-		sensor := eg.sensors[rand.Intn(len(eg.sensors))]
-		return fmt.Sprintf(`ARRAY_CONTAINS(sensor_lidar_type, "%s")`, sensor)
-	case "device_id_in":
-		idxs := rand.Perm(len(eg.deviceIDs))[:2]
-		device_ids := []string{
-			eg.deviceIDs[idxs[0]],
-			eg.deviceIDs[idxs[1]],
+		// Check if file exists
+		if _, err := os.Stat(expandedPath); os.IsNotExist(err) {
+			return fmt.Errorf("❌ Expression file does not exist: %s", expandedPath)
 		}
-		device_ids_str := strings.Join(device_ids, `","`)
-		return fmt.Sprintf(`device_id in ["%s"]`, device_ids_str)
-	case "sensor_json_contains":
-		// 随机返回一种json_contains_patterns
-		return eg.jsonContainsPatterns[rand.Intn(len(eg.jsonContainsPatterns))]
 
-	default:
+		log.Printf("📖 Loading pre-generated expressions from %s", expandedPath)
+
+		file, err := os.Open(expandedPath)
+		if err != nil {
+			return fmt.Errorf("failed to open expression file: %v", err)
+		}
+		defer file.Close()
+
+		// Read and parse JSON
+		data, err := io.ReadAll(file)
+		if err != nil {
+			return fmt.Errorf("failed to read expression file: %v", err)
+		}
+
+		var exprData ExpressionFileData
+		if err := json.Unmarshal(data, &exprData); err != nil {
+			return fmt.Errorf("failed to parse expression JSON: %v", err)
+		}
+
+		if len(exprData.Queries) == 0 {
+			log.Printf("⚠️ Warning: No queries found in %s", filePath)
+			continue
+		}
+
+		// Extract expressions
+		for _, query := range exprData.Queries {
+			if query.MilvusExpression != "" {
+				allExpressions = append(allExpressions, query.MilvusExpression)
+			}
+		}
+
+		log.Printf("✅ Loaded %d expressions from %s (source: %s)",
+			len(exprData.Queries), filepath.Base(expandedPath), exprData.SourceFile)
+	}
+
+	if len(allExpressions) == 0 {
+		return fmt.Errorf("❌ No expressions loaded from any file")
+	}
+
+	eg.preGeneratedExprs = allExpressions
+	log.Printf("✅ Total pre-generated expressions loaded: %d", len(eg.preGeneratedExprs))
+
+	return nil
+}
+
+// GenerateExpression generates a random filter expression from pre-loaded expressions
+func (eg *ExpressionGenerator) GenerateExpression() string {
+	eg.mu.RLock()
+	defer eg.mu.RUnlock()
+
+	if len(eg.preGeneratedExprs) == 0 {
+		log.Printf("⚠️ Warning: No pre-generated expressions loaded")
 		return ""
 	}
+
+	// Randomly select an expression from the loaded expressions
+	idx := rand.Intn(len(eg.preGeneratedExprs))
+	return eg.preGeneratedExprs[idx]
 }
 
 // SearchTask represents a single search task
@@ -430,6 +383,7 @@ type SearchTask struct {
 	OutputFields   []string
 	Timeout        time.Duration
 	ExpressionType string
+	ResultRatio    float64 // Ratio to check if result count is sufficient (e.g., 0.9 means 90% of topK)
 }
 
 // SearchResult represents the result of a search task
@@ -452,12 +406,12 @@ type SearchWorker struct {
 
 // NewSearchWorker creates a new search worker
 func NewSearchWorker(milvusClient *milvusclient.Client, collectionName string,
-	vectorPool *QueryVectorPool, stats *SearchStats) *SearchWorker {
+	vectorPool *QueryVectorPool, exprGen *ExpressionGenerator, stats *SearchStats) *SearchWorker {
 	return &SearchWorker{
 		client:     milvusClient,
 		collection: collectionName,
 		vectorPool: vectorPool,
-		exprGen:    NewExpressionGenerator(),
+		exprGen:    exprGen,
 		stats:      stats,
 	}
 }
@@ -486,8 +440,8 @@ func (sw *SearchWorker) PerformSearch(ctx context.Context, task *SearchTask) *Se
 
 		// Hybrid search using v2.6 milvusclient API
 		// Create ANN requests with independent expressions from GenerateExpression
-		expr1 := sw.exprGen.GenerateExpression(task.ExpressionType)
-		// expr2 := sw.exprGen.GenerateExpression(task.ExpressionType)
+		expr1 := sw.exprGen.GenerateExpression()
+		// expr2 := sw.exprGen.GenerateExpression()
 
 		annReq1 := milvusclient.NewAnnRequest(task.VectorField, task.TopK, vectors[0])
 		annReq2 := milvusclient.NewAnnRequest(task.VectorField, task.TopK, vectors[1])
@@ -521,9 +475,9 @@ func (sw *SearchWorker) PerformSearch(ctx context.Context, task *SearchTask) *Se
 				if idsCol := searchResults[0].IDs; idsCol != nil {
 					result.ResultCount = idsCol.Len()
 					// Check if results are insufficient
-					if result.ResultCount < int(float64(task.TopK)*0.9) {
-						log.Printf("⚠️ Warning: Hybrid search returned %d results, less than requested topK=%d (expr1: %s, expr2: %s)",
-							result.ResultCount, task.TopK, expr1, expr1)
+					if task.ResultRatio > 0 && result.ResultCount < int(float64(task.TopK)*task.ResultRatio) {
+						log.Printf("⚠️ Warning: Hybrid search returned %d results, less than requested topK=%d * %.2f = %.0f (expr1: %s, expr2: %s)",
+							result.ResultCount, task.TopK, task.ResultRatio, float64(task.TopK)*task.ResultRatio, expr1, expr1)
 					}
 				}
 			}
@@ -538,16 +492,12 @@ func (sw *SearchWorker) PerformSearch(ctx context.Context, task *SearchTask) *Se
 			vectors[i] = entity.FloatVector(vector)
 		}
 		// Normal search using v2.6 milvusclient API
-		searchOpt := milvusclient.NewSearchOption(
-			sw.collection,
-			task.TopK,
-			vectors,
-		)
+		searchOpt := milvusclient.NewSearchOption(sw.collection, task.TopK, vectors).WithANNSField(task.VectorField)
 
 		// Generate fresh filter expression for each search (same as hybrid search)
 		filter := ""
 		if task.ExpressionType != "" {
-			filter = sw.exprGen.GenerateExpression(task.ExpressionType)
+			filter = sw.exprGen.GenerateExpression()
 		}
 		if filter != "" {
 			searchOpt = searchOpt.WithFilter(filter)
@@ -568,9 +518,9 @@ func (sw *SearchWorker) PerformSearch(ctx context.Context, task *SearchTask) *Se
 				if idsCol := searchResults[0].IDs; idsCol != nil {
 					result.ResultCount = idsCol.Len()
 					// Check if results are insufficient
-					if result.ResultCount < int(float64(task.TopK)*0.9) {
-						log.Printf("⚠️ Warning: Normal search returned %d results, less than requested topK=%d (filter: %s)",
-							result.ResultCount, task.TopK, filter)
+					if task.ResultRatio > 0 && result.ResultCount < int(float64(task.TopK)*task.ResultRatio) {
+						log.Printf("⚠️ Warning: Normal search returned %d results, less than requested topK=%d * %.2f = %.0f (filter: %s)",
+							result.ResultCount, task.TopK, task.ResultRatio, float64(task.TopK)*task.ResultRatio, filter)
 					}
 				}
 			}
@@ -591,7 +541,7 @@ type SearchHorizonPerf struct {
 }
 
 // NewSearchHorizonPerf creates a new search performance tester
-func NewSearchHorizonPerf(uri, token, collectionName, queryVectorFile string) (*SearchHorizonPerf, error) {
+func NewSearchHorizonPerf(uri, token, collectionName, queryVectorFile string, expressionFiles []string) (*SearchHorizonPerf, error) {
 	ctx := context.Background()
 
 	// Create Milvus client using v2.6 milvusclient API
@@ -634,19 +584,29 @@ func NewSearchHorizonPerf(uri, token, collectionName, queryVectorFile string) (*
 		return nil, fmt.Errorf("collection %s is not loaded (current state: %v)", collectionName, loadState.State)
 	}
 
+	// Create expression generator
+	exprGen := NewExpressionGenerator()
+
+	// Load pre-generated expressions if files provided
+	if len(expressionFiles) > 0 {
+		if err := exprGen.LoadPreGeneratedExpressions(expressionFiles); err != nil {
+			return nil, fmt.Errorf("failed to load pre-generated expressions: %v", err)
+		}
+	}
+
 	return &SearchHorizonPerf{
 		client:     milvusClient,
 		collection: collectionName,
 		vectorPool: vectorPool,
 		stats:      NewSearchStats(),
-		exprGen:    NewExpressionGenerator(),
+		exprGen:    exprGen,
 	}, nil
 }
 
 // RunSearchTest runs the search performance test
 func (shp *SearchHorizonPerf) RunSearchTest(ctx context.Context, searchType, vectorField string,
 	nq, topK, maxWorkers int, timeout time.Duration, outputFields []string,
-	exprType string, searchTimeout time.Duration) error {
+	exprType string, searchTimeout time.Duration, resultRatio float64) error {
 
 	// Reset statistics for this individual test
 	shp.stats.Reset()
@@ -663,7 +623,7 @@ func (shp *SearchHorizonPerf) RunSearchTest(ctx context.Context, searchType, vec
 	// Create worker pool
 	workers := make([]*SearchWorker, maxWorkers)
 	for i := 0; i < maxWorkers; i++ {
-		workers[i] = NewSearchWorker(shp.client, shp.collection, shp.vectorPool, shp.stats)
+		workers[i] = NewSearchWorker(shp.client, shp.collection, shp.vectorPool, shp.exprGen, shp.stats)
 	}
 
 	// Create channels for task distribution
@@ -739,6 +699,7 @@ func (shp *SearchHorizonPerf) RunSearchTest(ctx context.Context, searchType, vec
 					OutputFields:   outputFields,
 					Timeout:        searchTimeout,
 					ExpressionType: exprType,
+					ResultRatio:    resultRatio,
 				}
 
 				select {
@@ -799,95 +760,186 @@ func (shp *SearchHorizonPerf) Close() error {
 
 func main() {
 	// Command line arguments
-	// "equal:10,equal_and_expert_collected:20,equal_and_timestamp_week:30,
-	// equal_and_timestamp_month:30,geo_contains:10,sensor_contains:10,
-	// device_id_in:10,sensor_json_contains:10"
 	var (
 		searchType       = flag.String("search-type", "normal", "Search type: normal or hybrid")
-		exprWorkers      = flag.String("expr-workers", "equal:10,equal_and_expert_collected:20,equal_and_timestamp_2_months:30,geo_within:10,sensor_contains:10,device_id_in:10,sensor_json_contains:10", "Sequential test configurations: 'expr1:workers1,expr2:workers2'. Each pair runs as independent test (e.g., 'equal:10,equal:20,device_id_in:30' → 3 tests)")
+		fileWorkers      = flag.String("file-workers", "all:1", "File and worker pairs: 'qc_1_exprs.json:10,qc_2_exprs.json:20,qc_3_s_exprs.json:30,qc_3_m_exprs.json:20,qc_3_l_exprs.json:10' or 'all:10' for all files")
 		testTimeout      = flag.Int("timeout", 300, "Test timeout in seconds")
 		searchTimeoutSec = flag.Int("search-timeout", 30, "Individual search timeout in seconds")
-		queryVectorFile  = flag.String("vector-file", "/root/test/data/query_vectors.json", "Path to JSON file containing query vectors")
+		queryVectorFile  = flag.String("vector-file", "/root/horizon/horizonPoc/data/merged_query_vectors.json", "Path to JSON file containing query vectors")
+		exprDir          = flag.String("expr-dir", "/root/horizon/horizonPoc/data/query_expressions", "Directory containing expression JSON files")
+		topK             = flag.Int("top-k", 15000, "Top K for search")
+		sleepSec         = flag.Int("sleep-sec", 120, "Sleep seconds between tests")
+		outputFieldsStr  = flag.String("output-fields", "timestamp,device_id,expert_collected,sensor_lidar_type,gcj02_lon,gcj02_lat", "Comma-separated output fields")
+		resultRatio      = flag.Float64("result-ratio", 1.0, "Print warning if result count is less than this ratio of topK (e.g., 0.9 means warn if results < 90% of topK)")
 
-		// Hardcoded values as in Python version
-		host           = "https://in01-9028520cb1d63cf.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530"
+		// Hardcoded values
+		host           = "https://in01-3e1a7693c28817d.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530"
 		collectionName = "horizon_test_collection"
 		vectorField    = "feature"
 		nq             = 1
-		topK           = 15000
 		apiKey         = "cc5bf695ea9236e2c64617e9407a26cf0953034485d27216f8b3f145e3eb72396e042db2abb91c4ef6fde723af70e754d68ca787"
-		outputFields   = []string{"timestamp", "url", "device_id", "expert_collected", "sensor_lidar_type", "p_url"}
 	)
 
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	// Define test configuration structure
-	type TestConfig struct {
-		ExprType string
-		Workers  int
+	// Parse output fields
+	var outputFields []string
+	if *outputFieldsStr != "" {
+		outputFields = strings.Split(*outputFieldsStr, ",")
+		for i := range outputFields {
+			outputFields[i] = strings.TrimSpace(outputFields[i])
+		}
 	}
 
-	// Parse expression and worker configurations
+	// Check if file-workers is provided
+	if *fileWorkers == "" {
+		log.Fatalf("❌ --file-workers parameter is required. Example: 'all:10' or 'file1.json:10,file2.json:20'")
+	}
+
+	// Define test configuration structure
+	type TestConfig struct {
+		ExpressionFiles []string
+		Workers         int
+		TestName        string
+	}
+
+	// Parse file-workers parameter
 	var testConfigs []TestConfig
 
-	// Parse expr-workers parameter
-	// Format: "expr1:workers1,expr2:workers2" e.g., "equal:10,device_id_in:20"
-	// Supports multiple tests: "equal:10,equal:20,device_id_in:30" → 3 independent tests
-	configs := strings.Split(*exprWorkers, ",")
+	exprDirPath, err := expandPath(*exprDir)
+	if err != nil {
+		log.Fatalf("❌ Failed to expand expression directory path: %v", err)
+	}
+
+	configs := strings.Split(*fileWorkers, ",")
 	for _, config := range configs {
 		config = strings.TrimSpace(config)
 		parts := strings.Split(config, ":")
 		if len(parts) != 2 {
-			log.Fatalf("❌ Invalid expr-workers format: %s. Expected format: 'expr:workers'", config)
+			log.Fatalf("❌ Invalid file-workers format: %s. Expected format: 'file:workers' or 'all:workers'", config)
 		}
 
-		exprName := strings.TrimSpace(parts[0])
+		fileName := strings.TrimSpace(parts[0])
 		workersStr := strings.TrimSpace(parts[1])
 
-		// Parse worker count and add to test list
-		if workers, err := strconv.Atoi(workersStr); err == nil {
-			testConfigs = append(testConfigs, TestConfig{
-				ExprType: exprName,
-				Workers:  workers,
-			})
-		} else {
+		workers, err := strconv.Atoi(workersStr)
+		if err != nil {
 			log.Fatalf("❌ Invalid worker count in %s: %s", config, workersStr)
+		}
+
+		if fileName == "all" {
+			// Expand "all" to create a separate test for each expression file
+			entries, err := os.ReadDir(exprDirPath)
+			if err != nil {
+				log.Fatalf("❌ Failed to read expression directory: %v", err)
+			}
+
+			var allFiles []string
+			for _, entry := range entries {
+				if !entry.IsDir() && strings.HasSuffix(entry.Name(), "_exprs.json") {
+					fullPath := filepath.Join(exprDirPath, entry.Name())
+					allFiles = append(allFiles, fullPath)
+				}
+			}
+
+			if len(allFiles) == 0 {
+				log.Fatalf("❌ No expression files found in %s", exprDirPath)
+			}
+
+			// Create a separate test config for each file
+			for _, filePath := range allFiles {
+				baseName := filepath.Base(filePath)
+				baseName = strings.TrimSuffix(baseName, "_exprs.json")
+				baseName = strings.TrimSuffix(baseName, ".json")
+				testName := fmt.Sprintf("%s_%d_workers", baseName, workers)
+
+				testConfigs = append(testConfigs, TestConfig{
+					ExpressionFiles: []string{filePath},
+					Workers:         workers,
+					TestName:        testName,
+				})
+			}
+		} else {
+			// Load specific file
+			var fullPath string
+			if filepath.IsAbs(fileName) {
+				fullPath = fileName
+			} else {
+				fullPath = filepath.Join(exprDirPath, fileName)
+			}
+
+			// Check if file exists
+			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+				log.Fatalf("❌ Expression file does not exist: %s", fullPath)
+			}
+
+			// Extract base name without _expressions.json suffix for cleaner test name
+			baseName := filepath.Base(fileName)
+			baseName = strings.TrimSuffix(baseName, "_exprs.json")
+			baseName = strings.TrimSuffix(baseName, ".json")
+			testName := fmt.Sprintf("%s_%d_workers", baseName, workers)
+
+			testConfigs = append(testConfigs, TestConfig{
+				ExpressionFiles: []string{fullPath},
+				Workers:         workers,
+				TestName:        testName,
+			})
 		}
 	}
 
 	// Log the test configurations
 	log.Printf("📋 Test configurations (%d tests):", len(testConfigs))
 	for i, config := range testConfigs {
-		log.Printf("   %d. %s: %d workers", i+1, config.ExprType, config.Workers)
+		fileCount := len(config.ExpressionFiles)
+		if fileCount == 1 {
+			log.Printf("   %d. %s: %s with %d workers",
+				i+1, config.TestName, filepath.Base(config.ExpressionFiles[0]), config.Workers)
+		} else {
+			log.Printf("   %d. %s: %d files with %d workers",
+				i+1, config.TestName, fileCount, config.Workers)
+		}
 	}
-
-	// Create search performance tester
-	shp, err := NewSearchHorizonPerf(host, apiKey, collectionName, *queryVectorFile)
-	if err != nil {
-		log.Fatalf("❌ Failed to create search performance tester: %v", err)
-	}
-	defer shp.Close()
 
 	// Run tests sequentially for each configuration
 	for i, config := range testConfigs {
-		log.Printf("🎯 Running test %d/%d: %s with %d workers", i+1, len(testConfigs), config.ExprType, config.Workers)
+		log.Printf("🎯 Running test %d/%d: %s", i+1, len(testConfigs), config.TestName)
+
+		// Log expression files being loaded
+		if len(config.ExpressionFiles) == 1 {
+			log.Printf("📖 Loading expression file: %s", filepath.Base(config.ExpressionFiles[0]))
+		} else {
+			log.Printf("📖 Loading %d expression files:", len(config.ExpressionFiles))
+			for _, f := range config.ExpressionFiles {
+				log.Printf("   - %s", filepath.Base(f))
+			}
+		}
+
+		// Create search performance tester for this specific test
+		shp, err := NewSearchHorizonPerf(host, apiKey, collectionName, *queryVectorFile, config.ExpressionFiles)
+		if err != nil {
+			log.Fatalf("❌ Failed to create search performance tester: %v", err)
+		}
 
 		ctx := context.Background()
-		err := shp.RunSearchTest(ctx, *searchType, vectorField, nq, topK,
+		err = shp.RunSearchTest(ctx, *searchType, vectorField, nq, *topK,
 			config.Workers, time.Duration(*testTimeout)*time.Second,
-			outputFields, config.ExprType, time.Duration(*searchTimeoutSec)*time.Second)
+			outputFields, "pre_generated", time.Duration(*searchTimeoutSec)*time.Second, *resultRatio)
 
 		if err != nil {
-			log.Printf("❌ Test %d/%d failed: %s with %d workers: %v", i+1, len(testConfigs), config.ExprType, config.Workers, err)
+			log.Printf("❌ Test %d/%d failed: %s: %v", i+1, len(testConfigs), config.TestName, err)
 		} else {
-			log.Printf("✅ Test %d/%d completed: %s with %d workers", i+1, len(testConfigs), config.ExprType, config.Workers)
+			log.Printf("✅ Test %d/%d completed: %s", i+1, len(testConfigs), config.TestName)
 		}
+
+		// Close the client
+		shp.Close()
 
 		// Brief pause between tests (skip for last test)
 		if i < len(testConfigs)-1 {
-			time.Sleep(120 * time.Second)
+			log.Printf("⏸️  Pausing %d seconds before next test...", *sleepSec)
+			time.Sleep(time.Duration(*sleepSec) * time.Second)
 		}
 	}
 

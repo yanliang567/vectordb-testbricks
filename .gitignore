@@ -2,3 +2,4 @@
 .idea/*
 __*
 __*.pyc
+milvus-bricks/2.6/horizonPoc/data/*
