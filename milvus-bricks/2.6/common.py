@@ -801,13 +801,14 @@ def gen_upsert_data_by_pk_collection(client, collection_name, nb, start=0, end=0
     return data
 
 
-def insert_entities(clients, collection_name, nb, rounds, use_insert=True, interval=0, new_version="0"):
+def insert_entities(clients, collection_name, nb, rounds, start=0, use_insert=True, interval=0, new_version="0"):
     """
     Insert entities into collection
     :param clients: MilvusClient objects
     :param collection_name: str, collection name
     :param nb: int, number of entities per round
     :param rounds: int, number of rounds
+    :param start: int, start value for the primary key
     :param use_insert: bool, use insert or upsert
     :param interval: int, sleep interval between rounds
     :param new_version: str, version info
@@ -816,7 +817,7 @@ def insert_entities(clients, collection_name, nb, rounds, use_insert=True, inter
     auto_id = schema.get('auto_id', False)
     
     for r in range(int(rounds)):
-        data = gen_row_data_by_schema(schema=schema, nb=nb, start=r * nb, new_version=new_version)
+        data = gen_row_data_by_schema(schema=schema, nb=nb, start=start + r * nb, new_version=new_version)
         t1 = time.time()
         if not use_insert and auto_id is False:
             clients[0].upsert(collection_name=collection_name, data=data)
@@ -1013,7 +1014,7 @@ def create_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False)
     return schema
 
 
-def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims, 
+def create_n_insert(collection_name, schema, nb, insert_times, start, index_types, dims, 
                     metric_types=["L2"], ttl=0, build_index=True, shards_num=1, 
                     is_flush=True, use_insert=True, pre_load=False, new_version="0", 
                     build_scalar_index=False, clients=[]):
@@ -1023,6 +1024,7 @@ def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims
     :param schema: CollectionSchema, collection schema definition (required)
     :param nb: int, number of entities per batch
     :param insert_times: int, number of insert rounds
+    :param start: int, start value for the primary key
     :param index_types: list, index types for vector fields
     :param dims: list, dimensions for vector fields (for index building)
     :param metric_types: list, metric types
@@ -1122,7 +1124,7 @@ def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims
 
     # Insert data
     insert_entities(clients=clients, collection_name=collection_name, nb=nb, rounds=insert_times,
-                    use_insert=use_insert, new_version=new_version)
+                    use_insert=use_insert, new_version=new_version, start=start)
     
     if is_flush:
         for client in clients:

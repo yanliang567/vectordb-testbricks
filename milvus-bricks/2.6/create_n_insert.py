@@ -117,11 +117,12 @@ if __name__ == '__main__':
     insert_times = int(sys.argv[9])                 # collection insert times
     auto_id = str(sys.argv[10]).upper()              # auto id
     use_str_pk = str(sys.argv[11]).upper()          # use varchar as pk type or not
-    ttl = int(sys.argv[12])                         # ttl for the collection property
-    need_build_index = str(sys.argv[13]).upper()    # build index for vector fields or not after insert
-    need_load = str(sys.argv[14]).upper()           # load the collection or not at the end
-    use_insert = str(sys.argv[15]).upper()          # use insert or upsert
-    api_key = str(sys.argv[16])                     # api key to connect to milvus, should be same for both hosts
+    start = int(sys.argv[12])                        # start value for the primary key
+    ttl = int(sys.argv[13])                         # ttl for the collection property
+    need_build_index = str(sys.argv[14]).upper()    # build index for vector fields or not after insert
+    need_load = str(sys.argv[15]).upper()           # load the collection or not at the end
+    use_insert = str(sys.argv[16]).upper()          # use insert or upsert
+    api_key = str(sys.argv[17])                     # api key to connect to milvus, should be same for both hosts
 
     port = 19530
     log_name = f"prepare_{name}"
@@ -194,7 +195,7 @@ if __name__ == '__main__':
 
     # Create collection and insert data
     create_n_insert(collection_name=name, schema=schema, nb=nb, insert_times=insert_times, 
-                    index_types=indexes, dims=dims, metric_types=metrics, ttl=ttl, 
+                    start=start, index_types=indexes, dims=dims, metric_types=metrics, ttl=ttl, 
                     is_flush=True, build_index=need_build_index, shards_num=shards, 
                     use_insert=use_insert, build_scalar_index=False, clients=[client_1, client_2])
 
