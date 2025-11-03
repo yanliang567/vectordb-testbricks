@@ -156,7 +156,7 @@ func (s *QueryStats) GetStats() map[string]interface{} {
 		"success_rate":   successRate,
 		"total_queries":  totalQueries,
 		"total_failures": totalFailures,
-		"total_results":  totalResults,
+		"total_results":  float64(totalResults),
 		"avg_results":    avgResults,
 		"duration":       duration,
 	}
@@ -333,7 +333,7 @@ func (qw *QueryWorker) PerformQuery(ctx context.Context, task *QueryTask) *Query
 	if err != nil {
 		result.Success = false
 		result.Error = fmt.Sprintf("query failed: %v", err)
-		log.Printf("❌ Query failed: %s", err)
+		// Only log error details occasionally to avoid flooding logs
 		return result
 	}
 
@@ -465,11 +465,16 @@ func (qhp *QueryHorizonPerf) RunQueryTest(ctx context.Context, limit, maxWorkers
 	}
 
 	// Result collector goroutine
+	errorCount := int64(0)
 	go func() {
 		for result := range resultChan {
 			qhp.stats.RecordQuery(result.Latency, result.ResultCount, result.Success)
 			if !result.Success {
-				log.Printf("❌ Query failed: %s", result.Error)
+				// Only log first 10 errors and then sample every 100th error
+				errNum := atomic.AddInt64(&errorCount, 1)
+				if errNum <= 10 || errNum%100 == 0 {
+					log.Printf("❌ Query failed (#%d): %s", errNum, result.Error)
+				}
 			}
 		}
 	}()
@@ -540,18 +545,19 @@ func (qhp *QueryHorizonPerf) RunQueryTest(ctx context.Context, limit, maxWorkers
 	// Print final statistics
 	finalStats := qhp.stats.GetStats()
 	log.Printf("📊 Final Results:")
-	log.Printf("   Total Queries: %d", int64(finalStats["total_queries"].(float64)))
-	log.Printf("   Total Failures: %d", int64(finalStats["total_failures"].(float64)))
-	log.Printf("   Total Results: %d", int64(finalStats["total_results"].(float64)))
-	log.Printf("   QPS: %.1f", finalStats["qps"])
-	log.Printf("   Average Results per Query: %.1f", finalStats["avg_results"])
-	log.Printf("   Average Latency: %.1f ms", finalStats["avg_latency"].(float64))
-	log.Printf("   Min Latency: %.1f ms", finalStats["min_latency"].(float64))
-	log.Printf("   Max Latency: %.1f ms", finalStats["max_latency"].(float64))
-	log.Printf("   P95 Latency: %.1f ms", finalStats["p95_latency"].(float64))
-	log.Printf("   P99 Latency: %.1f ms", finalStats["p99_latency"].(float64))
-	log.Printf("   Success Rate: %.2f%%", finalStats["success_rate"])
-	log.Printf("   Test Duration: %.2f seconds", finalStats["duration"])
+	fmt.Printf("RESULTS | Total_Queries=%d | Total_Failures=%d | Total_Results=%d | QPS=%.1f | Avg_Results=%.1f | Avg_Latency=%.1fms | Min_Latency=%.1fms | Max_Latency=%.1fms | P95_Latency=%.1fms | P99_Latency=%.1fms | Success_Rate=%.2f%% | Duration=%.2fs\n",
+		int64(finalStats["total_queries"].(float64)),
+		int64(finalStats["total_failures"].(float64)),
+		int64(finalStats["total_results"].(float64)),
+		finalStats["qps"],
+		finalStats["avg_results"],
+		finalStats["avg_latency"].(float64),
+		finalStats["min_latency"].(float64),
+		finalStats["max_latency"].(float64),
+		finalStats["p95_latency"].(float64),
+		finalStats["p99_latency"].(float64),
+		finalStats["success_rate"],
+		finalStats["duration"])
 
 	return nil
 }
@@ -569,15 +575,16 @@ func main() {
 		testTimeout     = flag.Int("timeout", 300, "Test timeout in seconds")
 		queryTimeoutSec = flag.Int("query-timeout", 30, "Individual query timeout in seconds")
 		exprDir         = flag.String("expr-dir", "/root/horizon/horizonPoc/data/query_expressions", "Directory containing expression JSON files")
+		filePattern     = flag.String("file-pattern", "*_exprs.json", "File pattern to match when using 'all' (e.g., '*_pic.json', '*.json')")
 		limit           = flag.Int("limit", 15000, "Limit for query results")
 		sleepSec        = flag.Int("sleep-sec", 120, "Sleep seconds between tests")
 		outputFieldsStr = flag.String("output-fields", "timestamp,device_id,expert_collected,sensor_lidar_type,gcj02_lon,gcj02_lat", "Comma-separated output fields")
 		resultRatio     = flag.Float64("result-ratio", 1.0, "Ratio to check if result count is sufficient (e.g., 0.9 means warn if results < 90% of limit)")
 
 		// Hardcoded values
-		host           = "https://in01-3e1a7xxxxxx817d.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530"
+		host           = "https://in01-3e1a7693c28817d.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530"
 		collectionName = "horizon_test_collection"
-		apiKey         = "token"
+		apiKey         = "cc5bf695ea9236e2c64617e9407a26cf0953034485d27216f8b3f145e3eb72396e042db2abb91c4ef6fde723af70e754d68ca787"
 	)
 
 	flag.Parse()
@@ -630,27 +637,43 @@ func main() {
 		}
 
 		if fileName == "all" {
-			// Expand "all" to create a separate test for each expression file
+			// Expand "all" to create a separate test for each expression file matching the pattern
 			entries, err := os.ReadDir(exprDirPath)
 			if err != nil {
 				log.Fatalf("❌ Failed to read expression directory: %v", err)
 			}
 
+			log.Printf("🔍 Searching for files matching pattern '%s' in %s", *filePattern, exprDirPath)
+
 			var allFiles []string
 			for _, entry := range entries {
-				if !entry.IsDir() && strings.HasSuffix(entry.Name(), "_exprs.json") {
+				if entry.IsDir() {
+					continue
+				}
+
+				// Use filepath.Match to match the pattern
+				matched, err := filepath.Match(*filePattern, entry.Name())
+				if err != nil {
+					log.Fatalf("❌ Invalid file pattern '%s': %v", *filePattern, err)
+				}
+
+				if matched {
 					fullPath := filepath.Join(exprDirPath, entry.Name())
 					allFiles = append(allFiles, fullPath)
+					log.Printf("   ✓ Matched: %s", entry.Name())
 				}
 			}
 
 			if len(allFiles) == 0 {
-				log.Fatalf("❌ No expression files found in %s", exprDirPath)
+				log.Fatalf("❌ No expression files matching pattern '%s' found in %s", *filePattern, exprDirPath)
 			}
+
+			log.Printf("✅ Found %d matching file(s)", len(allFiles))
 
 			// Create a separate test config for each file
 			for _, filePath := range allFiles {
 				baseName := filepath.Base(filePath)
+				// Remove common suffixes
 				baseName = strings.TrimSuffix(baseName, "_exprs.json")
 				baseName = strings.TrimSuffix(baseName, ".json")
 				testName := fmt.Sprintf("%s_%d_workers", baseName, workers)
