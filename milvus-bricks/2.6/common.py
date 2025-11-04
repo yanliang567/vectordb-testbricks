@@ -706,18 +706,18 @@ def gen_row_data_by_schema(nb=2000, schema=None, start=0, random_pk=False, skip_
                 if field.is_primary is True and field.dtype == DataType.VARCHAR:
                     tmp[field.name] = str(start)
                     start += 1
-                if field.get('name', None) == 'version':
-                    tmp[field.get('name')] = str(new_version)
-                if field.get('name', None) == 'content' and field_value is not None:
+                if field.name == 'version':
+                    tmp[field.name] = str(new_version)
+                if field.name == 'content' and field_value is not None:
                     seed = random.randint(1, 4)
                     if seed == 1:
-                        tmp[field.get('name')] = field_value + " content"
+                        tmp[field.name] = field_value + " content"
                     elif seed == 2:
-                        tmp[field.get('name')] = "content " + field_value
+                        tmp[field.name] = "content " + field_value
                     elif seed == 3:
-                        tmp[field.get('name')] = field_value[:len(field_value)//2] + " content" + field_value[len(field_value)//2:]
+                        tmp[field.name] = field_value[:len(field_value)//2] + " content" + field_value[len(field_value)//2:]
                     else:
-                        tmp[field.get('name')] = field_value
+                        tmp[field.name] = field_value
             data.append(tmp)
     return data
 
