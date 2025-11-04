@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any
 from dataclasses import dataclass, field
-from pymilvus import AsyncMilvusClient, DataType
+from pymilvus import AsyncMilvusClient, DataType, MilvusClient
 import statistics
 
 
@@ -145,6 +145,7 @@ class AsyncSearchBenchmark:
         self.vector_dim = None  # Will be determined after connecting
         self.metrics = SearchMetrics()
         self.client = None
+        self.c2 = None    # sync client for those api has not implemented async client
         self.running = True
         self.logger = None  # Will be set after logging configuration
         
@@ -228,9 +229,11 @@ class AsyncSearchBenchmark:
             token=self.token
         )
         self.logger.info(f"Connected to Milvus at {self.uri}")
+        self.c2 = MilvusClient(uri=self.uri, token=self.token)
         
         # Verify collection exists
-        collections = await self.client.list_collections()
+        # collections = await self.client.list_collections()
+        collections = self.c2.list_collections()
         if self.collection_name not in collections:
             self.logger.error(f"Collection '{self.collection_name}' not found. Available collections: {collections}")
             raise ValueError(f"Collection '{self.collection_name}' not found. Available collections: {collections}")
@@ -238,7 +241,7 @@ class AsyncSearchBenchmark:
         self.logger.info(f"Collection '{self.collection_name}' found")
         
         # Get collection schema to determine vector field and dimension
-        schema = await self.client.describe_collection(self.collection_name)
+        schema = self.c2.describe_collection(self.collection_name)
         vector_fields = []
         
         for field in schema['fields']:
