@@ -105,6 +105,7 @@ def create_customized_collection_schema(dims, vector_types, auto_id=True, use_st
 
     return schema
 
+
 if __name__ == '__main__':
     hosts = sys.argv[1]                              # host ips or uris separated by comma, only 2 hosts max are supported for comparision tests
     name = str(sys.argv[2])                         # collection name

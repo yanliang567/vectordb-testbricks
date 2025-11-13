@@ -1014,8 +1014,8 @@ def create_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False)
     return schema
 
 
-def create_n_insert(collection_name, schema, nb, insert_times, start, index_types, dims, 
-                    metric_types=["L2"], ttl=0, build_index=True, shards_num=1, 
+def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims,
+                    metric_types=["L2"], ttl=0, build_index=True, shards_num=1, start=0,
                     is_flush=True, use_insert=True, pre_load=False, new_version="0", 
                     build_scalar_index=False, clients=[]):
     """
