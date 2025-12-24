@@ -1,0 +1,12 @@
+# Requirements for Turbopuffer Write Performance Test Script
+# Install with: pip install -r requirements.txt
+
+# Turbopuffer Python SDK with C bindings (FAST version for 2-5x performance)
+# Official docs: https://turbopuffer.com/docs/performance
+turbopuffer[fast]>=0.1.0
+
+# Parquet file support
+pyarrow>=14.0.0
+
+# Numerical operations (for statistics)
+numpy>=1.24.0

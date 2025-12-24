@@ -1,0 +1,102 @@
+# Makefile for Turbopuffer FTS Write Tool (Go)
+
+.PHONY: help init build run clean test fmt vet
+
+# Binary name
+BINARY_NAME=write_fts
+GO_SOURCE=write_full_text_search.go
+
+# Default target
+help:
+	@echo "Turbopuffer FTS Write Tool - Makefile"
+	@echo ""
+	@echo "Usage:"
+	@echo "  make init        Initialize Go module and install dependencies"
+	@echo "  make build       Build the binary"
+	@echo "  make run         Run with default parameters"
+	@echo "  make clean       Remove build artifacts"
+	@echo "  make test        Run tests"
+	@echo "  make fmt         Format Go code"
+	@echo "  make vet         Run Go vet"
+	@echo ""
+
+# Initialize Go module and install dependencies
+init:
+	@echo "Initializing Go module..."
+	@if [ ! -f go.mod ]; then \
+		go mod init tpuffer-tools; \
+	fi
+	@echo "Installing dependencies..."
+	go get github.com/segmentio/parquet-go
+	go get github.com/turbopuffer/turbopuffer-go
+	go mod tidy
+	@echo "✅ Dependencies installed"
+
+# Build the binary
+build: init
+	@echo "Building $(BINARY_NAME)..."
+	go build -o $(BINARY_NAME) $(GO_SOURCE)
+	@echo "✅ Build complete: ./$(BINARY_NAME)"
+
+# Build optimized binary for production
+build-prod: init
+	@echo "Building optimized $(BINARY_NAME)..."
+	CGO_ENABLED=0 go build -ldflags="-s -w" -o $(BINARY_NAME) $(GO_SOURCE)
+	@echo "✅ Optimized build complete: ./$(BINARY_NAME)"
+
+# Run with default parameters (requires TURBOPUFFER_API_KEY env var)
+run: build
+	@echo "Running with default parameters..."
+	./$(BINARY_NAME) \
+		-parquet-dir data/wikipedia/ \
+		-file-id-start 0 \
+		-file-id-end 5 \
+		-batch-size 1000 \
+		-writes-per-ns 1 \
+		-user-id-start 0 \
+		-user-id-end 9
+
+# Run directly with go run
+run-direct:
+	@echo "Running directly with go run..."
+	go run $(GO_SOURCE) \
+		-parquet-dir data/wikipedia/ \
+		-file-id-start 0 \
+		-file-id-end 5 \
+		-batch-size 1000 \
+		-writes-per-ns 1 \
+		-user-id-start 0 \
+		-user-id-end 9
+
+# Clean build artifacts
+clean:
+	@echo "Cleaning build artifacts..."
+	rm -f $(BINARY_NAME)
+	@echo "✅ Clean complete"
+
+# Run tests
+test:
+	@echo "Running tests..."
+	go test -v
+
+# Format Go code
+fmt:
+	@echo "Formatting Go code..."
+	go fmt $(GO_SOURCE)
+	@echo "✅ Code formatted"
+
+# Run Go vet
+vet:
+	@echo "Running go vet..."
+	go vet $(GO_SOURCE)
+	@echo "✅ Vet complete"
+
+# Check everything (format, vet, test, build)
+check: fmt vet test build
+	@echo "✅ All checks passed"
+
+# Install binary to $GOPATH/bin
+install: build
+	@echo "Installing to $GOPATH/bin..."
+	cp $(BINARY_NAME) $(GOPATH)/bin/
+	@echo "✅ Installed: $(GOPATH)/bin/$(BINARY_NAME)"
