@@ -801,7 +801,8 @@ def gen_upsert_data_by_pk_collection(client, collection_name, nb, start=0, end=0
     return data
 
 
-def insert_entities(clients, collection_name, nb, rounds, start=0, use_insert=True, interval=0, new_version="0"):
+def insert_entities(clients, collection_name, nb, rounds, start=0, use_insert=True, partial_update=False,
+                    interval=0, new_version="0"):
     """
     Insert entities into collection
     :param clients: MilvusClient objects
@@ -810,6 +811,7 @@ def insert_entities(clients, collection_name, nb, rounds, start=0, use_insert=Tr
     :param rounds: int, number of rounds
     :param start: int, start value for the primary key
     :param use_insert: bool, use insert or upsert
+    :param partial_update: bool, use partial update or not
     :param interval: int, sleep interval between rounds
     :param new_version: str, version info
     """
@@ -820,9 +822,9 @@ def insert_entities(clients, collection_name, nb, rounds, start=0, use_insert=Tr
         data = gen_row_data_by_schema(schema=schema, nb=nb, start=start + r * nb, new_version=new_version)
         t1 = time.time()
         if not use_insert and auto_id is False:
-            clients[0].upsert(collection_name=collection_name, data=data)
+            clients[0].upsert(collection_name=collection_name, data=data, partial_update=partial_update)
             if len(clients) > 1 and clients[1] is not None:
-                clients[1].upsert(collection_name=collection_name, data=data)
+                clients[1].upsert(collection_name=collection_name, data=data, partial_update=partial_update)
         else:
             clients[0].insert(collection_name=collection_name, data=data)
             if len(clients) > 1 and clients[1] is not None:
@@ -1016,7 +1018,7 @@ def create_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False)
 
 def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims,
                     metric_types=["L2"], ttl=0, build_index=True, shards_num=1, start=0,
-                    is_flush=True, use_insert=True, pre_load=False, new_version="0", 
+                    is_flush=True, use_insert=True, partial_update=False, pre_load=False, new_version="0",
                     build_scalar_index=False, clients=[]):
     """
     Create collection and insert data using MilvusClient
@@ -1033,6 +1035,7 @@ def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims
     :param shards_num: int, number of shards
     :param is_flush: bool, whether to flush after insert
     :param use_insert: bool, use insert or upsert
+    :param partial_update: bool, use partial update or not
     :param pre_load: bool, whether to load before insert
     :param new_version: str, version info
     :param build_scalar_index: bool, whether to build scalar index
@@ -1124,7 +1127,7 @@ def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims
 
     # Insert data
     insert_entities(clients=clients, collection_name=collection_name, nb=nb, rounds=insert_times,
-                    use_insert=use_insert, new_version=new_version, start=start)
+                    use_insert=use_insert, partial_update=partial_update, new_version=new_version, start=start)
     
     if is_flush:
         for client in clients:

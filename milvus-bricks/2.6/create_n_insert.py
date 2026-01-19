@@ -123,6 +123,7 @@ if __name__ == '__main__':
     need_build_index = str(sys.argv[14]).upper()    # build index for vector fields or not after insert
     need_load = str(sys.argv[15]).upper()           # load the collection or not at the end
     use_insert = str(sys.argv[16]).upper()          # use insert or upsert
+    use_partial_update = str(sys.argv[16]).upper()  # when upsert, use partial_update=True or False
     api_key = str(sys.argv[17])                     # api key to connect to milvus, should be same for both hosts
 
     port = 19530
@@ -133,6 +134,7 @@ if __name__ == '__main__':
     need_build_index = True if need_build_index == "TRUE" else False
     use_str_pk = True if use_str_pk == "TRUE" else False
     use_insert = True if use_insert == "TRUE" else False
+    partial_update = True if use_partial_update == "TRUE" else False
 
     file_handler = logging.FileHandler(filename=f"/tmp/{log_name}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -198,7 +200,8 @@ if __name__ == '__main__':
     create_n_insert(collection_name=name, schema=schema, nb=nb, insert_times=insert_times, 
                     start=start, index_types=indexes, dims=dims, metric_types=metrics, ttl=ttl, 
                     is_flush=True, build_index=need_build_index, shards_num=shards, 
-                    use_insert=use_insert, build_scalar_index=False, clients=[client_1, client_2])
+                    use_insert=use_insert, partial_update=partial_update,
+                    build_scalar_index=False, clients=[client_1, client_2])
 
     # Load the collection
     if need_load:
