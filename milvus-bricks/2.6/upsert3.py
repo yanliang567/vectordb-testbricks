@@ -181,7 +181,7 @@ class UpsertTester:
         else:
             return new_version
     
-    def perform_upsert_operations(self, upsert_rounds, entities_per_round, new_version, interval):
+    def perform_upsert_operations(self, upsert_rounds, entities_per_round, new_version, interval, use_partial_update):
         """Perform upsert operations using common utility functions"""
         try:
             # Get version field type
@@ -203,6 +203,7 @@ class UpsertTester:
                 nb=entities_per_round,
                 rounds=upsert_rounds,
                 use_insert=False,
+                partial_update=use_partial_update,
                 new_version=final_new_version,
                 interval=interval
             )
@@ -327,8 +328,9 @@ def main():
         entities_per_round = int(sys.argv[4])
         new_version = sys.argv[5]
         interval = int(sys.argv[6])
-        check_diff = str(sys.argv[7]).upper()
-        api_key = sys.argv[8]
+        use_partial_update = str(sys.argv[7]).upper()
+        check_diff = str(sys.argv[8]).upper()
+        api_key = sys.argv[9]
         
     except (IndexError, ValueError) as e:
         print("Usage: python3 upsert3.py <hosts> <collection_name> <upsert_rounds> <entities_per_round> <new_version> <interval> <check_diff> [api_key]")
@@ -343,17 +345,18 @@ def main():
         print("  entities_per_round : Number of entities to upsert per round")
         print("  new_version        : New value for version field ('NONE' for auto-generated)")
         print("  interval           : Interval between upsert rounds (seconds)")
+        print("  use_partial_update : Use partial update (TRUE/FALSE)")
         print("  check_diff         : Check for duplicate entities (TRUE/FALSE)")
         print("  api_key            : API key (optional, use 'None' for local)")
         print("\nExamples:")
         print("  # Single host upsert test")
-        print("  python3 upsert3.py localhost my_collection 10 100 'v2.0' 5 TRUE None")
+        print("  python3 upsert3.py localhost my_collection 10 100 'v2.0' 5 TRUE TRUE None")
         print()
         print("  # Multi-host comparison test")
-        print("  python3 upsert3.py 'host1,host2' my_collection 10 100 'v2.0' 5 TRUE None")
+        print("  python3 upsert3.py 'host1,host2' my_collection 10 100 'v2.0' 5 TRUE TRUE None")
         print()
         print("  # Random collections test")
-        print("  python3 upsert3.py localhost random 5 50 NONE 2 FALSE None")
+        print("  python3 upsert3.py localhost random 5 50 NONE 2 TRUE FALSE None")
         sys.exit(1)
     
     port = 19530
@@ -373,6 +376,7 @@ def main():
     
     # Convert parameters
     check_diff = True if check_diff == "TRUE" else False
+    use_partial_update = True if use_partial_update == "TRUE" else False
     is_random_collections = True if collection_name.upper() in ["RAND", "RANDOM"] else False
     
     logging.info("🚀 Starting Upsert3 Testing")
@@ -383,6 +387,7 @@ def main():
     logging.info(f"  Entities Per Round: {entities_per_round}")
     logging.info(f"  New Version: {new_version}")
     logging.info(f"  Interval: {interval}s")
+    logging.info(f"  Use Partial Update: {use_partial_update}")
     logging.info(f"  Check Duplicates: {check_diff}")
     logging.info(f"  API Key: {'***' if api_key and api_key.upper() != 'NONE' else 'None (local)'}")
     
@@ -456,7 +461,7 @@ def main():
             
             # Perform upsert operations
             success, max_id, final_count = tester.perform_upsert_operations(
-                upsert_rounds, entities_per_round, new_version, interval
+                upsert_rounds, entities_per_round, new_version, interval, use_partial_update
             )
             
             if not success:
@@ -483,7 +488,7 @@ def main():
     
     # Final summary
     logging.info("=" * 80)
-    logging.info("🎯 UPSERT3 TESTING SUMMARY")
+    logging.info(f"🎯 UPSERT3 TESTING SUMMARY - Use Partial Update: {use_partial_update}")
     logging.info(f"  Total Collections Processed: {len(collections_to_test)}")
     logging.info(f"  Successful: {total_success}")
     logging.info(f"  Failed: {total_failed}")
