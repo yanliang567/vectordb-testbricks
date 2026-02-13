@@ -185,9 +185,9 @@ if __name__ == '__main__':
         if len(hosts) > 1:
             client_2 = MilvusClient(uri=f"http://{hosts[1]}:{port}")
     else:
-        client_1 = MilvusClient(uri=f"http://{hosts[0]}:{port}", token=api_key)
+        client_1 = MilvusClient(uri=f"{hosts[0]}", token=api_key)
         if len(hosts) > 1:
-            client_2 = MilvusClient(uri=f"http://{hosts[1]}:{port}", token=api_key)
+            client_2 = MilvusClient(uri=f"{hosts[1]}", token=api_key)
 
     logging.info(f"client_1: {client_1}, client_2: {client_2}")
 
