@@ -123,8 +123,8 @@ if __name__ == '__main__':
     need_build_index = str(sys.argv[14]).upper()    # build index for vector fields or not after insert
     need_load = str(sys.argv[15]).upper()           # load the collection or not at the end
     use_insert = str(sys.argv[16]).upper()          # use insert or upsert
-    use_partial_update = str(sys.argv[16]).upper()  # when upsert, use partial_update=True or False
-    api_key = str(sys.argv[17])                     # api key to connect to milvus, should be same for both hosts
+    use_partial_update = str(sys.argv[17]).upper()  # when upsert, use partial_update=True or False
+    api_key = str(sys.argv[18])                     # api key to connect to milvus, should be same for both hosts
 
     port = 19530
     log_name = f"prepare_{name}"
