@@ -14,9 +14,11 @@ from milvus_client.common.validators import (
 class FakeMilvusClient:
     def __init__(self, rows):
         self.rows = rows
+        self.query_calls = []
 
     def query(self, collection_name, filter="", output_fields=None, limit=None, offset=0):
         del collection_name
+        self.query_calls.append({"filter": filter, "limit": limit, "offset": offset})
         matched = self._match_filter(filter)
         if output_fields == ["count(*)"]:
             return [{"count(*)": len(matched)}]
@@ -107,6 +109,8 @@ def test_scalar_checksum_queries_checkpoint_rows():
 
     assert report.passed
     assert report.metrics["qa_dense.checksum_rows"] == 3
+    assert [call["offset"] for call in client.query_calls] == [0, 0]
+    assert [call["filter"] for call in client.query_calls] == ["id >= 0 && id <= 1", "id >= 2 && id <= 2"]
 
 
 def test_scalar_checksum_reports_mismatch():

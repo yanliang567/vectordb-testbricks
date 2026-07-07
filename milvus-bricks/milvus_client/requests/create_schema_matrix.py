@@ -22,7 +22,7 @@ def add_args(parser):
     parser.add_argument("--feature-inventory", default="milvus_client/manifests/feature_inventory.yaml")
     parser.add_argument("--capability-catalog", default="milvus_client/manifests/capability_catalog.yaml")
     parser.add_argument("--drop-if-exists", type=parse_bool, default=False)
-    parser.add_argument("--load-after-create", type=parse_bool, default=False)
+    parser.add_argument("--load-after-create", type=parse_bool, default=True)
     parser.add_argument("--dry-run", action="store_true")
 
 
@@ -64,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     specs = load_schema_matrix(args.schema_matrix)
     created = []
     skipped = []
+    loaded = []
     failed = []
     for spec in specs:
         capability_result = evaluate_capabilities(spec.required_capabilities, capabilities, server_version)
@@ -76,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
                 if args.drop_if_exists:
                     client.drop_collection(name)
                 else:
+                    if args.load_after_create:
+                        client.load_collection(name)
+                        loaded.append({"schema": spec.name, "collection": name, "reason": "collection exists"})
                     skipped.append({"schema": spec.name, "collection": name, "reason": "collection exists"})
                     continue
             client.create_collection(collection_name=name, schema=build_milvus_schema(spec))
@@ -83,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
                 client.create_index(collection_name=name, index_params=build_index_params(spec))
             if args.load_after_create:
                 client.load_collection(name)
+                loaded.append({"schema": spec.name, "collection": name, "reason": "created"})
             created.append({"schema": spec.name, "collection": name})
         except Exception as exc:
             failed.append({"schema": spec.name, "collection": name, "error": str(exc)})
@@ -93,8 +98,10 @@ def main(argv: list[str] | None = None) -> int:
         "created_total": len(created),
         "skipped_total": len(skipped),
         "failed_total": len(failed),
+        "loaded_total": len(loaded),
         "created": created,
         "skipped": skipped,
+        "loaded": loaded,
     }
     if failed:
         result.status = FAILED
@@ -110,4 +117,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -7,7 +7,7 @@ import sys
 
 from milvus_client.common.args import build_common_parser
 from milvus_client.common.client import create_client
-from milvus_client.common.data import first_vector_field, generate_rows, stable_float_vector
+from milvus_client.common.data import generate_rows, stable_vector_value, vector_fields
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import collection_name, load_schema_matrix
 
@@ -17,6 +17,20 @@ def add_args(parser):
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=10)
     parser.add_argument("--operation-interval-sec", type=float, default=0.0)
+
+
+def _metric_type_for_field(spec, field_name: str) -> str:
+    for index in spec.indexes:
+        if index.field == field_name and index.metric_type:
+            return index.metric_type
+    return "COSINE"
+
+
+def _assert_search_result(result, collection: str, field_name: str) -> None:
+    if not isinstance(result, list) or len(result) != 1:
+        raise AssertionError(f"{collection}.{field_name}: unexpected search result shape")
+    if not result[0]:
+        raise AssertionError(f"{collection}.{field_name}: search returned no hits")
 
 
 def _run_operation(client, spec, collection, operation, seed, batch_size, op_index):
@@ -34,18 +48,22 @@ def _run_operation(client, spec, collection, operation, seed, batch_size, op_ind
         client.query(collection_name=collection, filter="id >= 0", output_fields=["id"], limit=10)
         return ("query", 1)
     if operation == "search":
-        vector_field = first_vector_field(spec)
-        if vector_field is None or vector_field.dtype != "FLOAT_VECTOR":
+        fields = vector_fields(spec)
+        if not fields:
             return ("search_skipped", 0)
-        query_vector = stable_float_vector(seed, op_index, vector_field.dim or 128)
-        client.search(
-            collection_name=collection,
-            data=[query_vector],
-            anns_field=vector_field.name,
-            limit=5,
-            search_params={"metric_type": "COSINE", "params": {}},
-        )
-        return ("search", 1)
+        searches = 0
+        for vector_field in fields:
+            query_vector = stable_vector_value(vector_field, op_index + 1, seed)
+            result = client.search(
+                collection_name=collection,
+                data=[query_vector],
+                anns_field=vector_field.name,
+                limit=5,
+                search_params={"metric_type": _metric_type_for_field(spec, vector_field.name), "params": {}},
+            )
+            _assert_search_result(result, collection, vector_field.name)
+            searches += 1
+        return ("search", searches)
     raise ValueError(f"unknown operation: {operation}")
 
 

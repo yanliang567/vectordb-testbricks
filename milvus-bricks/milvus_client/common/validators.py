@@ -93,23 +93,20 @@ def query_rows_by_pk_range(
     output_fields: list[str],
     batch_size: int,
 ) -> list[dict[str, Any]]:
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
     rows = []
-    offset = 0
-    expr = pk_range_filter(primary_field, min_pk, max_pk)
-    while True:
-        kwargs = {
-            "collection_name": collection_name,
-            "filter": expr,
-            "output_fields": output_fields,
-            "limit": batch_size,
-        }
-        if offset:
-            kwargs["offset"] = offset
-        batch = client.query(**kwargs)
+    start_pk = min_pk
+    while start_pk <= max_pk:
+        end_pk = min(start_pk + batch_size - 1, max_pk)
+        batch = client.query(
+            collection_name=collection_name,
+            filter=pk_range_filter(primary_field, start_pk, end_pk),
+            output_fields=output_fields,
+            limit=batch_size,
+        )
         rows.extend(batch)
-        if len(batch) < batch_size:
-            break
-        offset += len(batch)
+        start_pk = end_pk + 1
     return rows
 
 

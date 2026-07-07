@@ -33,6 +33,18 @@ def stable_sparse_vector(seed: int, pk: int, dim: int = 1024) -> dict[int, float
     return {rng.randint(0, dim - 1): rng.random() for _ in range(16)}
 
 
+def stable_vector_value(field: FieldSpec, pk: int, seed: int) -> Any:
+    if field.dtype in {"FLOAT_VECTOR", "FLOAT16_VECTOR", "BFLOAT16_VECTOR"}:
+        return stable_float_vector(seed, pk, field.dim or 128)
+    if field.dtype == "INT8_VECTOR":
+        return stable_int8_vector(seed, pk, field.dim or 128)
+    if field.dtype == "BINARY_VECTOR":
+        return stable_binary_vector(seed, pk, field.dim or 128)
+    if field.dtype == "SPARSE_FLOAT_VECTOR":
+        return stable_sparse_vector(seed, pk)
+    raise ValueError(f"Unsupported generated vector dtype: {field.dtype}")
+
+
 def _normalize_for_checksum(value: Any) -> Any:
     if isinstance(value, bytes):
         return {"__bytes__": value.hex()}
@@ -85,16 +97,8 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
         return {"pk": pk, "bucket": pk % 16, "checksum": f"json_{pk}"}
     if field.dtype == "ARRAY":
         return [f"tag_{pk % 8}", f"tag_{(pk + 1) % 8}"]
-    if field.dtype == "FLOAT_VECTOR":
-        return stable_float_vector(seed, pk, field.dim or 128)
-    if field.dtype in {"FLOAT16_VECTOR", "BFLOAT16_VECTOR"}:
-        return stable_float_vector(seed, pk, field.dim or 128)
-    if field.dtype == "INT8_VECTOR":
-        return stable_int8_vector(seed, pk, field.dim or 128)
-    if field.dtype == "BINARY_VECTOR":
-        return stable_binary_vector(seed, pk, field.dim or 128)
-    if field.dtype == "SPARSE_FLOAT_VECTOR":
-        return stable_sparse_vector(seed, pk)
+    if field.dtype in VECTOR_TYPES:
+        return stable_vector_value(field, pk, seed)
     if field.dtype == "GEOMETRY":
         lon = -122.0 + (pk % 100) * 0.001
         lat = 37.0 + (pk % 100) * 0.001
@@ -126,3 +130,7 @@ def first_vector_field(spec: SchemaSpec) -> FieldSpec | None:
         if field.dtype in VECTOR_TYPES:
             return field
     return None
+
+
+def vector_fields(spec: SchemaSpec) -> list[FieldSpec]:
+    return [field for field in spec.fields if field.dtype in VECTOR_TYPES]

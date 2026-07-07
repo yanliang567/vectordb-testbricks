@@ -28,6 +28,12 @@ spec:
         parameters:
           - name: module
           - name: args
+      outputs:
+        artifacts:
+          - name: result-json
+            path: /tmp/brick-result/result.json
+          - name: checkpoints
+            path: /tmp/milvus-bricks/checkpoints
       container:
         image: "{{workflow.parameters.image}}"
         command: [sh, -c]
@@ -39,6 +45,7 @@ spec:
                 key: "{{workflow.parameters.token-secret-key}}"
         args:
           - |
+            mkdir -p /tmp/brick-result /tmp/milvus-bricks/checkpoints /tmp/milvus-bricks/results
             python -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             cd /workspace/repo/milvus-bricks
             PYTHONPATH=. python -m {{inputs.parameters.module}} \
@@ -46,11 +53,13 @@ spec:
               --token "$MILVUS_TOKEN" \
               --collection-prefix "{{workflow.parameters.collection-prefix}}" \
               --checkpoint-dir /tmp/milvus-bricks/checkpoints \
-              --output-json /tmp/milvus-bricks/results/result.json \
+              --output-json /tmp/brick-result/result.json \
               {{inputs.parameters.args}}
         volumeMounts:
           - name: workspace
             mountPath: /workspace
+          - name: milvus-bricks-state
+            mountPath: /tmp/milvus-bricks
       initContainers:
         - name: checkout
           image: alpine/git:2.45.2
@@ -87,3 +96,11 @@ spec:
   volumes:
     - name: workspace
       emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: milvus-bricks-state
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

@@ -63,6 +63,7 @@ PYTHONPATH=. python -m milvus_client.requests.create_schema_matrix \
   --token root:Milvus \
   --collection-prefix qa_schema \
   --schema-matrix milvus_client/manifests/schema_matrix_2_6.yaml \
+  --load-after-create true \
   --checkpoint-dir /tmp/milvus-bricks/checkpoints \
   --output-json /tmp/milvus-bricks/results/create_schema_matrix.json
 

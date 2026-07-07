@@ -34,22 +34,35 @@ def main(argv: list[str] | None = None) -> int:
         primary_fields = [field for field in spec.fields if field.primary]
         primary_field = primary_fields[0].name if primary_fields else "id"
         checksum_fields = checksum_fields_for_spec(spec)
-        if not client.has_collection(name):
-            result.mark_failed("COLLECTION_NOT_FOUND", "target collection does not exist", collection=name)
-            continue
         collection_rows = []
-        for start in range(args.start_id, args.start_id + args.rows_per_collection, args.batch_size):
-            count = min(args.batch_size, args.start_id + args.rows_per_collection - start)
-            rows = generate_rows(spec, start_id=start, count=count, seed=args.seed)
-            if rows:
-                client.insert(collection_name=name, data=rows)
-                collection_rows.extend(rows)
-                inserted_total += len(rows)
-        if args.flush:
-            try:
-                client.flush(collection_name=name)
-            except TypeError:
-                client.flush(name)
+        collection_inserted = 0
+        try:
+            if not client.has_collection(name):
+                result.mark_failed("COLLECTION_NOT_FOUND", "target collection does not exist", collection=name)
+                continue
+            for start in range(args.start_id, args.start_id + args.rows_per_collection, args.batch_size):
+                count = min(args.batch_size, args.start_id + args.rows_per_collection - start)
+                rows = generate_rows(spec, start_id=start, count=count, seed=args.seed)
+                if rows:
+                    client.insert(collection_name=name, data=rows)
+                    collection_rows.extend(rows)
+                    collection_inserted += len(rows)
+                    inserted_total += len(rows)
+            if args.flush:
+                try:
+                    client.flush(collection_name=name)
+                except TypeError:
+                    client.flush(name)
+        except Exception as exc:
+            result.mark_failed(
+                "SEED_COLLECTION_FAILED",
+                "failed to seed collection",
+                collection=name,
+                schema=spec.name,
+                inserted=collection_inserted,
+                error=str(exc),
+            )
+            continue
         checkpoint["collections"][name] = {
             "schema_name": spec.name,
             "expected_count": args.rows_per_collection,
