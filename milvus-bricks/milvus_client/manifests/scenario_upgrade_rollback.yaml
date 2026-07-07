@@ -1,0 +1,23 @@
+name: upgrade_rollback_compatibility
+cycles: 3
+fail_on_background_failure: true
+observe_after_upgrade_sec: 1800
+observe_after_rollback_sec: 1800
+compat_schema_matrix: milvus_client/manifests/schema_matrix_2_6.yaml
+forward_schema_matrix: milvus_client/manifests/schema_matrix_3_0.yaml
+rows_per_collection: 1000
+batch_size: 100
+actions:
+  upgrade:
+    type: external
+    wait_file: /tmp/milvus-bricks/actions/upgrade_done
+  rollback:
+    type: external
+    wait_file: /tmp/milvus-bricks/actions/rollback_done
+workloads:
+  mixed_rw:
+    max_workers: 32
+    slice_duration_sec: 30
+    batch_size: 100
+  validator:
+    interval_sec: 60

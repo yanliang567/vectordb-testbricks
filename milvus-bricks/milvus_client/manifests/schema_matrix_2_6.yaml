@@ -1,0 +1,44 @@
+version: "2.6"
+schemas:
+  - name: dense_float_vector
+    feature_tags: ["compat_basic_vector"]
+    compat_mode: rollback_safe
+    required_capabilities: []
+    validators: ["count", "pk_sample", "search_smoke"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: category, dtype: INT64}
+      - {name: content, dtype: VARCHAR, max_length: 1024, nullable: true}
+      - {name: flag, dtype: BOOL, nullable: true}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
+    indexes:
+      - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}}
+
+  - name: multi_vector_numeric
+    feature_tags: ["compat_multi_vector"]
+    compat_mode: rollback_safe
+    required_capabilities: []
+    validators: ["count", "pk_sample"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: category, dtype: INT64}
+      - {name: float16_vec, dtype: FLOAT16_VECTOR, dim: 128}
+      - {name: bfloat16_vec, dtype: BFLOAT16_VECTOR, dim: 128}
+      - {name: int8_vec, dtype: INT8_VECTOR, dim: 128}
+    indexes:
+      - {field: float16_vec, index_type: AUTOINDEX, metric_type: COSINE}
+      - {field: bfloat16_vec, index_type: AUTOINDEX, metric_type: COSINE}
+      - {field: int8_vec, index_type: AUTOINDEX, metric_type: COSINE}
+
+  - name: json_array_nullable
+    feature_tags: ["compat_json_array"]
+    compat_mode: rollback_safe
+    required_capabilities: []
+    validators: ["count", "pk_sample"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: tags, dtype: ARRAY, element_type: VARCHAR, max_capacity: 32, max_length: 128}
+      - {name: profile, dtype: JSON, nullable: true}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
+    indexes:
+      - {field: embedding, index_type: AUTOINDEX, metric_type: COSINE}
