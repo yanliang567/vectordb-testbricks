@@ -1,5 +1,5 @@
 *.iml
 .idea/*
-__*
+__pycache__/
 __*.pyc
 milvus-bricks/milvus_client/horizonPoc/data/*
