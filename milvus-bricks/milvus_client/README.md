@@ -1,8 +1,9 @@
 # MilvusClient Test Bricks
 
 This directory contains Milvus test bricks based on `pymilvus.MilvusClient`
-and `AsyncMilvusClient`. It keeps the migrated 2.6 scripts and adds a new
-request-brick runtime for Milvus 2.6/3.0 feature coverage.
+and `AsyncMilvusClient`. It adds a new request-brick runtime for Milvus 2.6/3.0
+feature coverage while the existing `milvus-bricks/2.6/` directory remains
+available for legacy script users.
 
 ## Layout
 
@@ -13,12 +14,12 @@ milvus_client/
   scenarios/     Multi-step scenario plans
   manifests/     Feature, capability, schema, and brick catalogs
   tests/         Unit tests for the runtime and manifests
-  horizonPoc/    Existing Horizon POC scripts
+  horizonPoc/    Copied Horizon POC scripts for future request-brick migration
 ```
 
-The old helper module was moved from `common.py` to `common_legacy.py` and is
-re-exported through the `common` package for compatibility with existing
-scripts that use `from common import ...`.
+The original `milvus-bricks/2.6/` files are intentionally kept in place. Copied
+scripts in this directory are compatibility material for future wrapper/request
+migration; new automation should use modules under `milvus_client.requests`.
 
 ## Request Protocol
 

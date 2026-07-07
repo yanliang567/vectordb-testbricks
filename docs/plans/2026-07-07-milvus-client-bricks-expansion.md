@@ -1,8 +1,8 @@
 # Milvus Client Bricks 扩展实现计划
 
-**目标：** 将 `milvus-bricks/2.6/` 改造为以 `MilvusClient` 为核心、可被 Argo Workflow 灵活编排的 test request brick 体系，并补齐 Milvus 2.6/3.0 新功能和升级回滚兼容性场景。
+**目标：** 在保留 `milvus-bricks/2.6/` 旧脚本目录不变的前提下，新增以 `MilvusClient` 为核心、可被 Argo Workflow 灵活编排的 `milvus-bricks/milvus_client/` test request brick 体系，并补齐 Milvus 2.6/3.0 新功能和升级回滚兼容性场景。
 
-**架构：** 先做低风险目录迁移和统一运行协议，再抽取连接、schema、数据生成、指标输出等公共能力，最后逐步新增独立 request bricks 和 scenario orchestrator。每个 brick 都是可单独运行、可 checkpoint、可输出 JSON 结果的最小测试请求，Argo 只负责组合和生命周期编排。
+**架构：** 先新增独立目录和统一运行协议，避免破坏现有 `2.6/` 调用方；再抽取连接、schema、数据生成、指标输出等公共能力，最后逐步新增独立 request bricks 和 scenario orchestrator。每个 brick 都是可单独运行、可 checkpoint、可输出 JSON 结果的最小测试请求，Argo 只负责组合和生命周期编排。
 
 **技术栈：** Python 3, pymilvus `MilvusClient` / `AsyncMilvusClient`, pytest, JSON/YAML manifests, Argo Workflow, Milvus 2.6/3.0, optional Helm/K8s upgrade hooks.
 
@@ -10,7 +10,7 @@
 
 ## 背景和范围
 
-当前 `milvus-bricks/` 同时包含老的 Collection API 脚本和 `2.6/` 目录下的 MilvusClient 脚本。`2.6/` 已经是未来扩展重点，但目录名绑定版本，脚本入口参数风格不统一，输出主要是日志，难以被 Argo 做细粒度调度、组合和结果判定。
+当前 `milvus-bricks/` 同时包含老的 Collection API 脚本和 `2.6/` 目录下的 MilvusClient 脚本。`2.6/` 已经是重要参考实现，但目录名绑定版本，脚本入口参数风格不统一，输出主要是日志，难以被 Argo 做细粒度调度、组合和结果判定。为了降低迁移风险，`2.6/` 保持原样；新的标准化运行协议和 request bricks 放到单独的 `milvus_client/` 目录。
 
 本计划的第一目标不是一次性重写全部脚本，而是建立稳定骨架：目录、运行协议、公共库、manifest、P0 bricks 和升级回滚场景。后续 3.0 新功能以独立 bricks 增量接入。
 
@@ -35,6 +35,8 @@
 
 ```text
 milvus-bricks/
+  2.6/
+    ...                 # Existing scripts kept unchanged for compatibility
   legacy_collection_api/
   milvus_client/
     README.md
@@ -193,26 +195,23 @@ rg -n "feature-set|compat-mode|capability-probe|lifecycle-phase" docs/plans/2026
 
 预期：文档存在，且实现计划已包含 feature/capability/compat/lifecycle 设计。
 
-## 任务 1: 目录迁移和兼容入口
+## 任务 1: 新建 MilvusClient 目录和兼容边界
 
 **文件：**
-- 移动: `milvus-bricks/2.6/` -> `milvus-bricks/milvus_client/`
+- 保留: `milvus-bricks/2.6/`
+- 创建: `milvus-bricks/milvus_client/`
 - 创建: `milvus-bricks/legacy_collection_api/README.md`
 - 修改: `milvus-bricks/milvus_client/README.md`
 
-**步骤 1: 移动目录**
+**步骤 1: 新建目录而不是移动旧目录**
 
-运行：
-
-```bash
-git mv milvus-bricks/2.6 milvus-bricks/milvus_client
-```
+保留 `milvus-bricks/2.6/` 中的现有脚本，新增 `milvus-bricks/milvus_client/` 作为标准化 request brick runtime。需要复用旧脚本时，以复制或后续 wrapper/request 化的方式逐步迁移，不删除旧路径。
 
 预期：
 
 ```text
+milvus-bricks/2.6/README.md exists
 milvus-bricks/milvus_client/README.md exists
-milvus-bricks/2.6 does not exist
 ```
 
 **步骤 2: 保留旧路径兼容说明**
@@ -236,6 +235,8 @@ New development should target `milvus-bricks/milvus_client`.
 This directory contains Milvus test bricks based on `pymilvus.MilvusClient`
 and `AsyncMilvusClient`. It supports Milvus 2.6 compatible bricks and will be
 extended for Milvus 3.0 feature coverage.
+
+The existing `milvus-bricks/2.6/` scripts are kept unchanged for compatibility.
 ```
 
 **步骤 4: 搜索硬编码路径**
@@ -249,7 +250,7 @@ rg -n "milvus-bricks/2\\.6|/2\\.6|2\\.6/" .
 预期：
 
 ```text
-Only intentional migration notes remain, or no matches.
+Only intentional compatibility notes remain.
 ```
 
 **步骤 5: 验证现有脚本仍可 import**
@@ -257,8 +258,9 @@ Only intentional migration notes remain, or no matches.
 运行：
 
 ```bash
-cd milvus-bricks/milvus_client
-python -m py_compile common.py create_n_insert.py search_permanently.py query_iterator.py upsert3.py
+cd milvus-bricks
+python -m py_compile 2.6/common.py 2.6/create_n_insert.py 2.6/search_permanently.py 2.6/query_iterator.py 2.6/upsert3.py
+PYTHONPATH=. python -m py_compile milvus_client/common/client.py milvus_client/requests/precheck.py
 ```
 
 预期：
@@ -271,7 +273,7 @@ No output and exit code 0.
 
 ```bash
 git add milvus-bricks
-git commit -m "refactor(milvus): rename 2.6 bricks to milvus_client"
+git commit -m "feat(milvus): add milvus client brick runtime"
 ```
 
 ## 任务 2: 建立 Python package 和公共参数解析
@@ -1502,13 +1504,13 @@ PYTHONPATH=. python -m milvus_client.requests.validate_data_integrity ...
 
 - **pymilvus API 版本差异：** 所有 3.0-only brick 先做 capability probe，不支持则 skip。
 - **回滚兼容性边界不清：** 严格拆分 compat schema 和 forward schema。
-- **旧脚本调用方被破坏：** 第一阶段只 rename 目录，旧 CLI 迁移时保留 wrapper。
+- **旧脚本调用方被破坏：** 第一阶段保留 `milvus-bricks/2.6/` 不变；旧 CLI 迁移时再逐步增加 wrapper。
 - **长压测失败难定位：** 每个 brick 都输出 failure type、operation、collection、pk/sample、exception。
 - **Argo 与 brick 职责混乱：** brick 不做升级动作，只等待或响应外部 lifecycle signal。
 
 ## 建议首批 PR 拆分
 
-1. `refactor(milvus): rename 2.6 bricks to milvus_client`
+1. `feat(milvus): add milvus client brick runtime alongside 2.6 scripts`
 2. `feat(milvus-client): add brick protocol and result output`
 3. `feat(milvus-client): add schema matrix and deterministic data seeding`
 4. `feat(milvus-client): add data integrity validator`
