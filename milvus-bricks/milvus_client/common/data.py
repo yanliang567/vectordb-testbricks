@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 from random import Random
@@ -22,6 +24,25 @@ def stable_int8_vector(seed: int, pk: int, dim: int) -> list[int]:
     return [rng.randint(-128, 127) for _ in range(dim)]
 
 
+def stable_float16_vector(seed: int, pk: int, dim: int):
+    import numpy as np
+
+    return np.asarray(stable_float_vector(seed, pk, dim), dtype=np.float16)
+
+
+def stable_bfloat16_vector(seed: int, pk: int, dim: int) -> bytes:
+    import numpy as np
+
+    values = np.asarray(stable_float_vector(seed, pk, dim), dtype=np.float32)
+    return (values.view(np.uint32) >> 16).astype(np.uint16).tobytes()
+
+
+def stable_int8_vector_array(seed: int, pk: int, dim: int):
+    import numpy as np
+
+    return np.asarray(stable_int8_vector(seed, pk, dim), dtype=np.int8)
+
+
 def stable_binary_vector(seed: int, pk: int, dim: int) -> bytes:
     rng = Random(seed + pk)
     byte_count = max(1, dim // 8)
@@ -34,10 +55,14 @@ def stable_sparse_vector(seed: int, pk: int, dim: int = 1024) -> dict[int, float
 
 
 def stable_vector_value(field: FieldSpec, pk: int, seed: int) -> Any:
-    if field.dtype in {"FLOAT_VECTOR", "FLOAT16_VECTOR", "BFLOAT16_VECTOR"}:
+    if field.dtype == "FLOAT_VECTOR":
         return stable_float_vector(seed, pk, field.dim or 128)
+    if field.dtype == "FLOAT16_VECTOR":
+        return stable_float16_vector(seed, pk, field.dim or 128)
+    if field.dtype == "BFLOAT16_VECTOR":
+        return stable_bfloat16_vector(seed, pk, field.dim or 128)
     if field.dtype == "INT8_VECTOR":
-        return stable_int8_vector(seed, pk, field.dim or 128)
+        return stable_int8_vector_array(seed, pk, field.dim or 128)
     if field.dtype == "BINARY_VECTOR":
         return stable_binary_vector(seed, pk, field.dim or 128)
     if field.dtype == "SPARSE_FLOAT_VECTOR":
@@ -51,6 +76,8 @@ def _normalize_for_checksum(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(key): _normalize_for_checksum(value[key]) for key in sorted(value, key=str)}
     if isinstance(value, (list, tuple)):
+        return [_normalize_for_checksum(item) for item in value]
+    if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
         return [_normalize_for_checksum(item) for item in value]
     return value
 
@@ -102,9 +129,10 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
     if field.dtype == "GEOMETRY":
         lon = -122.0 + (pk % 100) * 0.001
         lat = 37.0 + (pk % 100) * 0.001
-        return f"POINT ({lon} {lat})"
+        return f"POINT ({lon:g} {lat:g})"
     if field.dtype == "TIMESTAMPTZ":
-        return 1_700_000_000_000 + pk
+        timestamp = datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=pk)
+        return timestamp.isoformat().replace("+00:00", "Z")
     raise ValueError(f"Unsupported generated dtype: {field.dtype}")
 
 

@@ -30,7 +30,46 @@ def test_stable_checksum_uses_selected_fields_and_is_order_independent():
     assert checksum != stable_checksum(rows, fields=["id", "category", "embedding"], primary_field="id")
 
 
+def test_stable_checksum_normalizes_repeated_scalar_containers():
+    class RepeatedScalarLike:
+        def __iter__(self):
+            return iter(["tag_0", "tag_1"])
+
+    rows = [{"id": 1, "tags": RepeatedScalarLike()}]
+    list_rows = [{"id": 1, "tags": ["tag_0", "tag_1"]}]
+
+    assert stable_checksum(rows, fields=["id", "tags"], primary_field="id") == stable_checksum(
+        list_rows,
+        fields=["id", "tags"],
+        primary_field="id",
+    )
+
+
 def test_checksum_fields_exclude_vectors():
     spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")[0]
 
     assert checksum_fields_for_spec(spec) == ["id", "category", "content", "flag"]
+
+
+def test_generate_rows_uses_sdk_compatible_vector_values():
+    spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")[1]
+    row = generate_rows(spec, start_id=1, count=1, seed=7)[0]
+
+    assert row["float16_vec"].dtype == "float16"
+    assert isinstance(row["bfloat16_vec"], bytes)
+    assert len(row["bfloat16_vec"]) == 256
+    assert row["int8_vec"].dtype == "int8"
+
+
+def test_generate_rows_uses_timestamptz_string():
+    spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_3_0.yaml")[2]
+    row = generate_rows(spec, start_id=1, count=1, seed=7)[0]
+
+    assert row["event_time"] == "2024-01-01T00:00:01Z"
+
+
+def test_generate_rows_uses_canonical_geometry_wkt():
+    spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_3_0.yaml")[1]
+    row = generate_rows(spec, start_id=0, count=1, seed=7)[0]
+
+    assert row["location"] == "POINT (-122 37)"
