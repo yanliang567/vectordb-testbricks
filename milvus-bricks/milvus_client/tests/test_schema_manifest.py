@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from milvus_client.common.capability import load_capability_catalog
-from milvus_client.common.schema import load_feature_inventory, load_schema_matrix, validate_schema_matrix
+from milvus_client.common.schema import FieldSpec, SchemaSpec, load_feature_inventory, load_schema_matrix, validate_schema_matrix
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,3 +56,27 @@ def test_schema_matrix_2_6_covers_expanded_rollback_safe_shapes():
         index_types
     )
     assert {"STL_SORT", "INVERTED", "BITMAP", "TRIE", "NGRAM"}.issubset(index_types)
+
+
+def test_schema_validation_rejects_invalid_partition_key_shapes():
+    specs = [
+        SchemaSpec(
+            name="bad_partition_key_type",
+            version="test",
+            fields=[
+                FieldSpec(name="id", dtype="INT64", primary=True),
+                FieldSpec(name="bad_key", dtype="BOOL", is_partition_key=True),
+            ],
+        ),
+        SchemaSpec(
+            name="bad_num_partitions_without_key",
+            version="test",
+            fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+            num_partitions=4,
+        ),
+    ]
+
+    errors = validate_schema_matrix(specs)
+
+    assert "bad_partition_key_type.bad_key: partition key field must be INT64 or VARCHAR" in errors
+    assert "bad_num_partitions_without_key: num_partitions can only be specified when a partition key is defined" in errors

@@ -31,6 +31,20 @@ def test_stable_checksum_uses_selected_fields_and_is_order_independent():
     assert checksum != stable_checksum(rows, fields=["id", "category", "embedding"], primary_field="id")
 
 
+def test_stable_checksum_sorts_by_primary_even_when_primary_is_not_digested():
+    rows = [
+        {"id": 2, "category": 20},
+        {"id": 1, "category": 10},
+    ]
+    queried_rows = list(reversed(rows))
+
+    assert stable_checksum(rows, fields=["category"], primary_field="id") == stable_checksum(
+        queried_rows,
+        fields=["category"],
+        primary_field="id",
+    )
+
+
 def test_stable_checksum_normalizes_repeated_scalar_containers():
     class RepeatedScalarLike:
         def __iter__(self):
@@ -124,3 +138,18 @@ def test_generate_rows_supports_numeric_arrays():
     assert row["ints"] == [3, 4]
     assert row["floats"] == [3.0, 4.0]
     assert row["bools"] == [False, True]
+
+
+def test_generate_rows_caps_int64_partition_key_by_field_attribute():
+    spec = SchemaSpec(
+        name="int64_partition_key",
+        version="test",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="tenant_id", dtype="INT64", is_partition_key=True),
+        ],
+    )
+
+    row = generate_rows(spec, start_id=2049, count=1, seed=1)[0]
+
+    assert row["tenant_id"] == 1

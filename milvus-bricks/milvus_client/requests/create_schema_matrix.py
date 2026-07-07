@@ -85,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
                     continue
             client.create_collection(collection_name=name, schema=build_milvus_schema(spec), **create_collection_kwargs(spec))
             for partition in spec.partitions:
+                if not hasattr(client, "create_partition"):
+                    raise RuntimeError("client does not support create_partition")
                 has_partition = False
                 if hasattr(client, "has_partition"):
                     has_partition = client.has_partition(collection_name=name, partition_name=partition)

@@ -96,10 +96,11 @@ def stable_checksum(
             selected = dict(row)
         else:
             selected = {field: row.get(field) for field in fields}
-        selected_rows.append(_normalize_for_checksum(selected))
-    selected_rows.sort(key=lambda row: (row.get(primary_field) is None, row.get(primary_field)))
-    for row in selected_rows:
-        digest.update(json.dumps(row, sort_keys=True, separators=(",", ":"), default=str).encode())
+        sort_value = _normalize_for_checksum(row.get(primary_field))
+        selected_rows.append((sort_value is None, sort_value, _normalize_for_checksum(selected)))
+    selected_rows.sort(key=lambda item: (item[0], item[1]))
+    for _, _, selected in selected_rows:
+        digest.update(json.dumps(selected, sort_keys=True, separators=(",", ":"), default=str).encode())
     return digest.hexdigest()
 
 
@@ -124,7 +125,7 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
     if field.nullable and pk % 10 == 0:
         return None
     if field.dtype == "INT64":
-        if field.name in {"category", "partition_key"}:
+        if field.name == "category" or field.is_partition_key:
             return pk % 1024
         return pk
     if field.dtype in {"INT32", "INT16", "INT8"}:

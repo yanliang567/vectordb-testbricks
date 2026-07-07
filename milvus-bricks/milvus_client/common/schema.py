@@ -182,10 +182,15 @@ def validate_schema_matrix(
         partition_key_fields = [field for field in spec.fields if field.is_partition_key]
         if len(partition_key_fields) > 1:
             errors.append(f"{spec.name}: expected at most one partition key field")
+        for field_spec in partition_key_fields:
+            if field_spec.dtype not in {"INT64", "VARCHAR"}:
+                errors.append(f"{spec.name}.{field_spec.name}: partition key field must be INT64 or VARCHAR")
         if partition_key_fields and spec.partitions:
             errors.append(f"{spec.name}: partition key cannot be combined with explicit partitions")
         if spec.num_partitions is not None and spec.num_partitions <= 0:
             errors.append(f"{spec.name}: num_partitions must be positive")
+        if spec.num_partitions is not None and not partition_key_fields:
+            errors.append(f"{spec.name}: num_partitions can only be specified when a partition key is defined")
 
         field_names = {field.name for field in spec.fields}
         for field_spec in spec.fields:
@@ -253,10 +258,10 @@ def build_milvus_schema(spec: SchemaSpec):
     for function in spec.functions:
         schema.add_function(
             Function(
-                function.name,
-                getattr(FunctionType, function.function_type),
-                function.input_fields,
-                function.output_fields,
+                name=function.name,
+                function_type=getattr(FunctionType, function.function_type),
+                input_field_names=function.input_fields,
+                output_field_names=function.output_fields,
                 description=function.description,
                 params=function.params,
             )
