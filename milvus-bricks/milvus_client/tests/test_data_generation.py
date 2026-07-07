@@ -61,8 +61,8 @@ def test_stable_checksum_normalizes_repeated_scalar_containers():
 
 
 def test_stable_checksum_normalizes_float32_round_trip_precision():
-    inserted_rows = [{"id": 1, "score": 0.1}]
-    queried_rows = [{"id": 1, "score": 0.10000000149011612}]
+    inserted_rows = [{"id": 1, "score": 16.2}]
+    queried_rows = [{"id": 1, "score": 16.200000762939453}]
 
     assert stable_checksum(inserted_rows, fields=["id", "score"], primary_field="id") == stable_checksum(
         queried_rows,

@@ -74,7 +74,7 @@ def _normalize_for_checksum(value: Any) -> Any:
     if isinstance(value, bytes):
         return {"__bytes__": value.hex()}
     if isinstance(value, float):
-        return round(value, 6)
+        return round(value, 5)
     if isinstance(value, dict):
         return {str(key): _normalize_for_checksum(value[key]) for key in sorted(value, key=str)}
     if isinstance(value, (list, tuple)):
