@@ -87,6 +87,11 @@ PYTHONPATH=. python -m milvus_client.requests.validate_data_integrity \
   --output-json /tmp/milvus-bricks/results/validate_data_integrity.json
 ```
 
+`validate_data_integrity` validates the seed checkpoint by PK range, so extra
+rows written by `mixed_rw_pressure` outside that range do not cause false count
+drift. The checkpoint checksum covers deterministic non-vector fields; vector
+compatibility is covered by search/query workload bricks.
+
 ## Upgrade/Rollback Scenario
 
 The scenario runner currently supports dry-run planning. Upgrade and rollback
@@ -110,4 +115,3 @@ Run from `milvus-bricks/`:
 ```bash
 PYTHONPATH=. pytest milvus_client/tests -v
 ```
-

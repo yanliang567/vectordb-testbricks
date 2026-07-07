@@ -6,7 +6,7 @@ import sys
 
 from milvus_client.common.args import build_common_parser, parse_bool
 from milvus_client.common.client import create_client
-from milvus_client.common.data import generate_rows, stable_checksum
+from milvus_client.common.data import checksum_fields_for_spec, generate_rows, stable_checksum
 from milvus_client.common.result import FAILED, result_from_args
 from milvus_client.common.schema import collection_name, load_schema_matrix
 
@@ -31,6 +31,9 @@ def main(argv: list[str] | None = None) -> int:
 
     for spec in specs:
         name = collection_name(args.collection_prefix, spec)
+        primary_fields = [field for field in spec.fields if field.primary]
+        primary_field = primary_fields[0].name if primary_fields else "id"
+        checksum_fields = checksum_fields_for_spec(spec)
         if not client.has_collection(name):
             result.mark_failed("COLLECTION_NOT_FOUND", "target collection does not exist", collection=name)
             continue
@@ -50,9 +53,11 @@ def main(argv: list[str] | None = None) -> int:
         checkpoint["collections"][name] = {
             "schema_name": spec.name,
             "expected_count": args.rows_per_collection,
+            "primary_field": primary_field,
             "min_pk": args.start_id,
             "max_pk": args.start_id + args.rows_per_collection - 1,
-            "checksum": stable_checksum(collection_rows),
+            "checksum_fields": checksum_fields,
+            "checksum": stable_checksum(collection_rows, fields=checksum_fields, primary_field=primary_field),
         }
 
     checkpoint_path = Path(args.checkpoint_dir) / "seed_data.json"
@@ -72,4 +77,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

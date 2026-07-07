@@ -8,6 +8,12 @@ spec:
     parameters:
       - name: image
         value: python:3.11
+      - name: repo-url
+        value: https://github.com/yanliang567/vectordb-testbricks.git
+      - name: repo-revision
+        value: main
+      - name: python-deps
+        value: pymilvus pyyaml
       - name: uri
         value: http://localhost:19530
       - name: collection-prefix
@@ -33,7 +39,8 @@ spec:
                 key: "{{workflow.parameters.token-secret-key}}"
         args:
           - |
-            cd /workspace/milvus-bricks
+            python -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            cd /workspace/repo/milvus-bricks
             PYTHONPATH=. python -m {{inputs.parameters.module}} \
               --uri "{{workflow.parameters.uri}}" \
               --token "$MILVUS_TOKEN" \
@@ -44,6 +51,17 @@ spec:
         volumeMounts:
           - name: workspace
             mountPath: /workspace
+      initContainers:
+        - name: checkout
+          image: alpine/git:2.45.2
+          command: [sh, -c]
+          args:
+            - |
+              git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" \
+                "{{workflow.parameters.repo-url}}" /workspace/repo
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
     - name: upgrade-rollback-compatibility
       dag:
         tasks:
@@ -69,4 +87,3 @@ spec:
   volumes:
     - name: workspace
       emptyDir: {}
-

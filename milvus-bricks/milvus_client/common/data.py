@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import json
 from random import Random
 from typing import Any
 
@@ -32,11 +33,37 @@ def stable_sparse_vector(seed: int, pk: int, dim: int = 1024) -> dict[int, float
     return {rng.randint(0, dim - 1): rng.random() for _ in range(16)}
 
 
-def stable_checksum(rows: list[dict[str, Any]]) -> str:
+def _normalize_for_checksum(value: Any) -> Any:
+    if isinstance(value, bytes):
+        return {"__bytes__": value.hex()}
+    if isinstance(value, dict):
+        return {str(key): _normalize_for_checksum(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_for_checksum(item) for item in value]
+    return value
+
+
+def stable_checksum(
+    rows: list[dict[str, Any]],
+    fields: list[str] | None = None,
+    primary_field: str = "id",
+) -> str:
     digest = sha256()
+    selected_rows = []
     for row in rows:
-        digest.update(repr(sorted(row.items(), key=lambda item: item[0])).encode())
+        if fields is None:
+            selected = dict(row)
+        else:
+            selected = {field: row.get(field) for field in fields}
+        selected_rows.append(_normalize_for_checksum(selected))
+    selected_rows.sort(key=lambda row: (row.get(primary_field) is None, row.get(primary_field)))
+    for row in selected_rows:
+        digest.update(json.dumps(row, sort_keys=True, separators=(",", ":"), default=str).encode())
     return digest.hexdigest()
+
+
+def checksum_fields_for_spec(spec: SchemaSpec) -> list[str]:
+    return [field.name for field in spec.fields if field.dtype not in VECTOR_TYPES and not field.auto_id]
 
 
 def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
@@ -99,4 +126,3 @@ def first_vector_field(spec: SchemaSpec) -> FieldSpec | None:
         if field.dtype in VECTOR_TYPES:
             return field
     return None
-
