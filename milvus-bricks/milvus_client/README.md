@@ -146,6 +146,23 @@ after rollback, and performs a final compat validation.
 
 See `docs/upgrade-rollback.md` for details.
 
+## 4am 2.6 Standalone Upgrade/Rollback
+
+`../argo/standalone-2-6-upgrade-rollback.yaml` is a concrete 4am Argo
+WorkflowTemplate for the rollback-safe 2.6 path:
+
+- create a 4c16g Milvus standalone from `v2.6.18`;
+- create and seed `schema_matrix_2_6.yaml` data only;
+- run baseline integrity validation;
+- keep a pressure daemon loop alive during upgrade and rollback;
+- upgrade to a configured 2.6 target image;
+- validate existing data after upgrade;
+- roll back to `v2.6.18`;
+- validate existing data after rollback.
+
+It intentionally skips 3.0 schema and workload creation because new 3.0 data is
+not rollback compatible with 2.6.
+
 ## Tests
 
 Run from `milvus-bricks/`:

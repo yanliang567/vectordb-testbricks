@@ -65,3 +65,66 @@ The template keeps the generic `brick-runner` for future direct composition of
 independent bricks, but the Phase 2 upgrade/rollback loop uses
 `scenario-runner` so background pressure and validator loops remain alive across
 upgrade and rollback waits.
+
+## 4am Standalone 2.6 Upgrade/Rollback
+
+`argo/standalone-2-6-upgrade-rollback.yaml` is the 4am workflow template for
+the v2.6.18 rollback compatibility lane. It creates a Milvus Operator
+standalone CR with 4 CPU and 16 GiB memory, seeds only rollback-safe 2.6
+schemas, upgrades to a configured 2.6 target image, validates existing data,
+rolls back to v2.6.18, and validates the same checkpoint again.
+
+This template intentionally does not create `schema_matrix_3_0.yaml` data. New
+3.0 schema/data is upgrade-only for this scenario and is not expected to survive
+a rollback to 2.6.
+
+Submit example:
+
+```bash
+argo submit -n qa --from workflowtemplate/milvus-standalone-2-6-upgrade-rollback \
+  -p repo-revision=feat/milvus-client-bricks-runtime \
+  -p base-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
+  -p target-image=harbor.milvus.io/milvusdb/milvus:2.6-20260707-682ac8df \
+  -p cleanup=false
+```
+
+The 4am template runs these strict foreground bricks:
+
+- `precheck`
+- `create_schema_matrix`
+- `seed_data`
+- `validate_data_integrity` before upgrade
+- `validate_data_integrity` after upgrade
+- `validate_data_integrity` after rollback
+
+It also starts a daemon workload loop after the baseline validation:
+
+- `search_pressure`
+- `query_pressure`
+- `query_iterator_scan`
+- `upsert_pressure`
+- `delete_pressure`
+- `mixed_rw_pressure`
+
+For standalone upgrades, transient request failures can happen while the only
+Milvus process restarts. The daemon loops default to
+`pressure-fail-on-error=false`, so they keep recording pressure behavior while
+the strict foreground post-upgrade and post-rollback validation gates decide
+data compatibility and integrity.
+
+The pressure daemon intentionally does not mount the checkpoint PVC. That keeps
+the read/write workload alive during foreground validation without relying on
+concurrent ReadWriteOnce volume mounts across multiple pods.
+
+The current 2.6 schema matrix covers:
+
+- `INT64` primary key and scalar fields
+- nullable `VARCHAR`
+- nullable `BOOL`
+- nullable `JSON`
+- `ARRAY<VARCHAR>`
+- `FLOAT_VECTOR`
+- `FLOAT16_VECTOR`
+- `BFLOAT16_VECTOR`
+- `INT8_VECTOR`
+- `HNSW` and `AUTOINDEX` with `COSINE`
