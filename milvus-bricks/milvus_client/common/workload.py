@@ -8,7 +8,7 @@ from typing import Any
 
 from milvus_client.common.data import generate_primary_key_value, generate_rows, stable_vector_value, vector_fields
 from milvus_client.common.schema import SchemaSpec, auto_id_enabled, collection_name, function_output_fields, load_schema_matrix
-from milvus_client.common.validators import format_filter_value
+from milvus_client.common.validators import format_filter_value, pk_range_filter, query_count
 
 
 PRESSURE_INSERT_BASE = 10_000_000
@@ -96,6 +96,44 @@ def _query_operation(client: Any, spec: SchemaSpec, collection: str) -> tuple[st
     return ("query", 1)
 
 
+def _count_operation(
+    client: Any,
+    spec: SchemaSpec,
+    collection: str,
+    baseline_start_id: int,
+    baseline_rows_per_collection: int,
+) -> tuple[str, int]:
+    primary = primary_field(spec)
+    primary_name = primary.name if primary is not None else "id"
+    if baseline_rows_per_collection <= 0:
+        actual = query_count(client, collection)
+        if actual <= 0:
+            raise AssertionError(f"{collection}: count check found no rows")
+        return ("count", 1)
+
+    if auto_id_enabled(spec):
+        actual = query_count(client, collection)
+        if actual < baseline_rows_per_collection:
+            raise AssertionError(
+                f"{collection}: count {actual} is below baseline {baseline_rows_per_collection}"
+            )
+        return ("count", 1)
+
+    min_pk = generate_primary_key_value(primary, baseline_start_id) if primary is not None else baseline_start_id
+    max_pk = (
+        generate_primary_key_value(primary, baseline_start_id + baseline_rows_per_collection - 1)
+        if primary is not None
+        else baseline_start_id + baseline_rows_per_collection - 1
+    )
+    filter_expr = pk_range_filter(primary_name, min_pk, max_pk)
+    actual = query_count(client, collection, filter_expr=filter_expr)
+    if actual != baseline_rows_per_collection:
+        raise AssertionError(
+            f"{collection}: baseline count {actual} != expected {baseline_rows_per_collection}"
+        )
+    return ("count", 1)
+
+
 def _search_operation(client: Any, spec: SchemaSpec, collection: str, seed: int, op_index: int) -> tuple[str, int]:
     fields = vector_fields(spec)
     if not fields:
@@ -163,7 +201,17 @@ def _query_iterator_operation(client: Any, spec: SchemaSpec, collection: str, ba
     return ("query_iterator", len(rows))
 
 
-def run_operation(client: Any, spec: SchemaSpec, collection: str, operation: str, seed: int, batch_size: int, op_index: int) -> tuple[str, int]:
+def run_operation(
+    client: Any,
+    spec: SchemaSpec,
+    collection: str,
+    operation: str,
+    seed: int,
+    batch_size: int,
+    op_index: int,
+    baseline_start_id: int = 0,
+    baseline_rows_per_collection: int = 0,
+) -> tuple[str, int]:
     try:
         if auto_id_enabled(spec) and operation in {"upsert", "delete"}:
             return (f"{operation}_skipped_auto_id", 0)
@@ -181,6 +229,8 @@ def run_operation(client: Any, spec: SchemaSpec, collection: str, operation: str
             return _delete_operation(client, spec, collection, batch_size, op_index)
         if operation == "query":
             return _query_operation(client, spec, collection)
+        if operation == "count":
+            return _count_operation(client, spec, collection, baseline_start_id, baseline_rows_per_collection)
         if operation == "query_iterator":
             return _query_iterator_operation(client, spec, collection, batch_size)
         if operation == "search":
@@ -200,6 +250,8 @@ def run_pressure_workload(
     max_workers: int,
     batch_size: int,
     operation_interval_sec: float = 0.0,
+    baseline_start_id: int = 0,
+    baseline_rows_per_collection: int = 0,
 ) -> WorkloadSummary:
     specs = load_schema_matrix(schema_matrix)
     rng = Random(seed)
@@ -219,7 +271,20 @@ def run_pressure_workload(
             spec = rng.choice(specs)
             collection = collection_name(collection_prefix, spec)
             operation = rng.choice(operations)
-            futures.add(pool.submit(run_operation, client, spec, collection, operation, seed, batch_size, op_index))
+            futures.add(
+                pool.submit(
+                    run_operation,
+                    client,
+                    spec,
+                    collection,
+                    operation,
+                    seed,
+                    batch_size,
+                    op_index,
+                    baseline_start_id,
+                    baseline_rows_per_collection,
+                )
+            )
             op_index += 1
             if operation_interval_sec > 0:
                 time.sleep(operation_interval_sec)

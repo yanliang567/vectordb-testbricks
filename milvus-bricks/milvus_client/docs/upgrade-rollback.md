@@ -106,6 +106,7 @@ It also starts a daemon workload loop after the baseline validation:
 - `search_pressure`
 - `query_pressure`
 - `query_iterator_scan`
+- `count_pressure`
 - `upsert_pressure`
 - `delete_pressure`
 - `mixed_rw_pressure`
@@ -118,6 +119,9 @@ of being hidden behind foreground validation.
 The pressure daemon intentionally does not mount the checkpoint PVC. That keeps
 the read/write workload alive during foreground validation without relying on
 concurrent ReadWriteOnce volume mounts across multiple pods.
+The daemon receives the seeded row count as a parameter, so `count_pressure` and
+the count operation inside `mixed_rw_pressure` can keep checking row counts while
+upgrade and rollback are in progress.
 
 The workflow emits `env_snapshot.json`, `flow_summary.json`,
 `orchestrator_report.json`, foreground brick results, checkpoints, pressure

@@ -11,6 +11,7 @@ features:
       - search_pressure
       - query_pressure
       - query_iterator_scan
+      - count_pressure
       - upsert_pressure
       - delete_pressure
       - validate_data_integrity
@@ -27,6 +28,7 @@ features:
       - search_pressure
       - query_pressure
       - query_iterator_scan
+      - count_pressure
       - upsert_pressure
       - delete_pressure
       - validate_data_integrity
@@ -41,6 +43,7 @@ features:
       - seed_data
       - query_pressure
       - query_iterator_scan
+      - count_pressure
       - upsert_pressure
       - delete_pressure
       - validate_data_integrity

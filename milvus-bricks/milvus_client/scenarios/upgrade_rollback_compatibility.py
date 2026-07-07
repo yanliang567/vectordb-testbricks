@@ -124,6 +124,7 @@ def _start_pressure_loop(args, manifest: dict, stop_event: threading.Event, step
     max_workers = str(workload.get("max_workers", 4))
     batch_size = str(workload.get("batch_size", 10))
     slice_duration = str(max(1, int(workload.get("slice_duration_sec", 30))))
+    baseline_rows = str(manifest.get("rows_per_collection", 0))
 
     def run_loop() -> None:
         iteration = 0
@@ -142,6 +143,10 @@ def _start_pressure_loop(args, manifest: dict, stop_event: threading.Event, step
                     max_workers,
                     "--batch-size",
                     batch_size,
+                    "--baseline-start-id",
+                    "0",
+                    "--baseline-rows-per-collection",
+                    baseline_rows,
                 ],
                 "steady_state",
             )

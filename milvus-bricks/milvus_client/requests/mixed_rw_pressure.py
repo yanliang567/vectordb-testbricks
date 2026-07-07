@@ -13,6 +13,8 @@ def add_args(parser):
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=10)
     parser.add_argument("--operation-interval-sec", type=float, default=0.0)
+    parser.add_argument("--baseline-start-id", type=int, default=0)
+    parser.add_argument("--baseline-rows-per-collection", type=int, default=0)
 
 
 def _run_operation(client, spec, collection, operation, seed, batch_size, op_index):
@@ -31,12 +33,14 @@ def main(argv: list[str] | None = None) -> int:
             client,
             args.schema_matrix,
             args.collection_prefix,
-            ["insert", "upsert", "query", "search"],
+            ["insert", "upsert", "query", "search", "count"],
             args.seed,
             args.duration_sec,
             args.max_workers,
             args.batch_size,
             operation_interval_sec=args.operation_interval_sec,
+            baseline_start_id=args.baseline_start_id,
+            baseline_rows_per_collection=args.baseline_rows_per_collection,
         )
     except Exception as exc:
         result.status = FAILED

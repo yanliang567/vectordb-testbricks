@@ -46,7 +46,7 @@ spec:
       - name: batch-size
         value: "100"
       - name: pressure-modules
-        value: "search_pressure query_pressure query_iterator_scan upsert_pressure delete_pressure mixed_rw_pressure"
+        value: "search_pressure query_pressure query_iterator_scan count_pressure upsert_pressure delete_pressure mixed_rw_pressure"
       - name: pressure-slice-duration-sec
         value: "10"
       - name: pressure-max-workers
@@ -535,7 +535,9 @@ spec:
                   --schema-matrix "{{workflow.parameters.schema-matrix}}" \
                   --duration-sec "{{workflow.parameters.pressure-slice-duration-sec}}" \
                   --max-workers "{{workflow.parameters.pressure-max-workers}}" \
-                  --batch-size "{{workflow.parameters.pressure-batch-size}}"
+                  --batch-size "{{workflow.parameters.pressure-batch-size}}" \
+                  --baseline-start-id "0" \
+                  --baseline-rows-per-collection "{{workflow.parameters.rows-per-collection}}"
                 rc=$?
                 set -e
                 echo "pressure module=${module} iteration=${iteration} rc=${rc}"

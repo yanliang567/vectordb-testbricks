@@ -127,3 +127,56 @@ def test_mixed_rw_pressure_writes_structured_connection_failure(monkeypatch, tmp
     assert payload["status"] == "failed"
     assert payload["failures"][0]["type"] == "MIXED_RW_FAILED"
     assert payload["failures"][0]["error"] == "connect failed"
+
+
+def test_mixed_rw_pressure_includes_count_operation(monkeypatch, tmp_path):
+    output_json = tmp_path / "result.json"
+    captured = {}
+
+    def fake_run_pressure_workload(
+        client,
+        schema_matrix,
+        collection_prefix,
+        operations,
+        seed,
+        duration_sec,
+        max_workers,
+        batch_size,
+        operation_interval_sec=0.0,
+        baseline_start_id=0,
+        baseline_rows_per_collection=0,
+    ):
+        from milvus_client.common.workload import WorkloadSummary
+
+        del client, schema_matrix, collection_prefix, seed, duration_sec, max_workers, batch_size, operation_interval_sec
+        captured["operations"] = operations
+        captured["baseline_rows_per_collection"] = baseline_rows_per_collection
+        summary = WorkloadSummary()
+        summary.record("count", 1)
+        return summary
+
+    monkeypatch.setattr(mixed_rw_pressure, "create_client", lambda *args, **kwargs: object())
+    monkeypatch.setattr(mixed_rw_pressure, "run_pressure_workload", fake_run_pressure_workload)
+
+    code = mixed_rw_pressure.main(
+        [
+            "--uri",
+            "http://localhost:19530",
+            "--collection-prefix",
+            "qa",
+            "--schema-matrix",
+            str(ROOT / "manifests" / "schema_matrix_2_6.yaml"),
+            "--baseline-rows-per-collection",
+            "5000",
+            "--checkpoint-dir",
+            str(tmp_path / "checkpoints"),
+            "--output-json",
+            str(output_json),
+        ]
+    )
+
+    payload = json.loads(output_json.read_text())
+    assert code == 0
+    assert payload["status"] == "passed"
+    assert "count" in captured["operations"]
+    assert captured["baseline_rows_per_collection"] == 5000

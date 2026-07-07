@@ -106,6 +106,7 @@ bricks:
 - `milvus_client.requests.search_pressure`
 - `milvus_client.requests.query_pressure`
 - `milvus_client.requests.query_iterator_scan`
+- `milvus_client.requests.count_pressure`
 - `milvus_client.requests.upsert_pressure`
 - `milvus_client.requests.delete_pressure`
 
@@ -128,6 +129,10 @@ PYTHONPATH=. python -m milvus_client.requests.search_pressure \
 delete seed baseline rows tracked by `seed_data`.
 For `auto_id` schemas, destructive pressure operations (`upsert` and `delete`)
 are skipped; insert/query/search pressure still runs.
+`count_pressure` and the count operation inside `mixed_rw_pressure` check row
+counts while traffic is running. For explicit PK schemas they verify the seed PK
+range still has exactly `--baseline-rows-per-collection` rows; for `auto_id`
+schemas they verify the total collection count is at least that baseline.
 
 ## Upgrade/Rollback Scenario
 

@@ -122,3 +122,104 @@ def test_bm25_function_output_search_uses_text_query():
     assert count == 1
     assert client.search_calls[0]["data"] == ["milvus compatibility token_3"]
     assert client.search_calls[0]["search_params"]["metric_type"] == "BM25"
+
+
+def test_count_operation_checks_seed_pk_range_exactly():
+    spec = SchemaSpec(
+        name="baseline",
+        version="test",
+        fields=[
+            FieldSpec(name="pk", dtype="VARCHAR", primary=True, max_length=64),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=2),
+        ],
+    )
+
+    class CountClient:
+        def __init__(self):
+            self.query_calls = []
+
+        def query(self, **kwargs):
+            self.query_calls.append(kwargs)
+            return [{"count(*)": 5}]
+
+    client = CountClient()
+
+    op, count = run_operation(
+        client,
+        spec,
+        "qa_baseline",
+        "count",
+        7,
+        10,
+        1,
+        baseline_start_id=0,
+        baseline_rows_per_collection=5,
+    )
+
+    assert op == "count"
+    assert count == 1
+    assert client.query_calls[0]["filter"] == 'pk >= "pk_00000000000000000000" && pk <= "pk_00000000000000000004"'
+
+
+def test_count_operation_fails_on_baseline_count_drift():
+    spec = SchemaSpec(
+        name="baseline",
+        version="test",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=2),
+        ],
+    )
+
+    class DriftClient:
+        def query(self, **kwargs):
+            del kwargs
+            return [{"count(*)": 4}]
+
+    assert run_operation(
+        DriftClient(),
+        spec,
+        "qa_baseline",
+        "count",
+        7,
+        10,
+        1,
+        baseline_start_id=0,
+        baseline_rows_per_collection=5,
+    ) == ("failed_count", 1)
+
+
+def test_count_operation_checks_auto_id_minimum_total_count():
+    spec = SchemaSpec(
+        name="auto",
+        version="test",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True, auto_id=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=2),
+        ],
+    )
+
+    class CountClient:
+        def __init__(self):
+            self.query_calls = []
+
+        def query(self, **kwargs):
+            self.query_calls.append(kwargs)
+            return [{"count(*)": 7}]
+
+    client = CountClient()
+
+    op, count = run_operation(
+        client,
+        spec,
+        "qa_auto",
+        "count",
+        7,
+        10,
+        1,
+        baseline_rows_per_collection=5,
+    )
+
+    assert op == "count"
+    assert count == 1
+    assert client.query_calls[0]["filter"] == ""
