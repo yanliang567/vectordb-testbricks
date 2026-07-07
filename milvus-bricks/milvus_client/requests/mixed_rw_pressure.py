@@ -33,6 +33,13 @@ def _assert_search_result(result, collection: str, field_name: str) -> None:
         raise AssertionError(f"{collection}.{field_name}: search returned no hits")
 
 
+def _primary_field_name(spec) -> str:
+    for field in spec.fields:
+        if field.primary:
+            return field.name
+    return "id"
+
+
 def _run_operation(client, spec, collection, operation, seed, batch_size, op_index):
     if operation == "insert":
         start_id = 10_000_000 + op_index * batch_size
@@ -45,7 +52,8 @@ def _run_operation(client, spec, collection, operation, seed, batch_size, op_ind
         client.upsert(collection_name=collection, data=rows)
         return ("upsert", len(rows))
     if operation == "query":
-        client.query(collection_name=collection, filter="id >= 0", output_fields=["id"], limit=10)
+        primary_field = _primary_field_name(spec)
+        client.query(collection_name=collection, filter=f"{primary_field} >= 0", output_fields=[primary_field], limit=10)
         return ("query", 1)
     if operation == "search":
         fields = vector_fields(spec)

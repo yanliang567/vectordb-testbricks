@@ -30,3 +30,6 @@ def test_brick_catalog_is_valid():
         for capability in brick["required_capabilities"]:
             assert capability in capabilities
 
+    for feature in features.values():
+        for brick_name in feature.bricks:
+            assert brick_name in names

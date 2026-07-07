@@ -16,6 +16,28 @@ class FakeSearchClient:
         return [[{"id": 1, "distance": 0.1}]]
 
 
+class FakeQueryClient:
+    def __init__(self):
+        self.query_calls = []
+
+    def query(self, **kwargs):
+        self.query_calls.append(kwargs)
+        return [{"custom_id": 1}]
+
+
+def test_query_operation_uses_schema_primary_field():
+    spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")[0]
+    spec.fields[0] = spec.fields[0].__class__(name="custom_id", dtype="INT64", primary=True)
+    client = FakeQueryClient()
+
+    op, count = _run_operation(client, spec, "qa_dense", "query", 7, 10, 1)
+
+    assert op == "query"
+    assert count == 1
+    assert client.query_calls[0]["filter"] == "custom_id >= 0"
+    assert client.query_calls[0]["output_fields"] == ["custom_id"]
+
+
 def test_search_operation_covers_all_vector_fields():
     spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")[1]
     client = FakeSearchClient()

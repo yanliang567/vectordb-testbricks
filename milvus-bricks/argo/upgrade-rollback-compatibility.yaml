@@ -22,6 +22,24 @@ spec:
         value: milvus-token
       - name: token-secret-key
         value: token
+      - name: compat-schema-matrix
+        value: milvus_client/manifests/schema_matrix_2_6.yaml
+      - name: rows-per-collection
+        value: "1000"
+      - name: batch-size
+        value: "100"
+      - name: mixed-rw-duration-sec
+        value: "600"
+      - name: mixed-rw-max-workers
+        value: "8"
+      - name: upgrade-wait-file
+        value: ""
+      - name: rollback-wait-file
+        value: ""
+      - name: observe-after-upgrade-sec
+        value: "60"
+      - name: observe-after-rollback-sec
+        value: "60"
   templates:
     - name: brick-runner
       inputs:
@@ -82,17 +100,142 @@ spec:
                   value: milvus_client.requests.precheck
                 - name: args
                   value: ""
-          - name: dry-run-plan
+          - name: create-compat-schema
             dependencies: [precheck]
             template: brick-runner
             arguments:
               parameters:
                 - name: module
-                  value: milvus_client.scenarios.upgrade_rollback_compatibility
+                  value: milvus_client.requests.create_schema_matrix
                 - name: args
                   value: >-
-                    --dry-run
-                    --scenario-manifest milvus_client/manifests/scenario_upgrade_rollback.yaml
+                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
+                    --drop-if-exists false
+                    --load-after-create true
+          - name: seed-compat-data
+            dependencies: [create-compat-schema]
+            template: brick-runner
+            arguments:
+              parameters:
+                - name: module
+                  value: milvus_client.requests.seed_data
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
+                    --rows-per-collection {{workflow.parameters.rows-per-collection}}
+                    --batch-size {{workflow.parameters.batch-size}}
+          - name: validate-before-upgrade
+            dependencies: [seed-compat-data]
+            template: brick-runner
+            arguments:
+              parameters:
+                - name: module
+                  value: milvus_client.requests.validate_data_integrity
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
+          - name: mixed-rw-pressure
+            dependencies: [validate-before-upgrade]
+            template: brick-runner
+            arguments:
+              parameters:
+                - name: module
+                  value: milvus_client.requests.mixed_rw_pressure
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
+                    --duration-sec {{workflow.parameters.mixed-rw-duration-sec}}
+                    --max-workers {{workflow.parameters.mixed-rw-max-workers}}
+                    --batch-size {{workflow.parameters.batch-size}}
+          - name: wait-upgrade
+            dependencies: [validate-before-upgrade]
+            template: wait-file
+            arguments:
+              parameters:
+                - name: wait-file
+                  value: "{{workflow.parameters.upgrade-wait-file}}"
+                - name: action-name
+                  value: upgrade
+          - name: observe-after-upgrade
+            dependencies: [wait-upgrade]
+            template: observe
+            arguments:
+              parameters:
+                - name: seconds
+                  value: "{{workflow.parameters.observe-after-upgrade-sec}}"
+                - name: phase
+                  value: after-upgrade
+          - name: validate-after-upgrade
+            dependencies: [mixed-rw-pressure, observe-after-upgrade]
+            template: brick-runner
+            arguments:
+              parameters:
+                - name: module
+                  value: milvus_client.requests.validate_data_integrity
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
+          - name: wait-rollback
+            dependencies: [validate-after-upgrade]
+            template: wait-file
+            arguments:
+              parameters:
+                - name: wait-file
+                  value: "{{workflow.parameters.rollback-wait-file}}"
+                - name: action-name
+                  value: rollback
+          - name: observe-after-rollback
+            dependencies: [wait-rollback]
+            template: observe
+            arguments:
+              parameters:
+                - name: seconds
+                  value: "{{workflow.parameters.observe-after-rollback-sec}}"
+                - name: phase
+                  value: after-rollback
+          - name: validate-after-rollback
+            dependencies: [observe-after-rollback]
+            template: brick-runner
+            arguments:
+              parameters:
+                - name: module
+                  value: milvus_client.requests.validate_data_integrity
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
+    - name: wait-file
+      inputs:
+        parameters:
+          - name: wait-file
+          - name: action-name
+      container:
+        image: alpine:3.20
+        command: [sh, -c]
+        args:
+          - |
+            if [ -z "{{inputs.parameters.wait-file}}" ]; then
+              echo "No {{inputs.parameters.action-name}} wait file configured; continuing."
+              exit 0
+            fi
+            echo "Waiting for {{inputs.parameters.action-name}} signal: {{inputs.parameters.wait-file}}"
+            while [ ! -f "{{inputs.parameters.wait-file}}" ]; do
+              sleep 10
+            done
+        volumeMounts:
+          - name: milvus-bricks-state
+            mountPath: /tmp/milvus-bricks
+    - name: observe
+      inputs:
+        parameters:
+          - name: seconds
+          - name: phase
+      container:
+        image: alpine:3.20
+        command: [sh, -c]
+        args:
+          - |
+            echo "Observing {{inputs.parameters.phase}} for {{inputs.parameters.seconds}} seconds"
+            sleep "{{inputs.parameters.seconds}}"
   volumes:
     - name: workspace
       emptyDir: {}

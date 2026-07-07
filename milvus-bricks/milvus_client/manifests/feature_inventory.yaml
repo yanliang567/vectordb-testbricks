@@ -18,7 +18,8 @@ features:
     bricks:
       - create_schema_matrix
       - seed_data
-      - search_pressure
+      - mixed_rw_pressure
+      - validate_data_integrity
 
   - id: compat_json_array
     domain: schema
@@ -35,17 +36,14 @@ features:
     priority: P1
     compat_mode: rollback_safe
     required_capabilities: ["QueryAggregation"]
-    bricks:
-      - query_aggregation_matrix
+    bricks: []
 
   - id: order_by
     domain: query_search
     priority: P1
     compat_mode: rollback_safe
     required_capabilities: ["OrderBy"]
-    bricks:
-      - query_order_by_matrix
-      - search_order_by_matrix
+    bricks: []
 
   - id: nullable_vector
     domain: schema
@@ -53,7 +51,10 @@ features:
     compat_mode: forward_only
     required_capabilities: ["NullableVector"]
     bricks:
-      - nullable_vector_matrix
+      - create_schema_matrix
+      - seed_data
+      - mixed_rw_pressure
+      - validate_data_integrity
 
   - id: geometry
     domain: schema
@@ -61,7 +62,10 @@ features:
     compat_mode: forward_only
     required_capabilities: ["Geometry"]
     bricks:
-      - geometry_matrix
+      - create_schema_matrix
+      - seed_data
+      - mixed_rw_pressure
+      - validate_data_integrity
 
   - id: timestamptz
     domain: schema
@@ -69,29 +73,28 @@ features:
     compat_mode: forward_only
     required_capabilities: ["TimeSeries"]
     bricks:
-      - timestamptz_matrix
+      - create_schema_matrix
+      - seed_data
+      - mixed_rw_pressure
+      - validate_data_integrity
 
   - id: entity_ttl
     domain: dml
     priority: P1
     compat_mode: forward_only
     required_capabilities: ["EntityTTL"]
-    bricks:
-      - entity_ttl_validation
+    bricks: []
 
   - id: struct_array_element_hybrid_search
     domain: struct_array
     priority: P1
     compat_mode: forward_only
     required_capabilities: ["StructArray", "ElementHybridSearch"]
-    bricks:
-      - struct_array_hybrid_search
+    bricks: []
 
   - id: storage_v3
     domain: storage
     priority: P2
     compat_mode: forward_only
     required_capabilities: ["StorageV3"]
-    bricks:
-      - storage_v3_probe
-
+    bricks: []
