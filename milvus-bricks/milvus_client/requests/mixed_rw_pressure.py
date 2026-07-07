@@ -24,9 +24,9 @@ def main(argv: list[str] | None = None) -> int:
     add_args(parser)
     args = parser.parse_args(argv)
     result = result_from_args(args, "mixed_rw_pressure")
-    client = create_client(args.uri, args.token, args.db_name)
 
     try:
+        client = create_client(args.uri, args.token, args.db_name)
         summary = run_pressure_workload(
             client,
             args.schema_matrix,

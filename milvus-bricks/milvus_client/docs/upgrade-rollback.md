@@ -112,9 +112,8 @@ It also starts a daemon workload loop after the baseline validation:
 
 For standalone upgrades, transient request failures can happen while the only
 Milvus process restarts. The daemon loops default to
-`pressure-fail-on-error=false`, so they keep recording pressure behavior while
-the strict foreground post-upgrade and post-rollback validation gates decide
-data compatibility and integrity.
+`pressure-fail-on-error=true`, so any pressure failure fails the workflow instead
+of being hidden behind foreground validation.
 
 The pressure daemon intentionally does not mount the checkpoint PVC. That keeps
 the read/write workload alive during foreground validation without relying on

@@ -1,7 +1,9 @@
+import json
 from pathlib import Path
 
 from milvus_client.common.schema import load_schema_matrix
 from milvus_client.common.schema import FieldSpec, SchemaSpec
+from milvus_client.requests import mixed_rw_pressure
 from milvus_client.requests.mixed_rw_pressure import _run_operation
 
 
@@ -93,3 +95,34 @@ def test_search_operation_records_empty_hits_as_failed_operation():
             return [[]]
 
     assert _run_operation(EmptySearchClient(), spec, "qa_dense", "search", 7, 10, 1) == ("failed_search", 1)
+
+
+def test_mixed_rw_pressure_writes_structured_connection_failure(monkeypatch, tmp_path):
+    output_json = tmp_path / "result.json"
+
+    def fail_connect(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("connect failed")
+
+    monkeypatch.setattr(mixed_rw_pressure, "create_client", fail_connect)
+
+    code = mixed_rw_pressure.main(
+        [
+            "--uri",
+            "http://localhost:19530",
+            "--collection-prefix",
+            "qa",
+            "--schema-matrix",
+            str(ROOT / "manifests" / "schema_matrix_2_6.yaml"),
+            "--checkpoint-dir",
+            str(tmp_path / "checkpoints"),
+            "--output-json",
+            str(output_json),
+        ]
+    )
+
+    payload = json.loads(output_json.read_text())
+    assert code == 1
+    assert payload["status"] == "failed"
+    assert payload["failures"][0]["type"] == "MIXED_RW_FAILED"
+    assert payload["failures"][0]["error"] == "connect failed"
