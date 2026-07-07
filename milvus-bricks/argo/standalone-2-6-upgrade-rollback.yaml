@@ -162,7 +162,7 @@ spec:
                   value: rollingUpgrade
 
           - name: wait-upgrade-ready
-            dependencies: [patch-upgrade]
+            dependencies: [patch-upgrade, pressure-daemon]
             template: wait-milvus-ready
             arguments:
               parameters:
@@ -170,7 +170,7 @@ spec:
                   value: "{{workflow.parameters.target-milvus-image}}"
 
           - name: observe-after-upgrade
-            dependencies: [wait-upgrade-ready]
+            dependencies: [wait-upgrade-ready, pressure-daemon]
             template: observe
             arguments:
               parameters:
@@ -180,7 +180,7 @@ spec:
                   value: after-upgrade
 
           - name: precheck-after-upgrade
-            dependencies: [observe-after-upgrade]
+            dependencies: [observe-after-upgrade, pressure-daemon]
             template: run-brick
             arguments:
               parameters:
@@ -192,7 +192,7 @@ spec:
                   value: ""
 
           - name: validate-after-upgrade
-            dependencies: [precheck-after-upgrade]
+            dependencies: [precheck-after-upgrade, pressure-daemon]
             template: run-brick
             arguments:
               parameters:
@@ -205,7 +205,7 @@ spec:
                     --schema-matrix {{workflow.parameters.schema-matrix}}
 
           - name: patch-rollback
-            dependencies: [validate-after-upgrade]
+            dependencies: [validate-after-upgrade, pressure-daemon]
             template: patch-milvus-image
             arguments:
               parameters:
@@ -217,7 +217,7 @@ spec:
                   value: rollingDowngrade
 
           - name: wait-rollback-ready
-            dependencies: [patch-rollback]
+            dependencies: [patch-rollback, pressure-daemon]
             template: wait-milvus-ready
             arguments:
               parameters:
@@ -225,7 +225,7 @@ spec:
                   value: "{{workflow.parameters.base-milvus-image}}"
 
           - name: observe-after-rollback
-            dependencies: [wait-rollback-ready]
+            dependencies: [wait-rollback-ready, pressure-daemon]
             template: observe
             arguments:
               parameters:
@@ -235,7 +235,7 @@ spec:
                   value: after-rollback
 
           - name: precheck-after-rollback
-            dependencies: [observe-after-rollback]
+            dependencies: [observe-after-rollback, pressure-daemon]
             template: run-brick
             arguments:
               parameters:
@@ -247,7 +247,7 @@ spec:
                   value: ""
 
           - name: validate-after-rollback
-            dependencies: [precheck-after-rollback]
+            dependencies: [precheck-after-rollback, pressure-daemon]
             template: run-brick
             arguments:
               parameters:
@@ -260,7 +260,7 @@ spec:
                     --schema-matrix {{workflow.parameters.schema-matrix}}
 
           - name: collect-artifacts
-            dependencies: [validate-after-rollback]
+            dependencies: [validate-after-rollback, pressure-daemon]
             template: collect-artifacts
 
     - name: resolve-inputs

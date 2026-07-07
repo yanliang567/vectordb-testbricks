@@ -88,9 +88,24 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "readinessProbe" in templates["pressure-daemon"]["container"]
     assert "validator-daemon" not in templates
     assert tasks["patch-upgrade"]["dependencies"] == ["pressure-daemon"]
-    assert tasks["patch-rollback"]["dependencies"] == ["validate-after-upgrade"]
+    pressure_covered_tasks = [
+        "patch-upgrade",
+        "wait-upgrade-ready",
+        "observe-after-upgrade",
+        "precheck-after-upgrade",
+        "validate-after-upgrade",
+        "patch-rollback",
+        "wait-rollback-ready",
+        "observe-after-rollback",
+        "precheck-after-rollback",
+        "validate-after-rollback",
+        "collect-artifacts",
+    ]
+    for task_name in pressure_covered_tasks:
+        assert "pressure-daemon" in tasks[task_name]["dependencies"]
+    assert tasks["patch-rollback"]["dependencies"] == ["validate-after-upgrade", "pressure-daemon"]
     assert tasks["deploy-base"]["dependencies"] == ["resolve-inputs"]
-    assert tasks["collect-artifacts"]["dependencies"] == ["validate-after-rollback"]
+    assert tasks["collect-artifacts"]["dependencies"] == ["validate-after-rollback", "pressure-daemon"]
 
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
     pressure_modules = parameter_values["pressure-modules"]
