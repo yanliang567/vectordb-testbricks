@@ -1,0 +1,55 @@
+capabilities:
+  - id: QueryAggregation
+    detect:
+      server_version_min: "3.0.0"
+      sdk_probe: "query_aggregation"
+    unsupported_behavior: skip
+
+  - id: OrderBy
+    detect:
+      server_version_min: "3.0.0"
+      sdk_probe: "order_by"
+    unsupported_behavior: skip
+
+  - id: NullableVector
+    detect:
+      server_version_min: "3.0.0"
+      sdk_probe: "create_nullable_vector_schema"
+    unsupported_behavior: skip
+
+  - id: Geometry
+    detect:
+      server_version_min: "3.0.0"
+      sdk_probe: "geometry_field"
+    unsupported_behavior: skip
+
+  - id: TimeSeries
+    detect:
+      server_version_min: "3.0.0"
+      sdk_probe: "timestamptz_field"
+    unsupported_behavior: skip
+
+  - id: EntityTTL
+    detect:
+      server_version_min: "3.0.0"
+      sdk_probe: "entity_ttl"
+    unsupported_behavior: skip
+
+  - id: StructArray
+    detect:
+      server_version_min: "3.0.0"
+      sdk_probe: "struct_array_schema"
+    unsupported_behavior: skip
+
+  - id: ElementHybridSearch
+    detect:
+      server_version_min: "3.0.0"
+      sdk_probe: "element_hybrid_search"
+    unsupported_behavior: skip
+
+  - id: StorageV3
+    detect:
+      config_probe: "common.storage.useLoonFFI"
+    unsupported_behavior: skip
+    requires_cluster_admin: true
+

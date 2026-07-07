@@ -1,0 +1,72 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: milvus-upgrade-rollback-compatibility
+spec:
+  entrypoint: upgrade-rollback-compatibility
+  arguments:
+    parameters:
+      - name: image
+        value: python:3.11
+      - name: uri
+        value: http://localhost:19530
+      - name: collection-prefix
+        value: qa_upgrade
+      - name: token-secret-name
+        value: milvus-token
+      - name: token-secret-key
+        value: token
+  templates:
+    - name: brick-runner
+      inputs:
+        parameters:
+          - name: module
+          - name: args
+      container:
+        image: "{{workflow.parameters.image}}"
+        command: [sh, -c]
+        env:
+          - name: MILVUS_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: "{{workflow.parameters.token-secret-name}}"
+                key: "{{workflow.parameters.token-secret-key}}"
+        args:
+          - |
+            cd /workspace/milvus-bricks
+            PYTHONPATH=. python -m {{inputs.parameters.module}} \
+              --uri "{{workflow.parameters.uri}}" \
+              --token "$MILVUS_TOKEN" \
+              --collection-prefix "{{workflow.parameters.collection-prefix}}" \
+              --checkpoint-dir /tmp/milvus-bricks/checkpoints \
+              --output-json /tmp/milvus-bricks/results/result.json \
+              {{inputs.parameters.args}}
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspace
+    - name: upgrade-rollback-compatibility
+      dag:
+        tasks:
+          - name: precheck
+            template: brick-runner
+            arguments:
+              parameters:
+                - name: module
+                  value: milvus_client.requests.precheck
+                - name: args
+                  value: ""
+          - name: dry-run-plan
+            dependencies: [precheck]
+            template: brick-runner
+            arguments:
+              parameters:
+                - name: module
+                  value: milvus_client.scenarios.upgrade_rollback_compatibility
+                - name: args
+                  value: >-
+                    --dry-run
+                    --scenario-manifest milvus_client/manifests/scenario_upgrade_rollback.yaml
+  volumes:
+    - name: workspace
+      emptyDir: {}
+

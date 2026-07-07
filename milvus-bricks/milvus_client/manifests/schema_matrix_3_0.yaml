@@ -1,0 +1,40 @@
+version: "3.0"
+schemas:
+  - name: nullable_vector
+    feature_tags: ["nullable_vector"]
+    compat_mode: forward_only
+    required_capabilities: ["NullableVector"]
+    validators: ["count", "pk_sample", "null_vector_semantics"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: category, dtype: INT64}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 128, nullable: true}
+    indexes:
+      - {field: embedding, index_type: AUTOINDEX, metric_type: COSINE}
+
+  - name: geometry_rtree
+    feature_tags: ["geometry"]
+    compat_mode: forward_only
+    required_capabilities: ["Geometry"]
+    validators: ["count", "pk_sample"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: location, dtype: GEOMETRY}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
+    indexes:
+      - {field: location, index_type: RTREE}
+      - {field: embedding, index_type: AUTOINDEX, metric_type: COSINE}
+
+  - name: timestamptz_ttl
+    feature_tags: ["timestamptz", "entity_ttl"]
+    compat_mode: forward_only
+    required_capabilities: ["TimeSeries", "EntityTTL"]
+    validators: ["count", "pk_sample"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: event_time, dtype: TIMESTAMPTZ}
+      - {name: expire_at, dtype: INT64}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
+    indexes:
+      - {field: embedding, index_type: AUTOINDEX, metric_type: COSINE}
+
