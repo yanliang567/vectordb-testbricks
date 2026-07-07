@@ -21,28 +21,15 @@ def test_argo_template_persists_checkpoint_state_and_exports_results():
 
 def test_argo_template_runs_compatibility_bricks():
     template = yaml.safe_load((ROOT / "argo" / "upgrade-rollback-compatibility.yaml").read_text())
+    parameter_names = {parameter["name"] for parameter in template["spec"]["arguments"]["parameters"]}
     dag = next(item for item in template["spec"]["templates"] if item["name"] == "upgrade-rollback-compatibility")
     tasks = {task["name"]: task for task in dag["dag"]["tasks"]}
+    scenario_runner = next(item for item in template["spec"]["templates"] if item["name"] == "scenario-runner")
 
-    assert {
-        "precheck",
-        "create-compat-schema",
-        "seed-compat-data",
-        "validate-before-upgrade",
-        "mixed-rw-pressure",
-        "wait-upgrade",
-        "observe-after-upgrade",
-        "validate-after-upgrade",
-        "wait-rollback",
-        "observe-after-rollback",
-        "validate-after-rollback",
-    } <= set(tasks)
-    modules = {
-        task["arguments"]["parameters"][0]["value"]
-        for task in tasks.values()
-        if task["template"] == "brick-runner"
-    }
-    assert "milvus_client.requests.create_schema_matrix" in modules
-    assert "milvus_client.requests.seed_data" in modules
-    assert "milvus_client.requests.mixed_rw_pressure" in modules
-    assert "milvus_client.requests.validate_data_integrity" in modules
+    assert {"compat-schema-matrix", "forward-schema-matrix", "cycles", "validator-interval-sec"} <= parameter_names
+    assert tasks["run-closed-loop-scenario"]["template"] == "scenario-runner"
+    artifact_names = {artifact["name"] for artifact in scenario_runner["outputs"]["artifacts"]}
+    assert {"result-json", "checkpoints", "results"} <= artifact_names
+    command = scenario_runner["container"]["args"][0]
+    assert "milvus_client.scenarios.upgrade_rollback_compatibility" in command
+    assert "forward_schema_matrix" in command

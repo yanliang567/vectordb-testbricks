@@ -94,11 +94,40 @@ rows written by `mixed_rw_pressure` outside that range do not cause false count
 drift. The checkpoint checksum covers deterministic non-vector fields; vector
 compatibility is covered by search/query workload bricks.
 
+## Independent Workload Bricks
+
+The mixed workload is also available as independently schedulable request
+bricks:
+
+- `milvus_client.requests.search_pressure`
+- `milvus_client.requests.query_pressure`
+- `milvus_client.requests.query_iterator_scan`
+- `milvus_client.requests.upsert_pressure`
+- `milvus_client.requests.delete_pressure`
+
+Example:
+
+```bash
+PYTHONPATH=. python -m milvus_client.requests.search_pressure \
+  --uri http://localhost:19530 \
+  --token root:Milvus \
+  --collection-prefix qa_schema \
+  --schema-matrix milvus_client/manifests/schema_matrix_2_6.yaml \
+  --duration-sec 60 \
+  --max-workers 4 \
+  --batch-size 10 \
+  --checkpoint-dir /tmp/milvus-bricks/checkpoints \
+  --output-json /tmp/milvus-bricks/results/search_pressure.json
+```
+
+`delete_pressure` only targets the reserved high-PK pressure range and does not
+delete seed baseline rows tracked by `seed_data`.
+
 ## Upgrade/Rollback Scenario
 
-The scenario runner currently supports dry-run planning. Upgrade and rollback
-actions are intentionally external so Argo, Helm, or another controller can own
-cluster lifecycle operations.
+The scenario runner supports dry-run planning and non-dry-run closed-loop
+execution. Upgrade and rollback actions are intentionally external so Argo,
+Helm, or another controller can own cluster lifecycle operations.
 
 ```bash
 PYTHONPATH=. python -m milvus_client.scenarios.upgrade_rollback_compatibility \
@@ -109,6 +138,13 @@ PYTHONPATH=. python -m milvus_client.scenarios.upgrade_rollback_compatibility \
   --checkpoint-dir /tmp/milvus-bricks/checkpoints \
   --output-json /tmp/milvus-bricks/results/upgrade_rollback_dry_run.json
 ```
+
+Non-dry-run execution creates and seeds compat schema, starts continuous mixed
+RW pressure and validation loops, waits for external upgrade/rollback signals,
+creates and validates forward-only schema after upgrade, validates compat schema
+after rollback, and performs a final compat validation.
+
+See `docs/upgrade-rollback.md` for details.
 
 ## Tests
 

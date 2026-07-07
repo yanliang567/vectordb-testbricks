@@ -1468,6 +1468,14 @@ WARNING: positional CLI is deprecated; use python -m milvus_client.requests.<nam
 - 在真实环境中，upgrade/rollback action 由 Argo 控制，mixed workload 和 validator 持续运行。
 - compat schema 在 2.6 -> 3.0 -> 2.6 后无 count/checksum drift。
 
+当前实现状态：
+
+- `upgrade_rollback_compatibility` 支持 dry-run plan 和 non-dry-run closed-loop execution。
+- non-dry-run 会创建/seed/validate compat schema，启动持续 mixed RW pressure 和 validator loop，等待外部 upgrade/rollback signal。
+- after-upgrade 阶段会创建、seed、validate `forward_schema_matrix`，forward checkpoint 使用 per-cycle checkpoint directory，避免覆盖 compat checkpoint。
+- after-rollback 阶段只验证 compat schema。
+- Argo `upgrade-rollback-compatibility.yaml` 使用 `scenario-runner` 作为闭环入口，并保留 generic `brick-runner` 给后续独立 bricks 直接组合。
+
 ### Phase 3: 3.0 功能扩展
 
 完成任务 12 的 P1 列表。
@@ -1477,6 +1485,12 @@ WARNING: positional CLI is deprecated; use python -m milvus_client.requests.<nam
 - 每个功能 brick 至少有 L0 smoke。
 - 不支持的版本输出 `status=skipped`，而不是失败。
 - 3.0-only 功能不混入 rollback must-pass 集合。
+
+独立 workload bricks 当前状态：
+
+- 已实现 `search_pressure`、`query_pressure`、`query_iterator_scan`、`upsert_pressure`、`delete_pressure`。
+- 上述 bricks 复用 `common/workload.py`，统一使用 BrickResult JSON、schema matrix、collection prefix、duration、worker 和 batch 参数。
+- `delete_pressure` 只删除 pressure 预留高 PK 范围，不删除 seed baseline。
 
 ## 验收标准
 

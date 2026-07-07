@@ -4,6 +4,8 @@ observe_after_upgrade_sec: 1800
 observe_after_rollback_sec: 1800
 compat_schema_matrix: milvus_client/manifests/schema_matrix_2_6.yaml
 forward_schema_matrix: milvus_client/manifests/schema_matrix_3_0.yaml
+rows_per_collection: 1000
+batch_size: 100
 actions:
   upgrade:
     type: external
@@ -14,7 +16,7 @@ actions:
 workloads:
   mixed_rw:
     max_workers: 32
-    duration_sec: 0
+    slice_duration_sec: 30
+    batch_size: 100
   validator:
     interval_sec: 60
-

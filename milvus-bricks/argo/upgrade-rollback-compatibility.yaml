@@ -24,14 +24,20 @@ spec:
         value: token
       - name: compat-schema-matrix
         value: milvus_client/manifests/schema_matrix_2_6.yaml
+      - name: forward-schema-matrix
+        value: milvus_client/manifests/schema_matrix_3_0.yaml
+      - name: cycles
+        value: "3"
       - name: rows-per-collection
         value: "1000"
       - name: batch-size
         value: "100"
-      - name: mixed-rw-duration-sec
-        value: "600"
+      - name: mixed-rw-slice-duration-sec
+        value: "30"
       - name: mixed-rw-max-workers
         value: "8"
+      - name: validator-interval-sec
+        value: "60"
       - name: upgrade-wait-file
         value: ""
       - name: rollback-wait-file
@@ -89,120 +95,81 @@ spec:
           volumeMounts:
             - name: workspace
               mountPath: /workspace
+    - name: scenario-runner
+      outputs:
+        artifacts:
+          - name: result-json
+            path: /tmp/brick-result/result.json
+          - name: checkpoints
+            path: /tmp/milvus-bricks/checkpoints
+          - name: results
+            path: /tmp/milvus-bricks/results
+      container:
+        image: "{{workflow.parameters.image}}"
+        command: [sh, -c]
+        env:
+          - name: MILVUS_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: "{{workflow.parameters.token-secret-name}}"
+                key: "{{workflow.parameters.token-secret-key}}"
+        args:
+          - |
+            mkdir -p /tmp/brick-result /tmp/milvus-bricks/checkpoints /tmp/milvus-bricks/results
+            python -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            cat >/tmp/milvus-bricks/scenario.yaml <<'EOF'
+            name: upgrade_rollback_compatibility
+            cycles: {{workflow.parameters.cycles}}
+            observe_after_upgrade_sec: {{workflow.parameters.observe-after-upgrade-sec}}
+            observe_after_rollback_sec: {{workflow.parameters.observe-after-rollback-sec}}
+            compat_schema_matrix: {{workflow.parameters.compat-schema-matrix}}
+            forward_schema_matrix: {{workflow.parameters.forward-schema-matrix}}
+            rows_per_collection: {{workflow.parameters.rows-per-collection}}
+            batch_size: {{workflow.parameters.batch-size}}
+            actions:
+              upgrade:
+                type: external
+                wait_file: "{{workflow.parameters.upgrade-wait-file}}"
+              rollback:
+                type: external
+                wait_file: "{{workflow.parameters.rollback-wait-file}}"
+            workloads:
+              mixed_rw:
+                max_workers: {{workflow.parameters.mixed-rw-max-workers}}
+                slice_duration_sec: {{workflow.parameters.mixed-rw-slice-duration-sec}}
+                batch_size: {{workflow.parameters.batch-size}}
+              validator:
+                interval_sec: {{workflow.parameters.validator-interval-sec}}
+            EOF
+            cd /workspace/repo/milvus-bricks
+            PYTHONPATH=. python -m milvus_client.scenarios.upgrade_rollback_compatibility \
+              --scenario-manifest /tmp/milvus-bricks/scenario.yaml \
+              --uri "{{workflow.parameters.uri}}" \
+              --token "$MILVUS_TOKEN" \
+              --collection-prefix "{{workflow.parameters.collection-prefix}}" \
+              --checkpoint-dir /tmp/milvus-bricks/checkpoints \
+              --output-json /tmp/brick-result/result.json
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspace
+          - name: milvus-bricks-state
+            mountPath: /tmp/milvus-bricks
+      initContainers:
+        - name: checkout
+          image: alpine/git:2.45.2
+          command: [sh, -c]
+          args:
+            - |
+              git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" \
+                "{{workflow.parameters.repo-url}}" /workspace/repo
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
     - name: upgrade-rollback-compatibility
       dag:
         tasks:
-          - name: precheck
-            template: brick-runner
-            arguments:
-              parameters:
-                - name: module
-                  value: milvus_client.requests.precheck
-                - name: args
-                  value: ""
-          - name: create-compat-schema
-            dependencies: [precheck]
-            template: brick-runner
-            arguments:
-              parameters:
-                - name: module
-                  value: milvus_client.requests.create_schema_matrix
-                - name: args
-                  value: >-
-                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
-                    --drop-if-exists false
-                    --load-after-create true
-          - name: seed-compat-data
-            dependencies: [create-compat-schema]
-            template: brick-runner
-            arguments:
-              parameters:
-                - name: module
-                  value: milvus_client.requests.seed_data
-                - name: args
-                  value: >-
-                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
-                    --rows-per-collection {{workflow.parameters.rows-per-collection}}
-                    --batch-size {{workflow.parameters.batch-size}}
-          - name: validate-before-upgrade
-            dependencies: [seed-compat-data]
-            template: brick-runner
-            arguments:
-              parameters:
-                - name: module
-                  value: milvus_client.requests.validate_data_integrity
-                - name: args
-                  value: >-
-                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
-          - name: mixed-rw-pressure
-            dependencies: [validate-before-upgrade]
-            template: brick-runner
-            arguments:
-              parameters:
-                - name: module
-                  value: milvus_client.requests.mixed_rw_pressure
-                - name: args
-                  value: >-
-                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
-                    --duration-sec {{workflow.parameters.mixed-rw-duration-sec}}
-                    --max-workers {{workflow.parameters.mixed-rw-max-workers}}
-                    --batch-size {{workflow.parameters.batch-size}}
-          - name: wait-upgrade
-            dependencies: [validate-before-upgrade]
-            template: wait-file
-            arguments:
-              parameters:
-                - name: wait-file
-                  value: "{{workflow.parameters.upgrade-wait-file}}"
-                - name: action-name
-                  value: upgrade
-          - name: observe-after-upgrade
-            dependencies: [wait-upgrade]
-            template: observe
-            arguments:
-              parameters:
-                - name: seconds
-                  value: "{{workflow.parameters.observe-after-upgrade-sec}}"
-                - name: phase
-                  value: after-upgrade
-          - name: validate-after-upgrade
-            dependencies: [mixed-rw-pressure, observe-after-upgrade]
-            template: brick-runner
-            arguments:
-              parameters:
-                - name: module
-                  value: milvus_client.requests.validate_data_integrity
-                - name: args
-                  value: >-
-                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
-          - name: wait-rollback
-            dependencies: [validate-after-upgrade]
-            template: wait-file
-            arguments:
-              parameters:
-                - name: wait-file
-                  value: "{{workflow.parameters.rollback-wait-file}}"
-                - name: action-name
-                  value: rollback
-          - name: observe-after-rollback
-            dependencies: [wait-rollback]
-            template: observe
-            arguments:
-              parameters:
-                - name: seconds
-                  value: "{{workflow.parameters.observe-after-rollback-sec}}"
-                - name: phase
-                  value: after-rollback
-          - name: validate-after-rollback
-            dependencies: [observe-after-rollback]
-            template: brick-runner
-            arguments:
-              parameters:
-                - name: module
-                  value: milvus_client.requests.validate_data_integrity
-                - name: args
-                  value: >-
-                    --schema-matrix {{workflow.parameters.compat-schema-matrix}}
+          - name: run-closed-loop-scenario
+            template: scenario-runner
     - name: wait-file
       inputs:
         parameters:

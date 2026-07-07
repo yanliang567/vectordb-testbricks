@@ -49,3 +49,52 @@ bricks:
     lifecycle_phases: ["before_upgrade", "after_upgrade", "before_rollback", "after_rollback", "steady_state"]
     destructive: true
 
+  - name: search_pressure
+    module: milvus_client.requests.search_pressure
+    category: workload
+    milvus_versions: ["2.6", "3.0"]
+    feature_tags: ["compat_basic_vector", "compat_multi_vector"]
+    required_capabilities: []
+    compat_mode: rollback_safe
+    lifecycle_phases: ["before_upgrade", "after_upgrade", "before_rollback", "after_rollback", "steady_state"]
+    destructive: false
+
+  - name: query_pressure
+    module: milvus_client.requests.query_pressure
+    category: workload
+    milvus_versions: ["2.6", "3.0"]
+    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array"]
+    required_capabilities: []
+    compat_mode: rollback_safe
+    lifecycle_phases: ["before_upgrade", "after_upgrade", "before_rollback", "after_rollback", "steady_state"]
+    destructive: false
+
+  - name: query_iterator_scan
+    module: milvus_client.requests.query_iterator_scan
+    category: workload
+    milvus_versions: ["2.6", "3.0"]
+    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array"]
+    required_capabilities: []
+    compat_mode: rollback_safe
+    lifecycle_phases: ["before_upgrade", "after_upgrade", "before_rollback", "after_rollback", "steady_state"]
+    destructive: false
+
+  - name: upsert_pressure
+    module: milvus_client.requests.upsert_pressure
+    category: workload
+    milvus_versions: ["2.6", "3.0"]
+    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array"]
+    required_capabilities: []
+    compat_mode: rollback_safe
+    lifecycle_phases: ["before_upgrade", "after_upgrade", "before_rollback", "after_rollback", "steady_state"]
+    destructive: true
+
+  - name: delete_pressure
+    module: milvus_client.requests.delete_pressure
+    category: workload
+    milvus_versions: ["2.6", "3.0"]
+    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array"]
+    required_capabilities: []
+    compat_mode: rollback_safe
+    lifecycle_phases: ["before_upgrade", "after_upgrade", "before_rollback", "after_rollback", "steady_state"]
+    destructive: true

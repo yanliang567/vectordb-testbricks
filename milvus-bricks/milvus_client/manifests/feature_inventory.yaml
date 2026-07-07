@@ -8,6 +8,11 @@ features:
       - create_schema_matrix
       - seed_data
       - mixed_rw_pressure
+      - search_pressure
+      - query_pressure
+      - query_iterator_scan
+      - upsert_pressure
+      - delete_pressure
       - validate_data_integrity
 
   - id: compat_multi_vector
@@ -19,6 +24,11 @@ features:
       - create_schema_matrix
       - seed_data
       - mixed_rw_pressure
+      - search_pressure
+      - query_pressure
+      - query_iterator_scan
+      - upsert_pressure
+      - delete_pressure
       - validate_data_integrity
 
   - id: compat_json_array
@@ -29,6 +39,10 @@ features:
     bricks:
       - create_schema_matrix
       - seed_data
+      - query_pressure
+      - query_iterator_scan
+      - upsert_pressure
+      - delete_pressure
       - validate_data_integrity
 
   - id: query_aggregation
