@@ -94,6 +94,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
 
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
     pressure_modules = parameter_values["pressure-modules"]
+    assert parameter_values["pressure-fail-on-error"] == "true"
     assert "search_pressure" in pressure_modules
     assert "query_pressure" in pressure_modules
     assert "query_iterator_scan" in pressure_modules
@@ -103,6 +104,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
 
     pressure_template = templates["pressure-daemon"]
     assert "volumeMounts" not in pressure_template["container"]
+    pressure_command = pressure_template["container"]["args"][0]
+    assert 'if [ "$rc" = "0" ] && [ ! -f /tmp/pressure-ready ]; then' in pressure_command
     pressure_artifacts = {artifact["name"] for artifact in pressure_template["outputs"]["artifacts"]}
     assert "pressure-results" in pressure_artifacts
 

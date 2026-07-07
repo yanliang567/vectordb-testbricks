@@ -2,11 +2,11 @@
 """
 Create Horizon Test Collection based on create_horizon.p configuration
 
-This script creates a Milvus collection based on the configuration specified 
+This script creates a Milvus collection based on the configuration specified
 in create_horizon.p file, using the MilvusClient API (Milvus 2.6 compatible).
 
 Collection Info:
-- Collection Name: horizon_test_collection  
+- Collection Name: horizon_test_collection
 - Primary Key: id (VARCHAR, auto_id=True)
 - Vector Field: feature (FLOAT_VECTOR, dim=768) - provided by Horizon
 - Scalar Fields: timestamp, url, device_id, longitude, latitude
@@ -19,10 +19,10 @@ Usage:
 Examples:
     # Create on local Milvus
     python3 create_horizon_collection.py localhost
-    
+
     # Create on cloud with API key
     python3 create_horizon_collection.py https://your-cluster.zillizcloud.com your_api_key
-    
+
     # Drop existing collection first
     python3 create_horizon_collection.py localhost None TRUE
 """
@@ -39,11 +39,11 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 def create_horizon_collection_schema():
     """
     Create collection schema based on create_horizon.p configuration
-    
+
     Returns:
         CollectionSchema: The complete schema for horizon_test_collection
     """
-    
+
     # Define all fields according to create horizon test collection
     all_scalar_fields = [
        'device_id', 'type_model', 'brand', 'hardware', 'software', 'district',
@@ -60,14 +60,14 @@ def create_horizon_collection_schema():
             auto_id=True,
             description="Primary key field with auto-generated values"
         ),
-        
+
         # Vector field (provided by Horizon)
         FieldSchema(name="feature",
             dtype=DataType.FLOAT_VECTOR,
             dim=768,
             description="Feature vector provided by Horizon (768 dimensions)"
         ),
-        
+
         # device_id field (VARCHAR)
         FieldSchema(name="device_id",
             dtype=DataType.VARCHAR,
@@ -83,7 +83,7 @@ def create_horizon_collection_schema():
             nullable=True,
             description="Type model field"
         ),
-        
+
         # brand field (VARCHAR)
         FieldSchema(name="brand",
             dtype=DataType.VARCHAR,
@@ -91,7 +91,7 @@ def create_horizon_collection_schema():
             nullable=True,
             description="Brand field"
         ),
-        
+
         # hardware field (VARCHAR)
         FieldSchema(name="hardware",
             dtype=DataType.VARCHAR,
@@ -99,7 +99,7 @@ def create_horizon_collection_schema():
             nullable=True,
             description="Hardware field"
         ),
-        
+
         # software field (VARCHAR)
         FieldSchema(name="software",
             dtype=DataType.VARCHAR,
@@ -107,7 +107,7 @@ def create_horizon_collection_schema():
             nullable=True,
             description="Software field"
         ),
-        
+
         # district field (VARCHAR)
         FieldSchema(name="district",
             dtype=DataType.VARCHAR,
@@ -115,7 +115,7 @@ def create_horizon_collection_schema():
             nullable=True,
             description="District field"
         ),
-        
+
         # gcj02_lat field (FLOAT)
         FieldSchema(name="gcj02_lat",
             dtype=DataType.FLOAT,
@@ -129,21 +129,21 @@ def create_horizon_collection_schema():
             nullable=True,
             description="GCJ02 longitude field"
         ),
-        
+
         # wgs84_lat field (FLOAT)
         FieldSchema(name="wgs84_lat",
             dtype=DataType.FLOAT,
             nullable=True,
             description="WGS84 latitude field"
         ),
-        
+
         # wgs84_lon field (FLOAT)
         FieldSchema(name="wgs84_lon",
             dtype=DataType.FLOAT,
             nullable=True,
             description="WGS84 longitude field"
         ),
-        
+
         # geo_ids field (VARCHAR)
         FieldSchema(name="geo_ids",
             dtype=DataType.VARCHAR,
@@ -151,7 +151,7 @@ def create_horizon_collection_schema():
             nullable=True,
             description="Geo IDs field"
         ),
-        
+
         # timeline_tags field (VARCHAR)
         FieldSchema(name="timeline_tags",
             dtype=DataType.ARRAY,
@@ -161,7 +161,7 @@ def create_horizon_collection_schema():
             nullable=True,
             description="Timeline tags field"
         ),
-        
+
         # event_id field (VARCHAR)
         FieldSchema(name="event_id",
             dtype=DataType.VARCHAR,
@@ -177,7 +177,7 @@ def create_horizon_collection_schema():
             nullable=True,
             description="Drive field"
         ),
-        
+
         # drive_status field (VARCHAR)
         FieldSchema(name="drive_status",
             dtype=DataType.VARCHAR,
@@ -185,7 +185,7 @@ def create_horizon_collection_schema():
             nullable=True,
             description="Drive status field"
         ),
-        
+
         # app_id field (VARCHAR)
         FieldSchema(name="app_id",
             dtype=DataType.VARCHAR,
@@ -193,7 +193,7 @@ def create_horizon_collection_schema():
             nullable=True,
             description="App ID field"
         ),
-        
+
         # link_info field (VARCHAR)
         FieldSchema(name="link_info",
             dtype=DataType.ARRAY,
@@ -272,66 +272,66 @@ def create_horizon_collection_schema():
         # )
 
     ]
-    
+
     # Create collection schema
     schema = CollectionSchema(
         fields=fields,
         description="Horizon test collection for feature vector storage and retrieval",
         enable_dynamic_field=True  # As specified in create_horizon.p
     )
-    
+
     return schema
 
 def create_collection_indexes(client, collection_name):
     """
     Create appropriate indexes for the horizon collection
-    
+
     Args:
         client: MilvusClient instance
         collection_name: Name of the collection
     """
-    
+
     logging.info("🔧 Creating indexes for collection...")
-    
+
     # Prepare index parameters
     index_params = client.prepare_index_params()
-    
+
     # Vector index for feature field (HNSW for high performance)
     index_params.add_index(
         field_name="feature",
         index_type="AUTOINDEX",
         metric_type="L2"
     )
-    
+
     # Index for scalar fields
-    index_params.add_index(field_name="timestamp", 
+    index_params.add_index(field_name="timestamp",
         index_type="STL_SORT"
     )
 
-    index_params.add_index(field_name="type_model", 
+    index_params.add_index(field_name="type_model",
         index_type="INVERTED"
     )
 
-    index_params.add_index(field_name="expert_collected", 
+    index_params.add_index(field_name="expert_collected",
         index_type="BITMAP"
     )
 
-    index_params.add_index(field_name="device_id", 
+    index_params.add_index(field_name="device_id",
         index_type="AUTOINDEX"
     )
 
-    index_params.add_index(field_name="timeline_tags", 
+    index_params.add_index(field_name="timeline_tags",
         index_type="INVERTED"
     )
 
-    index_params.add_index(field_name="sensor_lidar_type", 
+    index_params.add_index(field_name="sensor_lidar_type",
         index_type="AUTOINDEX"
     )
 
-    index_params.add_index(field_name="gcj02_lat", 
+    index_params.add_index(field_name="gcj02_lat",
         index_type="STL_SORT"
     )
-    index_params.add_index(field_name="gcj02_lon", 
+    index_params.add_index(field_name="gcj02_lon",
         index_type="STL_SORT"
     )
 
@@ -342,19 +342,19 @@ def create_collection_indexes(client, collection_name):
     # index_params.add_index(field_name="wgs84_location",
     #     index_type="RTREE"
     # )
-    
+
     # Build all indexes
     client.create_index(
         collection_name=collection_name,
         index_params=index_params
     )
-    
+
     logging.info("✅ All indexes created successfully")
 
 
 def main():
     """Main function to create horizon collection"""
-    
+
     # Parse command line arguments
     try:
         # host = sys.argv[1]
@@ -364,11 +364,11 @@ def main():
         host = 'https://in01-3e1a7693c28817d.ali-cn-hangzhou.cloud-uat.zilliz.cn:19530'
         api_key = 'cc5bf695ea9236e2c64617e9407a26cf0953034485d27216f8b3f145e3eb72396e042db2abb91c4ef6fde723af70e754d68ca787'
         drop_if_exists = "TRUE"
-        
+
     except IndexError:
         print("Usage: python3 create_horizon_collection.py <host> [api_key] [drop_if_exists]")
         print("\nParameters:")
-        print("  host            : Milvus server host or URI")  
+        print("  host            : Milvus server host or URI")
         print("  api_key         : API key for cloud (optional, use 'None' for local)")
         print("  drop_if_exists  : Drop existing collection first (TRUE/FALSE, default: FALSE)")
         print("\nExamples:")
@@ -381,23 +381,23 @@ def main():
         print("  # Drop existing first")
         print("  python3 create_horizon_collection.py localhost None TRUE")
         sys.exit(1)
-    
+
     # Setup logging
     log_filename = f"/tmp/create_horizon_collection_{int(time.time())}.log"
     file_handler = logging.FileHandler(filename=log_filename)
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
-    
+
     collection_name = "horizon_test_collection"
     port = 19530
-    
+
     logging.info("🚀 Starting Horizon Collection Creation")
     logging.info(f"  Host: {host}")
     logging.info(f"  Collection Name: {collection_name}")
     logging.info(f"  API Key: {'***' if api_key else 'None (local)'}")
     logging.info(f"  Drop if Exists: {drop_if_exists}")
-    
+
     try:
         # Create MilvusClient
         if api_key:
@@ -407,15 +407,15 @@ def main():
             if not host.startswith('http'):
                 host = f"http://{host}:{port}"
             client = MilvusClient(uri=host)
-        
+
         logging.info(f"✅ Connected to Milvus at {host}")
-        
+
         # Drop existing collection if requested
         if drop_if_exists and client.has_collection(collection_name):
             logging.info(f"🗑️ Dropping existing collection '{collection_name}'...")
             client.drop_collection(collection_name)
             logging.info("✅ Existing collection dropped")
-        
+
         # Check if collection already exists
         if client.has_collection(collection_name):
             logging.warning(f"⚠️ Collection '{collection_name}' already exists")
@@ -423,13 +423,13 @@ def main():
             if choice != 'y':
                 logging.info("Operation cancelled by user")
                 sys.exit(0)
-        
+
         # Create collection schema
         logging.info("📋 Creating collection schema...")
         schema = create_horizon_collection_schema()
         logging.info("✅ Schema created successfully")
-        
-        # Create collection with specified configuration 
+
+        # Create collection with specified configuration
         logging.info(f"🏗️ Creating collection '{collection_name}'...")
         client.create_collection(
             collection_name=collection_name,
@@ -437,10 +437,10 @@ def main():
             # Collection configuration from create_horizon.p
         )
         logging.info("✅ Collection created successfully")
-        
+
         # Create indexes
         create_collection_indexes(client, collection_name)
-        
+
         # Final summary
         logging.info("=" * 80)
         logging.info("🎯 HORIZON COLLECTION CREATION SUMMARY")
@@ -451,7 +451,7 @@ def main():
         logging.info(f"  📁 Log file: {log_filename}")
         logging.info("=" * 80)
         logging.info("🎉 Collection is ready for data insertion and querying!")
-        
+
     except Exception as e:
         logging.error(f"❌ Failed to create collection: {e}")
         sys.exit(1)

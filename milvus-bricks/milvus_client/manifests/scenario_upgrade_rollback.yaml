@@ -1,5 +1,6 @@
 name: upgrade_rollback_compatibility
 cycles: 3
+fail_on_background_failure: true
 observe_after_upgrade_sec: 1800
 observe_after_rollback_sec: 1800
 compat_schema_matrix: milvus_client/manifests/schema_matrix_2_6.yaml

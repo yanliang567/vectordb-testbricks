@@ -59,4 +59,3 @@ def result_from_args(args: Any, brick: str, status: str = PASSED) -> BrickResult
             "collection_prefix": args.collection_prefix,
         },
     )
-

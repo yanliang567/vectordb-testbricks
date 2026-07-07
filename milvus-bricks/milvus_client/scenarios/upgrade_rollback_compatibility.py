@@ -111,6 +111,14 @@ def observe(seconds: int, phase: str, step_results: list[dict]) -> None:
     step_results.append({"name": f"observe_{phase}", "return_code": 0, "seconds": seconds})
 
 
+def _failed_steps(step_results: list[dict], include_background: bool = True) -> list[dict]:
+    return [
+        step
+        for step in step_results
+        if (include_background or not step.get("background")) and int(step.get("return_code", 0)) != 0
+    ]
+
+
 def _start_pressure_loop(args, manifest: dict, stop_event: threading.Event, step_results: list[dict]) -> threading.Thread:
     workload = manifest.get("workloads", {}).get("mixed_rw", {})
     max_workers = str(workload.get("max_workers", 4))
@@ -172,6 +180,7 @@ def _start_validator_loop(args, manifest: dict, stop_event: threading.Event, ste
 def execute_scenario(args, manifest: dict) -> tuple[bool, list[dict]]:
     step_results: list[dict] = []
     cycles = int(manifest.get("cycles", 1))
+    fail_on_background_failure = bool(manifest.get("fail_on_background_failure", True))
     compat_schema = manifest["compat_schema_matrix"]
     forward_schema = manifest.get("forward_schema_matrix", "")
     rows_per_collection = str(manifest.get("rows_per_collection", 1000))
@@ -183,7 +192,7 @@ def execute_scenario(args, manifest: dict) -> tuple[bool, list[dict]]:
             args,
             "milvus_client.requests.create_schema_matrix",
             "create_compat_schema",
-            ["--schema-matrix", compat_schema, "--drop-if-exists", "false", "--load-after-create", "true"],
+            ["--schema-matrix", compat_schema, "--drop-if-exists", "true", "--load-after-create", "true"],
             "before_upgrade",
         )
     )
@@ -199,6 +208,8 @@ def execute_scenario(args, manifest: dict) -> tuple[bool, list[dict]]:
     step_results.append(
         run_brick(args, "milvus_client.requests.validate_data_integrity", "validate_before_upgrade", ["--schema-matrix", compat_schema], "before_upgrade")
     )
+    if _failed_steps(step_results):
+        return False, step_results
 
     stop_event = threading.Event()
     pressure_thread = _start_pressure_loop(args, manifest, stop_event, step_results)
@@ -218,7 +229,7 @@ def execute_scenario(args, manifest: dict) -> tuple[bool, list[dict]]:
                         args,
                         "milvus_client.requests.create_schema_matrix",
                         f"create_forward_schema_{cycle}",
-                        ["--schema-matrix", forward_schema, "--drop-if-exists", "false", "--load-after-create", "true"],
+                        ["--schema-matrix", forward_schema, "--drop-if-exists", "true", "--load-after-create", "true"],
                         "after_upgrade",
                         checkpoint_dir=forward_checkpoint_dir,
                     )
@@ -265,7 +276,7 @@ def execute_scenario(args, manifest: dict) -> tuple[bool, list[dict]]:
     step_results.append(
         run_brick(args, "milvus_client.requests.validate_data_integrity", "final_validate_compat", ["--schema-matrix", compat_schema], "steady_state")
     )
-    required_failures = [step for step in step_results if not step.get("background") and int(step.get("return_code", 0)) != 0]
+    required_failures = _failed_steps(step_results, include_background=fail_on_background_failure)
     return not required_failures, step_results
 
 

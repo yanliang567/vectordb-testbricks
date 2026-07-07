@@ -56,7 +56,7 @@ spec:
       - name: pressure-interval-sec
         value: "1"
       - name: pressure-fail-on-error
-        value: "false"
+        value: "true"
       - name: observe-after-upgrade-sec
         value: "60"
       - name: observe-after-rollback-sec
@@ -539,7 +539,7 @@ spec:
                 rc=$?
                 set -e
                 echo "pressure module=${module} iteration=${iteration} rc=${rc}"
-                if [ ! -f /tmp/pressure-ready ]; then
+                if [ "$rc" = "0" ] && [ ! -f /tmp/pressure-ready ]; then
                   touch /tmp/pressure-ready
                 fi
                 if [ "$rc" != "0" ] && [ "{{workflow.parameters.pressure-fail-on-error}}" = "true" ]; then

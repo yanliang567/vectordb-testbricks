@@ -6,7 +6,7 @@ This script reads parquet files from a local directory and inserts them into Mil
 with concurrent batch processing to handle large datasets efficiently.
 
 Directory structure expected:
-- data/: Contains parquet files with all required fields (id, feature, location, timestamp, url, 
+- data/: Contains parquet files with all required fields (id, feature, location, timestamp, url,
          device_id, expert_collected, sensor_lidar_type, p_url)
 
 Features:
@@ -23,10 +23,10 @@ Usage:
 Examples:
     # Use default settings (concurrency=2)
     python3 insert_horizon_local2.py
-    
+
     # Custom configuration for large datasets
     python3 insert_horizon_local2.py ./data localhost horizon_test_collection 2500 4
-    
+
     # Adjust concurrency based on system resources
     # concurrency=1: Sequential processing (no concurrency)
     # concurrency=2: Default, balanced performance (recommended)
@@ -155,11 +155,11 @@ class BatchDataProcessor:
     def convert_to_wkt_point(self, lon: float, lat: float) -> str:
         """
         Convert longitude and latitude to WKT Point format
-        
+
         Args:
             lon: Longitude value
             lat: Latitude value
-            
+
         Returns:
             WKT Point string in format: POINT(longitude latitude)
         """
@@ -167,12 +167,12 @@ class BatchDataProcessor:
             # Validate that lon and lat are numeric
             lon_val = float(lon)
             lat_val = float(lat)
-            
+
             # Create WKT Point format: POINT(longitude latitude)
             wkt_point = f"POINT({lon_val} {lat_val})"
-            
+
             return wkt_point
-            
+
         except (ValueError, TypeError) as e:
             logging.warning(f"⚠️ Invalid coordinate values - lon: {lon}, lat: {lat}, error: {e}")
             # Return a default or raise exception based on your requirements
@@ -307,58 +307,58 @@ class SimplifiedInserter:
             raise Exception(f"Failed to flush collection: {e}")
 
 
-def process_single_batch(batch_idx: int, processor: BatchDataProcessor, 
+def process_single_batch(batch_idx: int, processor: BatchDataProcessor,
                          inserter: SimplifiedInserter, batch_size: int,
                          total_batches: int) -> Tuple[int, int]:
     """
     Process a single batch (one file) with thread safety
-    
+
     Args:
         batch_idx: Index of the batch to process
         processor: BatchDataProcessor instance
         inserter: SimplifiedInserter instance
         batch_size: Size of each insertion batch
         total_batches: Total number of batches
-        
+
     Returns:
         Tuple of (batch_idx, number of records inserted)
     """
     try:
         logging.info("=" * 60)
         logging.info(f"📖 [Thread] Processing batch {batch_idx + 1}/{total_batches}")
-        
+
         # Read batch data (one file)
         df = processor.read_batch_data(batch_idx)
-        
+
         if df is None or df.empty:
             logging.error(f"❌ No data available for batch {batch_idx + 1}")
             raise Exception(f"No data available for batch {batch_idx + 1}")
-        
+
         # Convert DataFrame to records
         logging.info(f"🔗 [Thread] Converting batch {batch_idx + 1} data... {len(df)} records")
         records = processor.convert_to_records(df)
-        
+
         if not records:
             logging.error(f"❌ No records available for batch {batch_idx + 1}")
             raise Exception(f"No records available for batch {batch_idx + 1}")
-        
+
         # Insert data
         logging.info(f"💾 [Thread] Inserting batch {batch_idx + 1} data... {len(records)} records")
         success, batch_inserted = inserter.insert_data(records, batch_size)
-        
+
         if not success:
             logging.error(f"❌ Batch {batch_idx + 1} insertion failed")
             raise Exception(f"Batch {batch_idx + 1} insertion failed")
-        
+
         # Memory cleanup after each batch
         logging.info(f"🧹 [Thread] Cleaning up memory for batch {batch_idx + 1}")
         del df, records
         gc.collect()
-        
+
         logging.info(f"✅ [Thread] Batch {batch_idx + 1} complete: {batch_inserted} records inserted")
-        
+
         return batch_idx, batch_inserted
-        
+
     except Exception as e:
         logging.error(f"❌ Critical error in batch {batch_idx + 1}: {e}")
         raise Exception(f"Critical error in batch {batch_idx + 1}: {e}")
@@ -429,16 +429,16 @@ def main():
             # Submit all batch processing tasks
             future_to_batch = {
                 executor.submit(
-                    process_single_batch, 
-                    batch_idx, 
-                    processor, 
-                    inserter, 
-                    batch_size, 
+                    process_single_batch,
+                    batch_idx,
+                    processor,
+                    inserter,
+                    batch_size,
                     processor.total_batches
-                ): batch_idx 
+                ): batch_idx
                 for batch_idx in range(processor.total_batches)
             }
-            
+
             # Process completed tasks as they finish
             for future in as_completed(future_to_batch):
                 batch_idx = future_to_batch[future]
@@ -447,15 +447,15 @@ def main():
                     _, batch_inserted = future.result()
                     total_inserted += batch_inserted
                     completed_batches += 1
-                    
+
                     logging.info(f"📊 Progress: {completed_batches}/{processor.total_batches} batches completed, "
                                f"{total_inserted} total records inserted")
-                    
+
                 except Exception as e:
                     failed_batches.append(batch_idx)
                     logging.error(f"❌ Batch {batch_idx + 1} failed: {e}")
                     # Continue processing other batches even if one fails
-        
+
         # Check if any batches failed
         if failed_batches:
             logging.error(f"❌ {len(failed_batches)} batch(es) failed: {[idx + 1 for idx in failed_batches]}")

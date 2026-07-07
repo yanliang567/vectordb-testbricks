@@ -35,14 +35,14 @@ DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 class SimpleStats:
     """Simplified statistics system"""
-    
+
     def __init__(self, max_samples=1000):
         self.latencies = deque(maxlen=max_samples)
         self.total_searches = 0
         self.total_failures = 0
         self.start_time = time.time()
         self.lock = Lock()
-    
+
     def record_search(self, latency, success=True):
         """Record search result"""
         with self.lock:
@@ -50,10 +50,10 @@ class SimpleStats:
             self.total_searches += 1
             if not success:
                 self.total_failures += 1
-    
+
     def get_stats(self, actual_elapsed_time=None):
         """Get statistics information
-        
+
         :param actual_elapsed_time: Actual test duration for accurate QPS calculation
         """
         with self.lock:
@@ -69,15 +69,15 @@ class SimpleStats:
                     'min_latency': 0,
                     'max_latency': 0
                 }
-            
+
             # Prefer provided actual duration, otherwise use internal calculated time
             if actual_elapsed_time is not None:
                 elapsed_time = actual_elapsed_time
             else:
                 elapsed_time = time.time() - self.start_time
-            
+
             latency_array = np.array(self.latencies)
-            
+
             return {
                 'total_searches': self.total_searches,
                 'failures': self.total_failures,
@@ -89,7 +89,7 @@ class SimpleStats:
                 'min_latency': float(np.min(latency_array)),
                 'max_latency': float(np.max(latency_array))
             }
-    
+
     def reset_samples(self):
         """Reset sample data (keep total counts)"""
         with self.lock:
@@ -114,8 +114,8 @@ def generate_random_expression(expr_key):
         filter = random.choice(filters)
         return filter
     elif expr_key.upper() == "JSON-LIKE":
-        filters = ['json_content[\"content\"] like "%sta%"', 'json_content[\"content\"] like "%par%"', 
-        'json_content[\"content\"] like "%hos%"', 'json_content[\"content\"] like "%co%nt%"', 
+        filters = ['json_content[\"content\"] like "%sta%"', 'json_content[\"content\"] like "%par%"',
+        'json_content[\"content\"] like "%hos%"', 'json_content[\"content\"] like "%co%nt%"',
         'json_content[\"content\"] like "%off%"', 'json_content[\"content\"] like "%sto%re%"']
         filter = random.choice(filters)
         return filter
@@ -137,11 +137,11 @@ def generate_random_expression(expr_key):
 def single_search_task(client, collection_name, search_params, each_search_timeout=10):
     """
     Single search task - Support normal search and hybrid search
-    
+
     :param search_params: Dictionary containing search parameters
     """
     start_time = time.time()
-    
+
     try:
         if search_params['search_type'] == 'hybrid':
             # Hybrid search
@@ -167,17 +167,17 @@ def single_search_task(client, collection_name, search_params, each_search_timeo
                 partition_names=search_params.get('partition_names'),
                 timeout=each_search_timeout
             )
-        
+
         latency = time.time() - start_time
         result_count = len(result[0]) if result and len(result) > 0 else 0
-        
+
         return {
             'success': True,
             'latency': latency,
             'result_count': result_count,
             'search_type': search_params['search_type']
         }
-    
+
     except Exception as e:
         latency = time.time() - start_time
         return {
@@ -188,10 +188,10 @@ def single_search_task(client, collection_name, search_params, each_search_timeo
         }
 
 
-def create_search_params(search_type, collection_info, vec_field_names, nq, topk, 
+def create_search_params(search_type, collection_info, vec_field_names, nq, topk,
                         output_fields, filter, group_by_field):
     """Create search parameters - Use simplified common methods（only need schema parameter）"""
-        
+
     if search_type == 'hybrid':
         # Hybrid searchParameters
         reqs = []
@@ -201,9 +201,9 @@ def create_search_params(search_type, collection_info, vec_field_names, nq, topk
             if not dim:
                 logging.warning(f"Vector field {field_name} not found or has no dimension")
                 continue
-            
+
             search_vectors = generate_random_vectors(dim, nq)
-            
+
             # Create AnnSearchRequest (represented as dictionary)
             req = {
                 "data": search_vectors,
@@ -213,7 +213,7 @@ def create_search_params(search_type, collection_info, vec_field_names, nq, topk
                 "filter": filter
             }
             reqs.append(req)
-        
+
         return {
             'search_type': 'hybrid',
             'reqs': reqs,
@@ -221,7 +221,7 @@ def create_search_params(search_type, collection_info, vec_field_names, nq, topk
             'limit': topk,
             'output_fields': output_fields
         }
-    
+
     else:
         # Normal searchParameters
         if not vec_field_names:
@@ -230,17 +230,17 @@ def create_search_params(search_type, collection_info, vec_field_names, nq, topk
             field_name = all_vector_fields[0] if all_vector_fields else None
         else:
             field_name = vec_field_names[0]
-        
+
         if not field_name:
             raise ValueError("No vector fields found in collection")
-        
+
         # Simplified call：only need to pass schema and field_name
         dim = get_dim_by_field_name(schema=collection_info, field_name=field_name)
         if not dim:
             raise ValueError(f"Vector field {field_name} not found or has no dimension")
-        
+
         search_vectors = generate_random_vectors(dim, nq)
-        
+
         return {
             'search_type': 'normal',
             'data': search_vectors,
@@ -255,66 +255,66 @@ def create_search_params(search_type, collection_info, vec_field_names, nq, topk
 
 
 def search_permanently_simplified(client, collection_name, max_workers, search_type,
-                                 vec_field_names, nq, topk, output_fields, expr, 
+                                 vec_field_names, nq, topk, output_fields, expr,
                                  group_by_field, timeout, each_search_timeout):
     """
     Simplified version of continuous search testing
-    
+
     :param client: Single shared MilvusClient instance
     :param search_type: 'normal' 或 'hybrid'
     """
     stats = SimpleStats()
     end_time = time.time() + timeout
-    
+
     # Get collection information
     collection_info = client.describe_collection(collection_name)
-    
+
     # Determine vector fields - Use simplified common methods
     if not vec_field_names:
         # Simplified call：only need to pass schema
         vec_field_names = get_float_vec_field_names(schema=collection_info)
-    
+
     if not vec_field_names:
         raise ValueError("No vector fields found in collection")
-    
+
     # Log control variables
     last_logged_milestone = 0
     log_interval = min(max_workers * 100, 1000)
-    
+
     # Single thread pool，directly manage all search tasks
-    with ThreadPoolExecutor(max_workers=max_workers, 
+    with ThreadPoolExecutor(max_workers=max_workers,
                            thread_name_prefix="SearchWorker") as executor:
-        
+
         # Continuously submit search tasks until timeout
         submitted_tasks = 0
         pending_futures = set()
-        
+
         while time.time() < end_time:
             current_time = time.time()
             remaining_time = end_time - current_time
-            
+
             if remaining_time <= 0:
                 break
-            
+
             # Control number of pending tasks，to avoid infinite memory growth
             max_pending = min(max_workers * 2, 50)
-            
+
             # Submit new tasks（if there's space）
             while len(pending_futures) < max_pending and time.time() < end_time:
                 # Create search parameters
-                filter = generate_random_expression(expr_key=expr) 
+                filter = generate_random_expression(expr_key=expr)
                 search_params = create_search_params(
-                    search_type, collection_info, vec_field_names, 
+                    search_type, collection_info, vec_field_names,
                     nq, topk, output_fields, filter, group_by_field
                 )
-                
+
                 future = executor.submit(
                     single_search_task,
                     client, collection_name, search_params, each_search_timeout
                 )
                 pending_futures.add(future)
                 submitted_tasks += 1
-            
+
             # Collect completed tasks
             completed_futures = set()
             for future in list(pending_futures):
@@ -323,20 +323,20 @@ def search_permanently_simplified(client, collection_name, max_workers, search_t
                         result = future.result(timeout=0.1)
                         stats.record_search(result['latency'], result['success'])
                         completed_futures.add(future)
-                        
+
                         # Check result count
                         if result['success'] and 'result_count' in result:
                             if result['result_count'] != topk:
                                 logging.debug(f"Search results do not meet topk, expected:{topk}, actual:{result['result_count']}")
-                                
+
                     except Exception as e:
                         logging.warning(f"Task failed: {e}")
                         stats.record_search(0.1, False)
                         completed_futures.add(future)
-            
+
             # Remove completed tasks
             pending_futures -= completed_futures
-            
+
             # Periodically output statistics - avoid duplicate printing
             if submitted_tasks >= last_logged_milestone + log_interval:
                 current_stats = stats.get_stats()
@@ -351,7 +351,7 @@ def search_permanently_simplified(client, collection_name, max_workers, search_t
                 last_logged_milestone = submitted_tasks
                 # Reset sample data after an interval
                 stats.reset_samples()
-        
+
         # Wait for all remaining tasks to complete
         logging.info(f"Waiting for {len(pending_futures)} remaining tasks to complete...")
         for future in as_completed(pending_futures, timeout=30):
@@ -361,13 +361,13 @@ def search_permanently_simplified(client, collection_name, max_workers, search_t
             except Exception as e:
                 logging.warning(f"Final task failed: {e}")
                 stats.record_search(0.1, False)
-    
+
     # Final statistics - use actual test time to calculate accurate QPS
     actual_test_time = time.time() - stats.start_time
     final_stats = stats.get_stats(actual_elapsed_time=actual_test_time)
-    
+
     logging.info("=" * 80)
-    logging.info(f"FINAL SEARCH PERFORMANCE STATISTICS ({search_type.upper()}):") 
+    logging.info(f"FINAL SEARCH PERFORMANCE STATISTICS ({search_type.upper()}):")
     logging.info(f"  Actual Test Duration: {actual_test_time:.2f}s")
     logging.info(f"  Total Searches: {final_stats['total_searches']}")
     logging.info(f"  Total Failures: {final_stats['failures']}")
@@ -377,7 +377,7 @@ def search_permanently_simplified(client, collection_name, max_workers, search_t
     logging.info(f"  P95 Latency: {final_stats['p95_latency']:.3f}s")
     logging.info(f"  P99 Latency: {final_stats['p99_latency']:.3f}s")
     logging.info("=" * 80)
-    
+
     return final_stats
 
 
@@ -386,14 +386,14 @@ def verify_collection_setup(client, collection_name):
     if not client.has_collection(collection_name=collection_name):
         logging.error(f"Collection {collection_name} does not exist")
         return False
-            
+
     # Check if collection is loaded
     load_state = client.get_load_state(collection_name=collection_name)
     if load_state.get('state') != 'Loaded':
         logging.info(f"Loading collection {collection_name}...")
         client.load_collection(collection_name=collection_name)
         logging.info(f"Collection {collection_name} loaded successfully")
-    
+
     return True
 
 
@@ -438,44 +438,44 @@ if __name__ == '__main__':
     #     sys.exit(1)
 
     port = 19530
-    
+
     # Parameter processing
     if timeout <= 0:
         timeout = 2 * 3600
-    
+
     use_hybrid_search = use_hybrid_search in ["TRUE", "YES"]
     search_type = 'hybrid' if use_hybrid_search else 'normal'
-    
+
     if vec_field_names in ["None", "none", "NONE"] or vec_field_names == "":
         vec_field_names = None
     else:
         vec_field_names = vec_field_names.split(",")
-    
+
     if output_fields in ["None", "none", "NONE"] or output_fields == "":
         output_fields = None
     else:
         output_fields = output_fields.split(",")
-    
+
     if expr in ["None", "none", "NONE"] or expr == "":
         expr = None
-    
+
     if group_by_field in ["None", "none", "NONE"] or group_by_field == "":
         group_by_field = None
-    
+
     if nq <= 0:
         nq = 1
     if topk <= 0:
         topk = 10
-    
+
     each_search_timeout = 10
-    
+
     # Setup logging
     log_filename = f"/tmp/search_{name}_{int(time.time())}.log"
     file_handler = logging.FileHandler(filename=log_filename)
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
-    
+
     logging.info("🚀 Starting search_permanently test:")
     logging.info(f"  Host: {host}")
     logging.info(f"  Collection: {name}")
@@ -495,18 +495,18 @@ if __name__ == '__main__':
             client = MilvusClient(uri=f"http://{host}:{port}")
         else:
             client = MilvusClient(uri=host, token=api_key)
-        
+
         logging.info(f"✅ Created single shared MilvusClient for {host}")
-        
+
         # Verify collection
         if not verify_collection_setup(client, name):
             logging.error(f"Collection '{name}' setup verification failed")
             sys.exit(1)
-        
+
     except Exception as e:
         logging.error(f"Failed to create MilvusClient: {e}")
         sys.exit(1)
-    
+
     # Run search test
     start_time = time.time()
     final_stats = search_permanently_simplified(
@@ -524,12 +524,11 @@ if __name__ == '__main__':
         each_search_timeout=each_search_timeout
     )
     end_time = time.time()
-    
+
     actual_duration = end_time - start_time
     # Recalculate accurate final QPS
     accurate_qps = final_stats['total_searches'] / max(actual_duration, 0.001)
-    
+
     logging.info(f"✅ Search test completed in {actual_duration:.2f} seconds")
     logging.info(f"📊 Accurate Final QPS: {accurate_qps:.2f} ({final_stats['total_searches']} searches ÷ {actual_duration:.2f}s)")
     logging.info(f"📁 Log file: {log_filename}")
-    

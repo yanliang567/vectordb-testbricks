@@ -30,11 +30,11 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
-def do_insert_concurrent(client, collection_name, schema, nb, threads_num, 
+def do_insert_concurrent(client, collection_name, schema, nb, threads_num,
                          ins_times_per_thread, sleep_interval, start_id=0):
     """
     Perform concurrent insert testing using multiple threads
-    
+
     :param client: MilvusClient instance
     :param collection_name: str, collection name
     :param schema: dict, collection schema from describe_collection
@@ -44,11 +44,11 @@ def do_insert_concurrent(client, collection_name, schema, nb, threads_num,
     :param sleep_interval: int, sleep seconds between inserts
     :param start_id: int, starting ID value for primary key generation
     """
-    
+
     # Thread-safe counter for tracking progress
     insert_count = {'success': 0, 'failed': 0}
     lock = threading.Lock()
-    
+
     def insert_thread_worker(thread_id, rounds):
         """Worker function for each insert thread"""
         for r in range(rounds):
@@ -56,7 +56,7 @@ def do_insert_concurrent(client, collection_name, schema, nb, threads_num,
                 # Generate data for this batch
                 batch_start_id = start_id + thread_id * rounds * nb + r * nb
                 data = gen_row_data_by_schema(schema=schema, nb=nb, start=batch_start_id)
-                
+
                 # Validate data length
                 if isinstance(data, list) and len(data) > 0:
                     first_field_len = len(data[0]) if isinstance(data[0], list) else len(data)
@@ -65,7 +65,7 @@ def do_insert_concurrent(client, collection_name, schema, nb, threads_num,
                             f"Thread {thread_id} Round {r}: Generated data length mismatch. "
                             f"Expected: {nb}, Actual: {first_field_len}"
                         )
-                
+
                 # Execute insert
                 t1 = time.time()
                 result = client.insert(
@@ -73,55 +73,55 @@ def do_insert_concurrent(client, collection_name, schema, nb, threads_num,
                     data=data
                 )
                 t2 = round(time.time() - t1, 3)
-                
+
                 # Log and track success
                 with lock:
                     insert_count['success'] += 1
-                
+
                 logging.info(
                     f"Thread {thread_id} Round {r}: Insert completed in {t2}s, "
                     f"inserted {result.get('insert_count', nb)} entities"
                 )
-                
+
                 # Sleep between inserts if specified
                 if sleep_interval > 0:
                     time.sleep(sleep_interval)
-                    
+
             except Exception as e:
                 with lock:
                     insert_count['failed'] += 1
                 logging.error(f"Thread {thread_id} Round {r}: Insert failed - {e}")
-    
+
     # Start concurrent insert threads
     threads = []
     logging.info(
         f"Starting concurrent insert test on '{collection_name}': "
         f"{threads_num} threads × {ins_times_per_thread} inserts × {nb} entities/batch"
     )
-    
+
     if threads_num > 1:
         # Multi-threaded mode
         for i in range(threads_num):
             t = threading.Thread(
-                target=insert_thread_worker, 
+                target=insert_thread_worker,
                 args=(i, ins_times_per_thread),
                 name=f"InsertThread-{i}"
             )
             threads.append(t)
             t.start()
-        
+
         # Wait for all threads to complete
         for t in threads:
             t.join()
     else:
         # Single-threaded mode
         insert_thread_worker(0, ins_times_per_thread)
-    
+
     logging.info(
         f"Insert test completed: Success={insert_count['success']}, "
         f"Failed={insert_count['failed']}"
     )
-    
+
     return insert_count
 
 
@@ -146,7 +146,7 @@ if __name__ == '__main__':
         print("  python3 insert_perf_1.py localhost test_collection 128 1000 4 10 0 FALSE 100000 None")
         print("  # This will: Insert 40,000 entities starting from ID 100,000")
         sys.exit(1)
-    
+
     # Parse command line arguments
     host = sys.argv[1]
     collection_name = sys.argv[2]
@@ -158,12 +158,12 @@ if __name__ == '__main__':
     pre_load = str(sys.argv[8]).upper()
     start_id = int(sys.argv[9])
     api_key = str(sys.argv[10])
-    
+
     port = 19530
-    
+
     # Process boolean parameters
     pre_load = True if pre_load == "TRUE" else False
-    
+
     # Setup logging
     log_filename = f"/tmp/insert_perf_{collection_name}.log"
     file_handler = logging.FileHandler(filename=log_filename)
@@ -171,7 +171,7 @@ if __name__ == '__main__':
     handlers = [file_handler, stdout_handler]
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt=DATE_FORMAT, handlers=handlers)
     logger = logging.getLogger('INSERT_PERF')
-    
+
     logging.info("🚀 Starting insert_perf_1 (v2.6):")
     logging.info(f"  Host: {host}")
     logging.info(f"  Collection: {collection_name}")
@@ -182,7 +182,7 @@ if __name__ == '__main__':
     logging.info(f"  Sleep interval: {sleep_interval}s")
     logging.info(f"  Pre-load: {pre_load}")
     logging.info(f"  Start ID: {start_id}")
-    
+
     # Create MilvusClient
     try:
         if api_key is None or api_key == "" or api_key.upper() == "NONE":
@@ -193,7 +193,7 @@ if __name__ == '__main__':
     except Exception as e:
         logging.error(f"Failed to create MilvusClient: {e}")
         sys.exit(1)
-    
+
     # Check if collection exists, create if not
     if not client.has_collection(collection_name=collection_name):
         logging.warning(f"Collection '{collection_name}' does not exist. Creating with default schema...")
@@ -205,7 +205,7 @@ if __name__ == '__main__':
                 auto_id=True,
                 use_str_pk=False
             )
-            
+
             create_n_insert(
                 collection_name=collection_name,
                 schema=default_schema,
@@ -221,7 +221,7 @@ if __name__ == '__main__':
         except Exception as e:
             logging.error(f"Failed to create collection: {e}")
             sys.exit(1)
-    
+
     # Get collection schema
     try:
         schema = client.describe_collection(collection_name)
@@ -229,7 +229,7 @@ if __name__ == '__main__':
     except Exception as e:
         logging.error(f"Failed to get collection schema: {e}")
         sys.exit(1)
-    
+
     # Pre-load collection if requested
     if pre_load:
         try:
@@ -241,14 +241,14 @@ if __name__ == '__main__':
         except Exception as e:
             logging.error(f"Failed to load collection: {e}")
             # Continue anyway, as some operations work without loading
-    
+
     # Start insert performance test
     logging.info("=" * 80)
     logging.info("STARTING INSERT PERFORMANCE TEST")
     logging.info("=" * 80)
-    
+
     test_start_time = time.time()
-    
+
     # Execute concurrent inserts
     insert_stats = do_insert_concurrent(
         client=client,
@@ -260,28 +260,28 @@ if __name__ == '__main__':
         sleep_interval=sleep_interval,
         start_id=start_id
     )
-    
+
     test_end_time = time.time()
     total_time = test_end_time - test_start_time
-    
+
     # Calculate performance metrics
     total_inserts = num_threads * ins_per_thread
     successful_inserts = insert_stats['success']
     failed_inserts = insert_stats['failed']
-    
+
     # Requests per second (RPS)
     req_per_sec = round(successful_inserts / max(total_time, 0.001), 3)
-    
+
     # Entities throughput (entities per second)
     total_entities = successful_inserts * nb
     entities_throughput = round(total_entities / max(total_time, 0.001), 3)
-    
+
     # Average latency per request
     avg_latency = round(total_time / max(successful_inserts, 1), 3)
-    
+
     # Calculate ID range
     end_id = start_id + total_entities
-    
+
     # Final summary
     logging.info("=" * 80)
     logging.info("INSERT PERFORMANCE TEST COMPLETED")
@@ -301,20 +301,19 @@ if __name__ == '__main__':
     logging.info(f"  - Average latency: {avg_latency}s/request")
     logging.info(f"Log file: {log_filename}")
     logging.info("=" * 80)
-    
+
     # Flush collection to ensure data is persisted
     try:
         logging.info("Flushing collection to persist data...")
         t1 = time.time()
         client.flush(collection_name=collection_name)
         t2 = round(time.time() - t1, 3)
-        
+
         # Get final entity count
         stats = client.get_collection_stats(collection_name)
         final_count = stats.get('row_count', 0)
-        
+
         logging.info(f"✅ Collection flushed in {t2}s")
         logging.info(f"Final entity count: {final_count:,}")
     except Exception as e:
         logging.warning(f"Failed to flush collection: {e}")
-

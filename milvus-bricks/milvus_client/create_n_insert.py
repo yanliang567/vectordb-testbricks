@@ -150,7 +150,7 @@ if __name__ == '__main__':
     if len(dims) != len(indexes) or len(dims) != len(metrics) or len(dims) != len(vec_types):
         logging.error("dimensions, vec_types, indexes and metrics should have the same length")
         sys.exit(1)
-    
+
     if len(hosts) > 2:
         logging.error("only support 2 hosts max for now")
         sys.exit(1)
@@ -177,7 +177,7 @@ if __name__ == '__main__':
                  f"metrics: {metrics},  nb: {nb}, shards: {shards}, insert_times: {insert_times},  "
                  f"auto_id: {auto_id}, use_str_pk: {use_str_pk}, ttl: {ttl}, "
                  f"build_index for vector fields: {need_build_index}, load: {need_load}, api_key: {api_key}")
-    
+
     # Create MilvusClient
     client_2 = None
     if api_key is None or api_key == "" or api_key.upper() == "NONE":
@@ -197,9 +197,9 @@ if __name__ == '__main__':
     logging.info(f"Created schema: {schema}")
 
     # Create collection and insert data
-    create_n_insert(collection_name=name, schema=schema, nb=nb, insert_times=insert_times, 
-                    start=start, index_types=indexes, dims=dims, metric_types=metrics, ttl=ttl, 
-                    is_flush=True, build_index=need_build_index, shards_num=shards, 
+    create_n_insert(collection_name=name, schema=schema, nb=nb, insert_times=insert_times,
+                    start=start, index_types=indexes, dims=dims, metric_types=metrics, ttl=ttl,
+                    is_flush=True, build_index=need_build_index, shards_num=shards,
                     use_insert=use_insert, partial_update=partial_update,
                     build_scalar_index=False, clients=[client_1, client_2])
 

@@ -181,5 +181,3 @@ if __name__ == "__main__":
     elif sys.argv[1] == 'test':
         test_vectors = parse_hdf5(VECTOR_HDF5, 'test')
         merge_queries(test_vectors)
-
-

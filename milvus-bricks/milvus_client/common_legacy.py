@@ -34,14 +34,14 @@ def normalize_schema(schema):
     """
     if schema is None:
         raise ValueError("Schema cannot be None")
-    
+
     # If already is dict format (return value from describe_collection), return directly
     if isinstance(schema, dict):
         if 'fields' in schema:
             return schema
         else:
             raise ValueError("Invalid schema dict: missing 'fields' key")
-    
+
     # If is CollectionSchema object, convert to dict format
     elif isinstance(schema, CollectionSchema):
         fields = []
@@ -52,7 +52,7 @@ def normalize_schema(schema):
                 'is_primary': field.is_primary,
                 'params': {}
             }
-            
+
             # Handle dimension parameters of vector field
             if field.dtype in ALL_VECTOR_TYPES and hasattr(field, 'params'):
                 if field.dtype == DataType.SPARSE_FLOAT_VECTOR:
@@ -64,19 +64,19 @@ def normalize_schema(schema):
                         field_dict['params']['dim'] = field.dim
                     elif 'dim' in (field.params or {}):
                         field_dict['params']['dim'] = field.params['dim']
-            
+
             # Handle other field parameters
             if hasattr(field, 'params') and field.params:
                 field_dict['params'].update(field.params)
-                
+
             fields.append(field_dict)
-        
+
         return {
             'collection_name': getattr(schema, 'collection_name', 'unknown'),
             'description': getattr(schema, 'description', ''),
             'fields': fields
         }
-    
+
     else:
         raise ValueError(f"Unsupported schema type: {type(schema)}. "
                         f"Expected dict (from describe_collection) or CollectionSchema object")
@@ -109,7 +109,7 @@ def get_dim_by_field_name(schema, field_name):
     """
     normalized_schema = normalize_schema(schema)
     fields = normalized_schema.get('fields', [])
-    
+
     for field in fields:
         if field.get('name') == field_name:
             dim = field.get('params', {}).get('dim', None)
@@ -126,7 +126,7 @@ def get_dims(schema):
     normalized_schema = normalize_schema(schema)
     dims = {}
     fields = normalized_schema.get('fields', [])
-    
+
     for field in fields:
         if field.get('type') in FLOAT_VECTOR_TYPES:
             dim = field.get('params', {}).get('dim')
@@ -143,7 +143,7 @@ def get_float_vec_field_name(schema):
     """
     normalized_schema = normalize_schema(schema)
     fields = normalized_schema.get('fields', [])
-    
+
     for field in fields:
         if field.get('type') == DataType.FLOAT_VECTOR:
             return field.get('name')
@@ -158,7 +158,7 @@ def get_float_vec_field_names(schema):
     """
     normalized_schema = normalize_schema(schema)
     fields = normalized_schema.get('fields', [])
-    
+
     vector_field_names = [field.get('name') for field in fields
                           if field.get('type') in ALL_VECTOR_TYPES]
     return vector_field_names
@@ -172,7 +172,7 @@ def get_primary_field_name(schema):
     """
     normalized_schema = normalize_schema(schema)
     fields = normalized_schema.get('fields', [])
-    
+
     for field in fields:
         if field.get('is_primary', False):
             return field.get('name')
@@ -188,7 +188,7 @@ def get_vector_field_info_from_schema(schema):
     normalized_schema = normalize_schema(schema)
     vector_fields = []
     fields = normalized_schema.get('fields', [])
-    
+
     for field in fields:
         if field.get('type') in ALL_VECTOR_TYPES:
             vector_fields.append({
@@ -213,7 +213,7 @@ def delete_entities(client, collection_name, nb, search_params, rounds):
     auto_id = schema.get('auto_id', False)
     primary_field_name = get_primary_field_name(client, collection_name)
     vector_field_name = get_float_vec_field_name(client, collection_name)
-    
+
     if auto_id:
         for r in range(rounds):
             search_vector = [[random.random() for _ in range(dim)] for _ in range(1)]
@@ -735,17 +735,17 @@ def gen_upsert_data_by_pk_collection(client, collection_name, nb, start=0, end=0
     schema = client.describe_collection(collection_name)
     fields = schema.get('fields', [])
     auto_id = schema.get('auto_id', False)
-    
+
     for field in fields:
         field_name = field.get('name')
         field_type = field.get('type')
         is_primary = field.get('is_primary', False)
-        
+
         if field_type == DataType.FLOAT_VECTOR:
             dim = field.get('params', {}).get('dim')
             data.append([[random.random() for _ in range(dim)] for _ in range(nb)])
             continue
-            
+
         if field_type in [DataType.INT64]:
             if is_primary:
                 if not auto_id:
@@ -758,22 +758,22 @@ def gen_upsert_data_by_pk_collection(client, collection_name, nb, start=0, end=0
             else:
                 data.append([_ for _ in range(nb)])
                 continue
-                
+
         if field_type == DataType.INT8:
             data.append([random.randint(-128, 127) for _ in range(nb)])
             continue
-            
+
         if field_type == DataType.INT16:
             data.append([random.randint(-32768, 32767) for _ in range(nb)])
             continue
-            
+
         if field_type == DataType.INT32:
             if field_name == "version":
                 data.append([new_version for _ in range(nb)])
             else:
                 data.append([random.randint(-2147483648, 2147483647) for _ in range(nb)])
                 continue
-                
+
         if field_type == DataType.VARCHAR:
             if not is_primary:
                 max_length = field.get('params', {}).get('max_length', 100)
@@ -786,15 +786,15 @@ def gen_upsert_data_by_pk_collection(client, collection_name, nb, start=0, end=0
                     data.append([pk_prefix + str(j) for j in ids])
                 else:
                     continue
-                    
+
         if field_type == DataType.JSON:
             data.append([json.loads(s) for _ in range(nb)])
             continue
-            
+
         if field_type in [DataType.FLOAT, DataType.DOUBLE]:
             data.append([random.random() for _ in range(nb)])
             continue
-            
+
         if field_type == DataType.BOOL:
             data.append([True for _ in range(nb)])       # update to true in upsert
             continue
@@ -817,7 +817,7 @@ def insert_entities(clients, collection_name, nb, rounds, start=0, use_insert=Tr
     """
     schema = clients[0].describe_collection(collection_name)
     auto_id = schema.get('auto_id', False)
-    
+
     for r in range(int(rounds)):
         data = gen_row_data_by_schema(schema=schema, nb=nb, start=start + r * nb, new_version=new_version)
         t1 = time.time()
@@ -846,7 +846,7 @@ def upsert_entities(client, collection_name, nb, rounds, maxid, new_version="0",
         else:
             start = 0
             end = maxid
-        data = gen_upsert_data_by_pk_collection(client=client, collection_name=collection_name, 
+        data = gen_upsert_data_by_pk_collection(client=client, collection_name=collection_name,
                                               nb=nb, start=start, end=end, new_version=new_version)
         t1 = time.time()
         client.upsert(collection_name=collection_name, data=data)
@@ -939,7 +939,7 @@ def create_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False)
     :return: CollectionSchema object
     """
     fields = []
-    
+
     # Primary key field
     if use_str_pk:
         id_field = FieldSchema(
@@ -950,12 +950,12 @@ def create_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False)
         )
     else:
         id_field = FieldSchema(
-            name="id", 
+            name="id",
             dtype=DataType.INT64,
             is_primary=True
         )
     fields.append(id_field)
-    
+
     # Scalar fields
     fields.extend([
         FieldSchema(
@@ -996,7 +996,7 @@ def create_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False)
             nullable=True
         )
     ])
-    
+
     # Vector fields
     for i in range(len(dims)):
         embedding_field = FieldSchema(
@@ -1005,14 +1005,14 @@ def create_collection_schema(dims, vector_types, auto_id=True, use_str_pk=False)
             dim=int(dims[i])
         )
         fields.append(embedding_field)
-    
+
     # Create CollectionSchema object
     schema = CollectionSchema(
         fields=fields,
         description="Collection created by MilvusClient",
         auto_id=auto_id
     )
-    
+
     return schema
 
 
@@ -1041,7 +1041,7 @@ def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims
     :param build_scalar_index: bool, whether to build scalar index
     :param clients: list, MilvusClient objects
     """
-    
+
     # Check if collection exists
     for client in clients:
         if client is None:
@@ -1053,7 +1053,7 @@ def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims
                 properties["collection.ttl.seconds"] = ttl
             if shards_num > 1:
                 properties["shards_num"] = shards_num
-                
+
             # Create collection
             client.create_collection(
                 collection_name=collection_name,
@@ -1070,16 +1070,16 @@ def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims
         if build_index:
             vec_field_names = get_float_vec_field_names(schema)
             logging.info(f"build index for {vec_field_names}")
-            
+
             for i in range(len(dims)):
                 index_type = str(index_types[i]).upper()
                 metric_type = str(metric_types[i]).upper()
                 index_params = get_default_params_by_index_type(index_type.upper(), metric_type)
                 vec_field_name = vec_field_names[i]
-                
+
                 # Check if index exists
                 index_exists = client.list_indexes(collection_name=collection_name, field_name=vec_field_name)
-                
+
                 if not index_exists:
                     t0 = time.time()
                     # Prepare index params for MilvusClient
@@ -1098,7 +1098,7 @@ def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims
                     logging.info(f"build {vec_field_name} index {index_params} costs {tt}")
                 else:
                     logging.info(f"{vec_field_name} index already exists")
-                    
+
             # Build index for scalar fields
             if build_scalar_index:
                 schema_desc = client.describe_collection(collection_name)
@@ -1128,14 +1128,14 @@ def create_n_insert(collection_name, schema, nb, insert_times, index_types, dims
     # Insert data
     insert_entities(clients=clients, collection_name=collection_name, nb=nb, rounds=insert_times,
                     use_insert=use_insert, partial_update=partial_update, new_version=new_version, start=start)
-    
+
     if is_flush:
         for client in clients:
             if client is None:
                 continue
             client.flush(collection_name=collection_name)
             logging.info(f"Flushed collection: {collection_name} by {client}")
-    
+
     # Get entity count (optional, can be enabled if needed)
     # stats = client.get_collection_stats(collection_name=collection_name)
     # entity_count = stats.get('row_count', 0)

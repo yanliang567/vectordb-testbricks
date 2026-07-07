@@ -4,7 +4,7 @@ Create Multiple Collections - Updated for MilvusClient API 2.6
 
 This script creates multiple collections with configurable parameters including:
 - Collection count and naming
-- Partition configuration  
+- Partition configuration
 - Vector dimensions and data types
 - Index building options
 - Bulk data insertion
@@ -27,13 +27,13 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 
 
-def create_simple_collection_with_partitions(client, collection_name, dim, nb, 
-                                            insert_times_per_partition, partition_num, 
+def create_simple_collection_with_partitions(client, collection_name, dim, nb,
+                                            insert_times_per_partition, partition_num,
                                             index_type, metric_type, build_index=True,
                                             shards_num=1, pre_load=False, build_scalar_index=False):
     """
     Create a simple collection with partitions using MilvusClient API
-    
+
     :param client: MilvusClient instance
     :param collection_name: str, collection name
     :param dim: int, vector dimension
@@ -47,22 +47,22 @@ def create_simple_collection_with_partitions(client, collection_name, dim, nb,
     :param pre_load: bool, whether to pre-load collection
     :param build_scalar_index: bool, whether to build scalar index
     """
-    
+
     # Create simple schema
     auto_id = random.choice([True, False])
     schema = create_collection_schema(
-        dims=[dim], 
+        dims=[dim],
         vector_types=[DataType.FLOAT_VECTOR],
         auto_id=auto_id,
         use_str_pk=False
     )
-    
+
     # Use create_n_insert function for basic collection setup
     create_n_insert(
         collection_name=collection_name,
         schema=schema,
         nb=nb,
-        insert_times=insert_times_per_partition,  
+        insert_times=insert_times_per_partition,
         index_types=[index_type],
         dims=[dim],
         metric_types=[metric_type],
@@ -72,7 +72,7 @@ def create_simple_collection_with_partitions(client, collection_name, dim, nb,
         build_scalar_index=build_scalar_index,
         clients=[client]
     )
-    
+
     # Create additional partitions if needed
     if partition_num > 0:
         for j in range(partition_num):
@@ -83,7 +83,7 @@ def create_simple_collection_with_partitions(client, collection_name, dim, nb,
                     partition_name=partition_name
                 )
                 logging.info(f"Created partition: {partition_name}")
-                
+
                 # Insert data into each partition
                 schema_info = client.describe_collection(collection_name)
                 for r in range(insert_times_per_partition):
@@ -96,7 +96,7 @@ def create_simple_collection_with_partitions(client, collection_name, dim, nb,
                     )
                     t2 = round(time.time() - t1, 3)
                     logging.info(f"{partition_name} insert batch {r} costs {t2}s")
-                    
+
             except Exception as e:
                 logging.warning(f"Failed to create/insert partition {partition_name}: {e}")
 
@@ -106,7 +106,7 @@ def execute_collection_creation(client, collection_name, dim, nb, insert_times_p
                               pre_load, build_scalar_index, need_load, partition_key_enabled):
     """
     Execute collection creation for a single collection
-    
+
     :param client: MilvusClient instance
     :param collection_name: str, collection name
     :param dim: int, vector dimension
@@ -122,11 +122,11 @@ def execute_collection_creation(client, collection_name, dim, nb, insert_times_p
     :param need_load: bool, whether to load at end
     :param partition_key_enabled: bool, whether partition key is enabled
     """
-    
+
     # Check if collection already exists
     if not client.has_collection(collection_name=collection_name):
         auto_id = random.choice([True, False])
-        
+
         if not partition_key_enabled:
             # Standard collection creation
             create_simple_collection_with_partitions(
@@ -162,7 +162,7 @@ def execute_collection_creation(client, collection_name, dim, nb, insert_times_p
                 build_scalar_index=build_scalar_index
             )
             collection_name = f"{collection_name}_simplified"  # Mark as simplified
-            
+
         logging.info(f"Created {collection_name} successfully")
     else:
         logging.info(f"{collection_name} already exists")
@@ -202,7 +202,7 @@ if __name__ == '__main__':
         print("\nExample:")
         print("  python3 create_multi_collections.py localhost test_collection 5 2 1 128 1000 3 TRUE TRUE FALSE TRUE None None 4 HNSW FALSE")
         sys.exit(1)
-    
+
     # Parse command line arguments
     host = sys.argv[1]
     collection_prefix = sys.argv[2]
@@ -239,7 +239,7 @@ if __name__ == '__main__':
     need_load = True if post_load == "TRUE" else False
     pre_load = True if pre_load == "TRUE" else False
     build_scalar_index = True if build_scalar_index == "TRUE" else False
-    
+
     # Handle partition key
     if partition_key_field == "" or partition_key_field == "NONE":
         partition_key_enabled = False
@@ -302,7 +302,7 @@ if __name__ == '__main__':
     # Submit all collection creation tasks
     start_time = time.time()
     logging.info(f"Starting to create {collection_num} collections...")
-    
+
     futures = []
     for i in range(collection_num):
         collection_name = f"{collection_prefix}_{i}"
@@ -321,7 +321,7 @@ if __name__ == '__main__':
             logging.error(f"Collection creation failed: {e}")
 
     pool.shutdown(wait=True)
-    
+
     end_time = time.time()
     total_time = round(end_time - start_time, 2)
 

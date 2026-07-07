@@ -42,4 +42,3 @@ def test_common_parser_accepts_protocol_options(tmp_path):
     assert args.capability_probe is True
     assert args.skip_unsupported is True
     assert args.lifecycle_phase == "steady_state"
-

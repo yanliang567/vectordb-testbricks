@@ -1,2 +1,1 @@
 """MilvusClient-based test bricks."""
-

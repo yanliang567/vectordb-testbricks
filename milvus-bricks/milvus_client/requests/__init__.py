@@ -1,2 +1,1 @@
 """Executable request bricks."""
-

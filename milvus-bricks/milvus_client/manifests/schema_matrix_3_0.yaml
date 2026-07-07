@@ -37,4 +37,3 @@ schemas:
       - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
     indexes:
       - {field: embedding, index_type: AUTOINDEX, metric_type: COSINE}
-

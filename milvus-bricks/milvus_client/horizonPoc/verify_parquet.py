@@ -14,37 +14,37 @@ def find_latest_parquet_file(pattern="/var/test/query_iterator_*.parquet"):
     files = glob.glob(pattern)
     if not files:
         return None
-    
+
     # Sort by modification time, newest first
     latest_file = max(files, key=os.path.getmtime)
     return latest_file
 
 def verify_parquet_file(filename):
     """Read parquet file and print first line for verification"""
-    
+
     if not filename or not os.path.exists(filename):
         print(f"❌ File not found: {filename}")
         return False
-    
+
     try:
         # Read parquet file
         df = pd.read_parquet(filename)
-        
+
         if len(df) == 0:
             print(f"⚠️  File is empty: {filename}")
             return False
-        
+
         print(f"✅ Successfully read parquet file: {filename}")
         print(f"📊 Total records: {len(df)}")
         print(f"📋 Columns: {list(df.columns)}")
         print(f"💾 File size: {get_file_size(filename)}")
-        
+
         print(f"\n📄 First line content:")
         print("-" * 50)
-        
+
         # Get first row
         first_row = df.iloc[0]
-        
+
         # Print each field in the first row
         for i, (column, value) in enumerate(first_row.items()):
             if isinstance(value, (list, tuple)) and len(value) > 3:
@@ -55,12 +55,12 @@ def verify_parquet_file(filename):
                 print(f"{column}: {str(value)[:50]}...")
             else:
                 print(f"{column}: {value}")
-        
+
         print("-" * 50)
         print(f"✅ First line verification completed successfully!")
-        
+
         return True
-        
+
     except Exception as e:
         print(f"❌ Error reading parquet file: {e}")
         return False
@@ -69,7 +69,7 @@ def get_file_size(filepath):
     """Get human-readable file size"""
     try:
         size_bytes = os.path.getsize(filepath)
-        
+
         for unit in ['B', 'KB', 'MB', 'GB']:
             if size_bytes < 1024.0:
                 return f"{size_bytes:.2f} {unit}"
@@ -80,7 +80,7 @@ def get_file_size(filepath):
 
 def main():
     """Main verification function"""
-    
+
     # Check if filename provided as argument
     if len(sys.argv) > 1:
         filename = sys.argv[1]
@@ -89,17 +89,17 @@ def main():
         # Find latest parquet file automatically
         print(f"🔍 Looking for latest query_iterator parquet file...")
         filename = find_latest_parquet_file()
-        
+
         if not filename:
             print(f"❌ No parquet files found matching pattern: /tmp/query_iterator_*.parquet")
             print(f"💡 Run query_iterator.py with save_in_file=TRUE first to generate files")
             return
-        
+
         print(f"📁 Found latest file: {filename}")
-    
+
     # Verify the file
     success = verify_parquet_file(filename)
-    
+
     if success:
         print(f"\n🎯 Parquet file verification successful!")
     else:

@@ -209,4 +209,3 @@ def build_index_params(spec: SchemaSpec):
 
 def collection_name(prefix: str, spec: SchemaSpec) -> str:
     return f"{prefix}_{spec.name}"
-

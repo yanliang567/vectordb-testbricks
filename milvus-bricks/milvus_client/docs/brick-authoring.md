@@ -54,4 +54,3 @@ Every result must include:
 Use `rollback_safe` only for schemas and operations that must survive
 2.6 -> 3.0 -> 2.6 validation. Mark 3.0-only features as `forward_only` unless
 rollback behavior has been explicitly proven.
-

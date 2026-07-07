@@ -15,4 +15,3 @@ def test_create_schema_matrix_dry_run_loads_manifest():
 
     assert result["schemas_total"] > 0
     assert result["errors"] == []
-

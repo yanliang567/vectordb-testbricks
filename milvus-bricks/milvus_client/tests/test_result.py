@@ -26,4 +26,3 @@ def test_write_result_json(tmp_path):
     assert payload["skip_reason"] is None
     assert payload["metrics"]["requests_total"] == 1
     assert payload["failures"] == []
-

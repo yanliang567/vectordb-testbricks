@@ -120,6 +120,7 @@ spec:
             cat >/tmp/milvus-bricks/scenario.yaml <<'EOF'
             name: upgrade_rollback_compatibility
             cycles: {{workflow.parameters.cycles}}
+            fail_on_background_failure: true
             observe_after_upgrade_sec: {{workflow.parameters.observe-after-upgrade-sec}}
             observe_after_rollback_sec: {{workflow.parameters.observe-after-rollback-sec}}
             compat_schema_matrix: {{workflow.parameters.compat-schema-matrix}}

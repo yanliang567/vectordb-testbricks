@@ -15,4 +15,3 @@ def test_schema_matrix_manifests_are_valid():
         specs = load_schema_matrix(ROOT / "manifests" / name)
         errors = validate_schema_matrix(specs, features, set(capabilities))
         assert errors == []
-

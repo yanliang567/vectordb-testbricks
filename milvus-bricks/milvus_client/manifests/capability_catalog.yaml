@@ -52,4 +52,3 @@ capabilities:
       config_probe: "common.storage.useLoonFFI"
     unsupported_behavior: skip
     requires_cluster_admin: true
-
