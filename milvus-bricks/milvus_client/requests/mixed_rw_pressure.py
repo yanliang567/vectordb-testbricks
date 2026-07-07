@@ -7,9 +7,10 @@ import sys
 
 from milvus_client.common.args import build_common_parser
 from milvus_client.common.client import create_client
-from milvus_client.common.data import generate_rows, stable_vector_value, vector_fields
+from milvus_client.common.data import generate_primary_key_value, generate_rows, stable_vector_value, vector_fields
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import collection_name, load_schema_matrix
+from milvus_client.common.validators import format_filter_value
 
 
 def add_args(parser):
@@ -33,46 +34,56 @@ def _assert_search_result(result, collection: str, field_name: str) -> None:
         raise AssertionError(f"{collection}.{field_name}: search returned no hits")
 
 
-def _primary_field_name(spec) -> str:
+def _primary_field(spec):
     for field in spec.fields:
         if field.primary:
-            return field.name
-    return "id"
+            return field
+    return None
 
 
 def _run_operation(client, spec, collection, operation, seed, batch_size, op_index):
-    if operation == "insert":
-        start_id = 10_000_000 + op_index * batch_size
-        rows = generate_rows(spec, start_id=start_id, count=batch_size, seed=seed)
-        client.insert(collection_name=collection, data=rows)
-        return ("insert", len(rows))
-    if operation == "upsert":
-        start_id = 20_000_000 + op_index * batch_size
-        rows = generate_rows(spec, start_id=start_id, count=batch_size, seed=seed)
-        client.upsert(collection_name=collection, data=rows)
-        return ("upsert", len(rows))
-    if operation == "query":
-        primary_field = _primary_field_name(spec)
-        client.query(collection_name=collection, filter=f"{primary_field} >= 0", output_fields=[primary_field], limit=10)
-        return ("query", 1)
-    if operation == "search":
-        fields = vector_fields(spec)
-        if not fields:
-            return ("search_skipped", 0)
-        searches = 0
-        for vector_field in fields:
-            query_vector = stable_vector_value(vector_field, op_index + 1, seed)
-            result = client.search(
+    try:
+        if operation == "insert":
+            start_id = 10_000_000 + op_index * batch_size
+            rows = generate_rows(spec, start_id=start_id, count=batch_size, seed=seed)
+            client.insert(collection_name=collection, data=rows)
+            return ("insert", len(rows))
+        if operation == "upsert":
+            start_id = 20_000_000 + op_index * batch_size
+            rows = generate_rows(spec, start_id=start_id, count=batch_size, seed=seed)
+            client.upsert(collection_name=collection, data=rows)
+            return ("upsert", len(rows))
+        if operation == "query":
+            primary = _primary_field(spec)
+            primary_field = primary.name if primary is not None else "id"
+            min_pk = generate_primary_key_value(primary, 0) if primary is not None else 0
+            client.query(
                 collection_name=collection,
-                data=[query_vector],
-                anns_field=vector_field.name,
-                limit=5,
-                search_params={"metric_type": _metric_type_for_field(spec, vector_field.name), "params": {}},
+                filter=f"{primary_field} >= {format_filter_value(min_pk)}",
+                output_fields=[primary_field],
+                limit=10,
             )
-            _assert_search_result(result, collection, vector_field.name)
-            searches += 1
-        return ("search", searches)
-    raise ValueError(f"unknown operation: {operation}")
+            return ("query", 1)
+        if operation == "search":
+            fields = vector_fields(spec)
+            if not fields:
+                return ("search_skipped", 0)
+            searches = 0
+            for vector_field in fields:
+                query_vector = stable_vector_value(vector_field, op_index + 1, seed)
+                result = client.search(
+                    collection_name=collection,
+                    data=[query_vector],
+                    anns_field=vector_field.name,
+                    limit=5,
+                    search_params={"metric_type": _metric_type_for_field(spec, vector_field.name), "params": {}},
+                )
+                _assert_search_result(result, collection, vector_field.name)
+                searches += 1
+            return ("search", searches)
+        raise ValueError(f"unknown operation: {operation}")
+    except Exception:
+        return (f"failed_{operation}", 1)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -129,10 +140,10 @@ def main(argv: list[str] | None = None) -> int:
         result.write(args.output_json)
         return 1
 
-    result.status = PASSED
+    result.status = FAILED if any(key.startswith("failed_") for key in counts) else PASSED
     result.metrics = counts
     result.write(args.output_json)
-    return 0
+    return 1 if result.status == FAILED else 0
 
 
 if __name__ == "__main__":

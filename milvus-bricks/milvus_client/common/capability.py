@@ -57,7 +57,12 @@ def evaluate_capabilities(
             unsupported.append(capability_id)
             continue
         minimum = spec.detect.get("server_version_min")
-        if minimum and not version_at_least(server_version, str(minimum)):
+        if minimum:
+            if version_at_least(server_version, str(minimum)):
+                supported.append(capability_id)
+            else:
+                unsupported.append(capability_id)
+        elif spec.detect:
             unsupported.append(capability_id)
         else:
             supported.append(capability_id)
@@ -66,4 +71,3 @@ def evaluate_capabilities(
         "supported": supported,
         "unsupported": unsupported,
     }
-

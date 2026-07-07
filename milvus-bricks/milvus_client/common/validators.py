@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Any
 
 from milvus_client.common.data import stable_checksum
@@ -26,8 +27,15 @@ class ValidationReport:
         self.failures.append(failure)
 
 
-def pk_range_filter(primary_field: str, min_pk: int, max_pk: int) -> str:
-    return f"{primary_field} >= {min_pk} && {primary_field} <= {max_pk}"
+def format_filter_value(value: Any) -> str:
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return str(value)
+
+
+def pk_range_filter(primary_field: str, min_pk: Any, max_pk: Any) -> str:
+    return f"{primary_field} >= {format_filter_value(min_pk)} && {primary_field} <= {format_filter_value(max_pk)}"
 
 
 def query_count(client: Any, collection_name: str, filter_expr: str = "") -> int:
@@ -66,14 +74,14 @@ def validate_pk_samples(
     client: Any,
     collection_name: str,
     primary_field: str,
-    sample_pks: list[int],
+    sample_pks: list[Any],
     report: ValidationReport,
 ) -> None:
     for pk in sample_pks:
         try:
             rows = client.query(
                 collection_name=collection_name,
-                filter=f"{primary_field} == {pk}",
+                filter=f"{primary_field} == {format_filter_value(pk)}",
                 output_fields=[primary_field],
                 limit=1,
             )
@@ -92,16 +100,19 @@ def query_rows_by_pk_range(
     max_pk: int,
     output_fields: list[str],
     batch_size: int,
+    pk_value_fn: Callable[[int], Any] | None = None,
 ) -> list[dict[str, Any]]:
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
+    if pk_value_fn is None:
+        pk_value_fn = lambda pk: pk
     rows = []
     start_pk = min_pk
     while start_pk <= max_pk:
         end_pk = min(start_pk + batch_size - 1, max_pk)
         batch = client.query(
             collection_name=collection_name,
-            filter=pk_range_filter(primary_field, start_pk, end_pk),
+            filter=pk_range_filter(primary_field, pk_value_fn(start_pk), pk_value_fn(end_pk)),
             output_fields=output_fields,
             limit=batch_size,
         )
@@ -120,6 +131,7 @@ def validate_scalar_checksum(
     checksum_fields: list[str],
     report: ValidationReport,
     batch_size: int = 1000,
+    pk_value_fn: Callable[[int], Any] | None = None,
 ) -> None:
     output_fields = list(dict.fromkeys([primary_field, *checksum_fields]))
     try:
@@ -131,6 +143,7 @@ def validate_scalar_checksum(
             max_pk,
             output_fields,
             batch_size,
+            pk_value_fn=pk_value_fn,
         )
     except Exception as exc:
         report.fail(QUERY_FAILED, "checksum query failed", collection=collection_name, error=str(exc))

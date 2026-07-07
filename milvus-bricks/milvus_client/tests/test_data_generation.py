@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from milvus_client.common.data import checksum_fields_for_spec, generate_rows, stable_checksum
-from milvus_client.common.schema import load_schema_matrix
+from milvus_client.common.schema import FieldSpec, SchemaSpec, load_schema_matrix
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,3 +73,37 @@ def test_generate_rows_uses_canonical_geometry_wkt():
     row = generate_rows(spec, start_id=0, count=1, seed=7)[0]
 
     assert row["location"] == "POINT (-122 37)"
+
+
+def test_generate_rows_supports_string_primary_key():
+    spec = SchemaSpec(
+        name="string_pk",
+        version="test",
+        fields=[
+            FieldSpec(name="pk", dtype="VARCHAR", primary=True, max_length=64),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=2),
+        ],
+    )
+
+    row = generate_rows(spec, start_id=7, count=1, seed=1)[0]
+
+    assert row["pk"] == "pk_00000000000000000007"
+
+
+def test_generate_rows_supports_numeric_arrays():
+    spec = SchemaSpec(
+        name="numeric_array",
+        version="test",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="ints", dtype="ARRAY", element_type="INT64"),
+            FieldSpec(name="floats", dtype="ARRAY", element_type="FLOAT"),
+            FieldSpec(name="bools", dtype="ARRAY", element_type="BOOL"),
+        ],
+    )
+
+    row = generate_rows(spec, start_id=3, count=1, seed=1)[0]
+
+    assert row["ints"] == [3, 4]
+    assert row["floats"] == [3.0, 4.0]
+    assert row["bools"] == [False, True]

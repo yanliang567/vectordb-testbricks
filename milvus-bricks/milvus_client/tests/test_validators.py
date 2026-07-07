@@ -6,7 +6,9 @@ from milvus_client.common.validators import (
     COUNT_DRIFT,
     ValidationReport,
     pk_range_filter,
+    query_rows_by_pk_range,
     validate_collection_count,
+    validate_pk_samples,
     validate_scalar_checksum,
 )
 
@@ -34,6 +36,10 @@ class FakeMilvusClient:
         if equals:
             pk = int(equals.group(1))
             return [row for row in self.rows if row["id"] == pk]
+        string_equals = re.fullmatch(r'pk == "([^"]+)"', filter_expr)
+        if string_equals:
+            pk = string_equals.group(1)
+            return [row for row in self.rows if row["pk"] == pk]
         between = re.fullmatch(r"id >= (\d+) && id <= (\d+)", filter_expr)
         if between:
             min_pk = int(between.group(1))
@@ -130,3 +136,39 @@ def test_scalar_checksum_reports_mismatch():
 
     assert not report.passed
     assert report.failures[0]["type"] == CHECKSUM_MISMATCH
+
+
+def test_validate_pk_samples_quotes_string_primary_keys():
+    client = FakeMilvusClient([{"pk": "pk_00000000000000000007"}])
+    report = ValidationReport()
+
+    validate_pk_samples(client, "qa_string", "pk", ["pk_00000000000000000007"], report)
+
+    assert report.passed
+    assert client.query_calls[0]["filter"] == 'pk == "pk_00000000000000000007"'
+
+
+def test_query_rows_by_pk_range_formats_generated_string_primary_keys():
+    class CapturingClient:
+        def __init__(self):
+            self.query_calls = []
+
+        def query(self, **kwargs):
+            self.query_calls.append(kwargs)
+            return [{"pk": "pk_00000000000000000007"}]
+
+    client = CapturingClient()
+
+    rows = query_rows_by_pk_range(
+        client,
+        "qa_string",
+        "pk",
+        7,
+        8,
+        ["pk"],
+        batch_size=2,
+        pk_value_fn=lambda pk: f"pk_{pk:020d}",
+    )
+
+    assert rows == [{"pk": "pk_00000000000000000007"}]
+    assert client.query_calls[0]["filter"] == 'pk >= "pk_00000000000000000007" && pk <= "pk_00000000000000000008"'

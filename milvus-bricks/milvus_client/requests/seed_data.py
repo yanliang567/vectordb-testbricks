@@ -24,68 +24,74 @@ def main(argv: list[str] | None = None) -> int:
     add_args(parser)
     args = parser.parse_args(argv)
     result = result_from_args(args, "seed_data")
-    client = create_client(args.uri, args.token, args.db_name)
-    specs = load_schema_matrix(args.schema_matrix)
-    checkpoint = {"collections": {}}
-    inserted_total = 0
+    try:
+        client = create_client(args.uri, args.token, args.db_name)
+        specs = load_schema_matrix(args.schema_matrix)
+        checkpoint = {"collections": {}}
+        inserted_total = 0
 
-    for spec in specs:
-        name = collection_name(args.collection_prefix, spec)
-        primary_fields = [field for field in spec.fields if field.primary]
-        primary_field = primary_fields[0].name if primary_fields else "id"
-        checksum_fields = checksum_fields_for_spec(spec)
-        collection_rows = []
-        collection_inserted = 0
-        try:
-            if not client.has_collection(name):
-                result.mark_failed("COLLECTION_NOT_FOUND", "target collection does not exist", collection=name)
+        for spec in specs:
+            name = collection_name(args.collection_prefix, spec)
+            primary_fields = [field for field in spec.fields if field.primary]
+            primary_field = primary_fields[0].name if primary_fields else "id"
+            checksum_fields = checksum_fields_for_spec(spec)
+            collection_rows = []
+            collection_inserted = 0
+            try:
+                if not client.has_collection(name):
+                    result.mark_failed("COLLECTION_NOT_FOUND", "target collection does not exist", collection=name)
+                    continue
+                for start in range(args.start_id, args.start_id + args.rows_per_collection, args.batch_size):
+                    count = min(args.batch_size, args.start_id + args.rows_per_collection - start)
+                    rows = generate_rows(spec, start_id=start, count=count, seed=args.seed)
+                    if rows:
+                        client.insert(collection_name=name, data=rows)
+                        collection_rows.extend(rows)
+                        collection_inserted += len(rows)
+                        inserted_total += len(rows)
+                if args.flush:
+                    try:
+                        client.flush(collection_name=name)
+                    except TypeError:
+                        client.flush(name)
+            except Exception as exc:
+                result.mark_failed(
+                    "SEED_COLLECTION_FAILED",
+                    "failed to seed collection",
+                    collection=name,
+                    schema=spec.name,
+                    inserted=collection_inserted,
+                    error=str(exc),
+                )
                 continue
-            for start in range(args.start_id, args.start_id + args.rows_per_collection, args.batch_size):
-                count = min(args.batch_size, args.start_id + args.rows_per_collection - start)
-                rows = generate_rows(spec, start_id=start, count=count, seed=args.seed)
-                if rows:
-                    client.insert(collection_name=name, data=rows)
-                    collection_rows.extend(rows)
-                    collection_inserted += len(rows)
-                    inserted_total += len(rows)
-            if args.flush:
-                try:
-                    client.flush(collection_name=name)
-                except TypeError:
-                    client.flush(name)
-        except Exception as exc:
-            result.mark_failed(
-                "SEED_COLLECTION_FAILED",
-                "failed to seed collection",
-                collection=name,
-                schema=spec.name,
-                inserted=collection_inserted,
-                error=str(exc),
-            )
-            continue
-        checkpoint["collections"][name] = {
-            "schema_name": spec.name,
-            "expected_count": args.rows_per_collection,
-            "primary_field": primary_field,
-            "min_pk": args.start_id,
-            "max_pk": args.start_id + args.rows_per_collection - 1,
-            "checksum_fields": checksum_fields,
-            "checksum": stable_checksum(collection_rows, fields=checksum_fields, primary_field=primary_field),
-        }
+            checkpoint["collections"][name] = {
+                "schema_name": spec.name,
+                "expected_count": args.rows_per_collection,
+                "primary_field": primary_field,
+                "min_pk": args.start_id,
+                "max_pk": args.start_id + args.rows_per_collection - 1,
+                "checksum_fields": checksum_fields,
+                "checksum": stable_checksum(collection_rows, fields=checksum_fields, primary_field=primary_field),
+            }
 
-    checkpoint_path = Path(args.checkpoint_dir) / "seed_data.json"
-    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    checkpoint_path.write_text(json.dumps(checkpoint, indent=2, sort_keys=True))
-    result.checkpoint = {"path": str(checkpoint_path), "version": 1}
-    result.metrics = {
-        "collections_total": len(specs),
-        "entities_inserted": inserted_total,
-        "checkpoint_path": str(checkpoint_path),
-    }
-    if result.failures:
+        checkpoint_path = Path(args.checkpoint_dir) / "seed_data.json"
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_path.write_text(json.dumps(checkpoint, indent=2, sort_keys=True))
+        result.checkpoint = {"path": str(checkpoint_path), "version": 1}
+        result.metrics = {
+            "collections_total": len(specs),
+            "entities_inserted": inserted_total,
+            "checkpoint_path": str(checkpoint_path),
+        }
+        if result.failures:
+            result.status = FAILED
+        result.write(args.output_json)
+        return 1 if result.failures else 0
+    except Exception as exc:
         result.status = FAILED
-    result.write(args.output_json)
-    return 1 if result.failures else 0
+        result.mark_failed("SEED_DATA_FAILED", "unexpected error during data seeding", error=str(exc))
+        result.write(args.output_json)
+        return 4
 
 
 if __name__ == "__main__":

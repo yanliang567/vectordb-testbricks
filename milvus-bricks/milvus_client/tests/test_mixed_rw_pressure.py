@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from milvus_client.common.schema import load_schema_matrix
+from milvus_client.common.schema import FieldSpec, SchemaSpec
 from milvus_client.requests.mixed_rw_pressure import _run_operation
 
 
@@ -38,6 +39,35 @@ def test_query_operation_uses_schema_primary_field():
     assert client.query_calls[0]["output_fields"] == ["custom_id"]
 
 
+def test_query_operation_quotes_string_primary_field():
+    spec = SchemaSpec(
+        name="string_pk",
+        version="test",
+        fields=[
+            FieldSpec(name="pk", dtype="VARCHAR", primary=True, max_length=64),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=2),
+        ],
+    )
+    client = FakeQueryClient()
+
+    op, count = _run_operation(client, spec, "qa_string", "query", 7, 10, 1)
+
+    assert op == "query"
+    assert count == 1
+    assert client.query_calls[0]["filter"] == 'pk >= "pk_00000000000000000000"'
+
+
+def test_failed_operation_is_returned_without_raising():
+    spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")[0]
+
+    class FailingClient:
+        def query(self, **kwargs):
+            del kwargs
+            raise RuntimeError("temporary failure")
+
+    assert _run_operation(FailingClient(), spec, "qa_dense", "query", 7, 10, 1) == ("failed_query", 1)
+
+
 def test_search_operation_covers_all_vector_fields():
     spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")[1]
     client = FakeSearchClient()
@@ -54,7 +84,7 @@ def test_search_operation_covers_all_vector_fields():
     assert all(call["search_params"]["metric_type"] == "COSINE" for call in client.search_calls)
 
 
-def test_search_operation_rejects_empty_hits():
+def test_search_operation_records_empty_hits_as_failed_operation():
     spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")[0]
 
     class EmptySearchClient:
@@ -62,9 +92,4 @@ def test_search_operation_rejects_empty_hits():
             del kwargs
             return [[]]
 
-    try:
-        _run_operation(EmptySearchClient(), spec, "qa_dense", "search", 7, 10, 1)
-    except AssertionError as exc:
-        assert "search returned no hits" in str(exc)
-    else:
-        raise AssertionError("expected empty search hits to fail")
+    assert _run_operation(EmptySearchClient(), spec, "qa_dense", "search", 7, 10, 1) == ("failed_search", 1)

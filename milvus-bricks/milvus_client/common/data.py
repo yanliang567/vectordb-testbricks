@@ -105,9 +105,15 @@ def checksum_fields_for_spec(spec: SchemaSpec) -> list[str]:
     return [field.name for field in spec.fields if field.dtype not in VECTOR_TYPES and not field.auto_id]
 
 
+def generate_primary_key_value(field: FieldSpec, pk: int) -> Any:
+    if field.dtype in {"VARCHAR", "STRING"}:
+        return f"pk_{pk:020d}"
+    return pk
+
+
 def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
     if field.primary:
-        return pk
+        return generate_primary_key_value(field, pk)
     if field.nullable and pk % 10 == 0:
         return None
     if field.dtype == "INT64":
@@ -123,6 +129,12 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
     if field.dtype == "JSON":
         return {"pk": pk, "bucket": pk % 16, "checksum": f"json_{pk}"}
     if field.dtype == "ARRAY":
+        if field.element_type in {"INT64", "INT32", "INT16", "INT8"}:
+            return [pk % 8, (pk + 1) % 8]
+        if field.element_type in {"FLOAT", "DOUBLE"}:
+            return [float(pk % 8), float((pk + 1) % 8)]
+        if field.element_type == "BOOL":
+            return [pk % 2 == 0, (pk + 1) % 2 == 0]
         return [f"tag_{pk % 8}", f"tag_{(pk + 1) % 8}"]
     if field.dtype in VECTOR_TYPES:
         return stable_vector_value(field, pk, seed)
