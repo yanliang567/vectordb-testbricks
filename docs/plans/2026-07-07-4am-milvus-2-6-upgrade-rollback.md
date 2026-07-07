@@ -12,10 +12,11 @@
 
 **文件：**
 - 创建: `milvus-bricks/argo/standalone-2-6-upgrade-rollback.yaml`
+- 创建: `milvus-bricks/argo/standalone-2-6-upgrade-rollback-rbac.yaml`
 
 **步骤 1: 固化 Milvus CR 创建和 image patch**
 
-从实跑 workflow 提取 `deploy-milvus`、`wait-milvus-ready`、`patch-milvus-image` 和 `maybe-cleanup` 模板。
+从实跑 workflow 提取 `deploy-milvus`、`wait-milvus-ready`、`patch-milvus-image` 和 `maybe-cleanup` 模板，并按 4am 约定把 client namespace 固定为 `qa`、Milvus namespace 固定为 `qa-milvus`。
 
 **步骤 2: 接入 request bricks**
 
@@ -27,7 +28,7 @@
 
 **步骤 3: 接入 daemon pressure**
 
-新增 `pressure-daemon`，在升级前启动并覆盖升级、观察、回滚、回滚后观察阶段。`validate_data_integrity` 保持前台同步步骤，避免 pressure 和 validation 并发挂载同一个 ReadWriteOnce checkpoint PVC。
+新增 `pressure-daemon`，在升级前启动并覆盖升级、观察、回滚、回滚后观察阶段。`validate_data_integrity` 保持前台同步步骤，避免 pressure 和 validation 并发挂载同一个 ReadWriteOnce checkpoint PVC。Pressure daemon 使用 readiness probe，确保依赖安装和首轮 workload 启动后再放行升级。
 
 ### 任务 2: 补模板测试
 
@@ -36,7 +37,7 @@
 
 **步骤 1: 断言新模板参数**
 
-校验 base image、target image、schema matrix、cleanup、pressure 参数存在。
+校验 base image、target image、schema matrix、keep_milvus、pressure 参数存在。
 
 **步骤 2: 断言闭环任务**
 

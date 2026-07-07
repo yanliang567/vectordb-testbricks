@@ -2,30 +2,41 @@ apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
   name: milvus-standalone-2-6-upgrade-rollback
+  namespace: qa
 spec:
-  serviceAccountName: qa-admin
+  serviceAccountName: milvus-upgrade-rollback-runner
   entrypoint: main
   onExit: maybe-cleanup
   arguments:
     parameters:
+      - name: client-namespace
+        value: qa
+      - name: milvus-namespace
+        value: qa-milvus
       - name: repo-url
         value: https://github.com/yanliang567/vectordb-testbricks.git
       - name: repo-revision
-        value: feat/milvus-client-bricks-runtime
-      - name: python-image
-        value: python:3.11-slim
-      - name: kubectl-image
-        value: harbor-us-vdc.zilliz.cc/devops/bitnami/kubectl:1.28.5
+        value: main
+      - name: client-image
+        value: harbor.milvus.io/qa/fouram:2.1
       - name: python-deps
         value: pymilvus==3.0.0 pyyaml numpy
-      - name: base-image
+      - name: base-milvus-image
         value: harbor.milvus.io/milvusdb/milvus:v2.6.18
       - name: base-version
         value: "2.6.18"
-      - name: target-image
+      - name: target-milvus-image
         value: harbor.milvus.io/milvusdb/milvus:2.6-20260707-682ac8df
       - name: target-version
         value: "2.6.0"
+      - name: standalone-cpu
+        value: "4"
+      - name: standalone-memory
+        value: 16Gi
+      - name: etcd-pvc-size
+        value: 10Gi
+      - name: storage-pvc-size
+        value: 20Gi
       - name: collection-prefix
         value: qa_upgrade_2618
       - name: schema-matrix
@@ -50,7 +61,7 @@ spec:
         value: "60"
       - name: observe-after-rollback-sec
         value: "60"
-      - name: cleanup
+      - name: keep-milvus
         value: "false"
   volumeClaimTemplates:
     - metadata:
@@ -64,7 +75,11 @@ spec:
     - name: main
       dag:
         tasks:
+          - name: resolve-inputs
+            template: resolve-inputs
+
           - name: deploy-base
+            dependencies: [resolve-inputs]
             template: deploy-milvus
 
           - name: wait-base-ready
@@ -73,7 +88,7 @@ spec:
             arguments:
               parameters:
                 - name: expected-image
-                  value: "{{workflow.parameters.base-image}}"
+                  value: "{{workflow.parameters.base-milvus-image}}"
 
           - name: precheck-base
             dependencies: [wait-base-ready]
@@ -140,7 +155,7 @@ spec:
             arguments:
               parameters:
                 - name: image
-                  value: "{{workflow.parameters.target-image}}"
+                  value: "{{workflow.parameters.target-milvus-image}}"
                 - name: version
                   value: "{{workflow.parameters.target-version}}"
                 - name: image-update-mode
@@ -152,7 +167,7 @@ spec:
             arguments:
               parameters:
                 - name: expected-image
-                  value: "{{workflow.parameters.target-image}}"
+                  value: "{{workflow.parameters.target-milvus-image}}"
 
           - name: observe-after-upgrade
             dependencies: [wait-upgrade-ready]
@@ -195,7 +210,7 @@ spec:
             arguments:
               parameters:
                 - name: image
-                  value: "{{workflow.parameters.base-image}}"
+                  value: "{{workflow.parameters.base-milvus-image}}"
                 - name: version
                   value: "{{workflow.parameters.base-version}}"
                 - name: image-update-mode
@@ -207,7 +222,7 @@ spec:
             arguments:
               parameters:
                 - name: expected-image
-                  value: "{{workflow.parameters.base-image}}"
+                  value: "{{workflow.parameters.base-milvus-image}}"
 
           - name: observe-after-rollback
             dependencies: [wait-rollback-ready]
@@ -244,10 +259,80 @@ spec:
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
 
+          - name: collect-artifacts
+            dependencies: [validate-after-rollback]
+            template: collect-artifacts
+
+    - name: resolve-inputs
+      outputs:
+        artifacts:
+          - name: env-snapshot
+            path: /tmp/milvus-bricks/reports/env_snapshot.json
+          - name: flow-summary
+            path: /tmp/milvus-bricks/reports/flow_summary.json
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
+        args:
+          - |
+            set -eu
+            mkdir -p /tmp/milvus-bricks/reports
+            cat > /tmp/milvus-bricks/reports/env_snapshot.json <<EOF
+            {
+              "workflow_name": "{{workflow.name}}",
+              "workflow_uid": "{{workflow.uid}}",
+              "client_namespace": "{{workflow.parameters.client-namespace}}",
+              "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
+              "client_image": "{{workflow.parameters.client-image}}",
+              "repo_url": "{{workflow.parameters.repo-url}}",
+              "repo_revision": "{{workflow.parameters.repo-revision}}",
+              "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
+              "base_version": "{{workflow.parameters.base-version}}",
+              "target_version": "{{workflow.parameters.target-version}}",
+              "collection_prefix": "{{workflow.parameters.collection-prefix}}",
+              "schema_matrix": "{{workflow.parameters.schema-matrix}}",
+              "standalone_cpu": "{{workflow.parameters.standalone-cpu}}",
+              "standalone_memory": "{{workflow.parameters.standalone-memory}}",
+              "etcd_pvc_size": "{{workflow.parameters.etcd-pvc-size}}",
+              "storage_pvc_size": "{{workflow.parameters.storage-pvc-size}}",
+              "keep_milvus": "{{workflow.parameters.keep-milvus}}"
+            }
+            EOF
+            cat > /tmp/milvus-bricks/reports/flow_summary.json <<EOF
+            {
+              "workflow_name": "{{workflow.name}}",
+              "workflow_uid": "{{workflow.uid}}",
+              "milvus_release_name": "{{workflow.name}}",
+              "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
+              "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
+              "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
+              "cleanup_attempted": false,
+              "cleanup_status": "pending",
+              "cleanup_error": "",
+              "kept_resources": []
+            }
+            EOF
+
     - name: deploy-milvus
       container:
-        image: "{{workflow.parameters.kubectl-image}}"
+        image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
         args:
           - |
             set -eux
@@ -256,25 +341,29 @@ spec:
             kind: Milvus
             metadata:
               name: {{workflow.name}}
-              namespace: {{workflow.namespace}}
+              namespace: {{workflow.parameters.milvus-namespace}}
               labels:
-                app: milvus-standalone-2-6-upgrade-rollback
-                workflow: {{workflow.name}}
+                app.kubernetes.io/managed-by: argo-workflow
+                app.kubernetes.io/name: milvus-standalone-2-6-upgrade-rollback
+                zilliz.com/workflow-run-id: "{{workflow.uid}}"
+              annotations:
+                zilliz.com/workflow-name: "{{workflow.name}}"
+                zilliz.com/workflow-uid: "{{workflow.uid}}"
             spec:
               mode: standalone
               components:
-                image: {{workflow.parameters.base-image}}
+                image: {{workflow.parameters.base-milvus-image}}
                 version: "{{workflow.parameters.base-version}}"
                 imagePullPolicy: IfNotPresent
                 imageUpdateMode: all
                 standalone:
                   resources:
                     requests:
-                      cpu: "4"
-                      memory: 16Gi
+                      cpu: "{{workflow.parameters.standalone-cpu}}"
+                      memory: "{{workflow.parameters.standalone-memory}}"
                     limits:
-                      cpu: "4"
-                      memory: 16Gi
+                      cpu: "{{workflow.parameters.standalone-cpu}}"
+                      memory: "{{workflow.parameters.standalone-memory}}"
               dependencies:
                 msgStreamType: rocksmq
                 etcd:
@@ -284,7 +373,7 @@ spec:
                     values:
                       replicaCount: 1
                       persistence:
-                        size: 10Gi
+                        size: "{{workflow.parameters.etcd-pvc-size}}"
                 storage:
                   inCluster:
                     deletionPolicy: Delete
@@ -292,7 +381,7 @@ spec:
                     values:
                       mode: standalone
                       persistence:
-                        size: 20Gi
+                        size: "{{workflow.parameters.storage-pvc-size}}"
             EOF
 
     - name: wait-milvus-ready
@@ -300,34 +389,41 @@ spec:
         parameters:
           - name: expected-image
       container:
-        image: "{{workflow.parameters.kubectl-image}}"
+        image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
         args:
           - |
             set -eu
             name="{{workflow.name}}"
             expected="{{inputs.parameters.expected-image}}"
             for i in $(seq 1 120); do
-              status=$(kubectl -n {{workflow.namespace}} get mi "$name" -o jsonpath='{.status.status}' 2>/dev/null || true)
-              current=$(kubectl -n {{workflow.namespace}} get mi "$name" -o jsonpath='{.status.currentImage}' 2>/dev/null || true)
-              endpoint=$(kubectl -n {{workflow.namespace}} get mi "$name" -o jsonpath='{.status.endpoint}' 2>/dev/null || true)
+              status=$(kubectl -n {{workflow.parameters.milvus-namespace}} get mi "$name" -o jsonpath='{.status.status}' 2>/dev/null || true)
+              current=$(kubectl -n {{workflow.parameters.milvus-namespace}} get mi "$name" -o jsonpath='{.status.currentImage}' 2>/dev/null || true)
+              endpoint=$(kubectl -n {{workflow.parameters.milvus-namespace}} get mi "$name" -o jsonpath='{.status.endpoint}' 2>/dev/null || true)
               echo "[$i] status=$status currentImage=$current endpoint=$endpoint expected=$expected"
-              if kubectl -n {{workflow.namespace}} get svc "${name}-milvus" >/dev/null 2>&1; then
+              if kubectl -n {{workflow.parameters.milvus-namespace}} get svc "${name}-milvus" >/dev/null 2>&1; then
                 svc_ok=true
               else
                 svc_ok=false
               fi
               if { [ "$status" = "Healthy" ] || [ "$status" = "Ready" ]; } && [ "$svc_ok" = "true" ]; then
                 if [ -z "$expected" ] || [ "$current" = "$expected" ]; then
-                  kubectl -n {{workflow.namespace}} get mi "$name" -o wide || true
-                  kubectl -n {{workflow.namespace}} get pods -l app.kubernetes.io/instance="$name" -o wide || true
+                  kubectl -n {{workflow.parameters.milvus-namespace}} get mi "$name" -o wide || true
+                  kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l app.kubernetes.io/instance="$name" -o wide || true
                   exit 0
                 fi
               fi
               sleep 10
             done
-            kubectl -n {{workflow.namespace}} get mi "$name" -o yaml || true
-            kubectl -n {{workflow.namespace}} get pods -l app.kubernetes.io/instance="$name" -o wide || true
+            kubectl -n {{workflow.parameters.milvus-namespace}} get mi "$name" -o yaml || true
+            kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l app.kubernetes.io/instance="$name" -o wide || true
             exit 1
 
     - name: patch-milvus-image
@@ -337,13 +433,20 @@ spec:
           - name: version
           - name: image-update-mode
       container:
-        image: "{{workflow.parameters.kubectl-image}}"
+        image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
         args:
           - |
             set -eux
-            kubectl -n {{workflow.namespace}} patch mi {{workflow.name}} --type merge -p "{\"spec\":{\"components\":{\"image\":\"{{inputs.parameters.image}}\",\"version\":\"{{inputs.parameters.version}}\",\"imageUpdateMode\":\"{{inputs.parameters.image-update-mode}}\"}}}"
-            kubectl -n {{workflow.namespace}} get mi {{workflow.name}} -o yaml | sed -n '1,180p'
+            kubectl -n {{workflow.parameters.milvus-namespace}} patch mi {{workflow.name}} --type merge -p "{\"spec\":{\"components\":{\"image\":\"{{inputs.parameters.image}}\",\"version\":\"{{inputs.parameters.version}}\",\"imageUpdateMode\":\"{{inputs.parameters.image-update-mode}}\"}}}"
+            kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o yaml | sed -n '1,180p'
 
     - name: run-brick
       inputs:
@@ -360,20 +463,25 @@ spec:
           - name: results
             path: /tmp/milvus-bricks/results
       container:
-        image: "{{workflow.parameters.python-image}}"
+        image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
         args:
           - |
             set -eux
-            apt-get update >/dev/null
-            apt-get install -y --no-install-recommends git ca-certificates >/dev/null
             python -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/results /tmp/milvus-bricks/checkpoints
             PYTHONPATH=. python -m {{inputs.parameters.module}} \
-              --uri "http://{{workflow.name}}-milvus:19530" \
+              --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
               --collection-prefix "{{workflow.parameters.collection-prefix}}" \
               --checkpoint-dir /tmp/milvus-bricks/checkpoints \
               --output-json /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json \
@@ -385,15 +493,29 @@ spec:
 
     - name: pressure-daemon
       daemon: true
+      outputs:
+        artifacts:
+          - name: pressure-results
+            path: /tmp/milvus-pressure/results
       container:
-        image: "{{workflow.parameters.python-image}}"
+        image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
+        readinessProbe:
+          exec:
+            command: [sh, -c, "test -f /tmp/pressure-ready"]
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
         args:
           - |
             set -eu
             trap 'echo "stopping pressure daemon"; exit 0' TERM INT
-            apt-get update >/dev/null
-            apt-get install -y --no-install-recommends git ca-certificates >/dev/null
             python -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
@@ -406,7 +528,7 @@ spec:
                 result="/tmp/milvus-pressure/results/${module}_${iteration}.json"
                 set +e
                 PYTHONPATH=. python -m "milvus_client.requests.${module}" \
-                  --uri "http://{{workflow.name}}-milvus:19530" \
+                  --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
                   --collection-prefix "{{workflow.parameters.collection-prefix}}" \
                   --checkpoint-dir /tmp/milvus-pressure/checkpoints \
                   --output-json "$result" \
@@ -417,12 +539,49 @@ spec:
                 rc=$?
                 set -e
                 echo "pressure module=${module} iteration=${iteration} rc=${rc}"
+                if [ ! -f /tmp/pressure-ready ]; then
+                  touch /tmp/pressure-ready
+                fi
                 if [ "$rc" != "0" ] && [ "{{workflow.parameters.pressure-fail-on-error}}" = "true" ]; then
                   exit "$rc"
                 fi
                 sleep "{{workflow.parameters.pressure-interval-sec}}"
               done
             done
+
+    - name: collect-artifacts
+      outputs:
+        artifacts:
+          - name: results
+            path: /tmp/milvus-bricks/results
+          - name: checkpoints
+            path: /tmp/milvus-bricks/checkpoints
+          - name: k8s-snapshot
+            path: /tmp/milvus-bricks/k8s
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
+        args:
+          - |
+            set -eu
+            mkdir -p /tmp/milvus-bricks/k8s
+            ns="{{workflow.parameters.milvus-namespace}}"
+            kubectl -n "$ns" get mi "{{workflow.name}}" -o yaml > /tmp/milvus-bricks/k8s/milvus.yaml 2>&1 || true
+            kubectl -n "$ns" get pods -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/pods.txt 2>&1 || true
+            kubectl -n "$ns" get services -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/services.txt 2>&1 || true
+            kubectl -n "$ns" get persistentvolumeclaims -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/pvcs.txt 2>&1 || true
+            kubectl -n "$ns" get deployments,statefulsets,replicasets -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/workloads.txt 2>&1 || true
+            kubectl -n "$ns" get events --sort-by=.lastTimestamp > /tmp/milvus-bricks/k8s/events.txt 2>&1 || true
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks
 
     - name: observe
       inputs:
@@ -432,20 +591,101 @@ spec:
       container:
         image: alpine:3.20
         command: [sh, -c]
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
         args:
           - |
             echo "Observing {{inputs.parameters.phase}} for {{inputs.parameters.seconds}} seconds"
             sleep "{{inputs.parameters.seconds}}"
 
     - name: maybe-cleanup
+      outputs:
+        artifacts:
+          - name: orchestrator-report
+            path: /tmp/milvus-bricks/reports/orchestrator_report.json
+          - name: flow-summary
+            path: /tmp/milvus-bricks/reports/flow_summary.json
+          - name: env-snapshot
+            path: /tmp/milvus-bricks/reports/env_snapshot.json
+          - name: k8s-snapshot
+            path: /tmp/milvus-bricks/k8s
       container:
-        image: "{{workflow.parameters.kubectl-image}}"
+        image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
         args:
           - |
-            set -eux
-            if [ "{{workflow.parameters.cleanup}}" = "true" ]; then
-              kubectl -n {{workflow.namespace}} delete mi {{workflow.name}} --ignore-not-found=true
+            set -eu
+            mkdir -p /tmp/milvus-bricks/reports /tmp/milvus-bricks/k8s
+            ns="{{workflow.parameters.milvus-namespace}}"
+            selector="zilliz.com/workflow-run-id={{workflow.uid}}"
+            kubectl -n "$ns" get milvuses -l "$selector" -o wide > /tmp/milvus-bricks/k8s/owned_milvuses.txt 2>&1 || true
+            kubectl -n "$ns" get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/instance_resources.txt 2>&1 || true
+            kubectl -n "$ns" get events --sort-by=.lastTimestamp > /tmp/milvus-bricks/k8s/events.txt 2>&1 || true
+            cleanup_attempted=false
+            cleanup_status="skipped"
+            cleanup_error=""
+            kept_resources="[]"
+            if [ "{{workflow.parameters.keep-milvus}}" = "false" ]; then
+              cleanup_attempted=true
+              if {
+                kubectl -n "$ns" delete milvuses -l "$selector" --ignore-not-found=true
+                kubectl -n "$ns" delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets -l app.kubernetes.io/instance="{{workflow.name}}" --ignore-not-found=true
+              } > /tmp/milvus-bricks/k8s/cleanup.txt 2>&1; then
+                cleanup_status="completed"
+              else
+                cleanup_status="failed"
+                cleanup_error="$(tr '\n' ' ' < /tmp/milvus-bricks/k8s/cleanup.txt | sed 's/"/\\"/g')"
+              fi
             else
-              echo "cleanup=false; keeping Milvus {{workflow.name}} for inspection"
+              kept_resources="[\"{{workflow.name}}\"]"
             fi
+            cat > /tmp/milvus-bricks/reports/env_snapshot.json <<EOF
+            {
+              "workflow_name": "{{workflow.name}}",
+              "workflow_uid": "{{workflow.uid}}",
+              "client_namespace": "{{workflow.parameters.client-namespace}}",
+              "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
+              "client_image": "{{workflow.parameters.client-image}}",
+              "repo_url": "{{workflow.parameters.repo-url}}",
+              "repo_revision": "{{workflow.parameters.repo-revision}}",
+              "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "target_milvus_image": "{{workflow.parameters.target-milvus-image}}"
+            }
+            EOF
+            cat > /tmp/milvus-bricks/reports/flow_summary.json <<EOF
+            {
+              "workflow_name": "{{workflow.name}}",
+              "workflow_uid": "{{workflow.uid}}",
+              "milvus_release_name": "{{workflow.name}}",
+              "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
+              "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
+              "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
+              "cleanup_attempted": $cleanup_attempted,
+              "cleanup_status": "$cleanup_status",
+              "cleanup_error": "$cleanup_error",
+              "kept_resources": $kept_resources
+            }
+            EOF
+            cat > /tmp/milvus-bricks/reports/orchestrator_report.json <<EOF
+            {
+              "status": "{{workflow.status}}",
+              "workflow_name": "{{workflow.name}}",
+              "workflow_uid": "{{workflow.uid}}",
+              "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
+              "schema_matrix": "{{workflow.parameters.schema-matrix}}",
+              "collection_prefix": "{{workflow.parameters.collection-prefix}}"
+            }
+            EOF

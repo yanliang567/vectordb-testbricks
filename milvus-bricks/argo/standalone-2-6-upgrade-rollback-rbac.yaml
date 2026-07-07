@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: milvus-upgrade-rollback-runner
+  namespace: qa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: milvus-upgrade-rollback-runner
+  namespace: qa
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: milvus-upgrade-rollback-runner
+  namespace: qa
+subjects:
+  - kind: ServiceAccount
+    name: milvus-upgrade-rollback-runner
+    namespace: qa
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: milvus-upgrade-rollback-runner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: milvus-upgrade-rollback-manager
+  namespace: qa-milvus
+rules:
+  - apiGroups: ["milvus.io"]
+    resources: ["milvuses"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale", "statefulsets", "statefulsets/scale", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "secrets", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: milvus-upgrade-rollback-manager
+  namespace: qa-milvus
+subjects:
+  - kind: ServiceAccount
+    name: milvus-upgrade-rollback-runner
+    namespace: qa
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: milvus-upgrade-rollback-manager

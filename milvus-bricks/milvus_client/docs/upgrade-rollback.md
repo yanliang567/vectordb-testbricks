@@ -69,10 +69,13 @@ upgrade and rollback waits.
 ## 4am Standalone 2.6 Upgrade/Rollback
 
 `argo/standalone-2-6-upgrade-rollback.yaml` is the 4am workflow template for
-the v2.6.18 rollback compatibility lane. It creates a Milvus Operator
-standalone CR with 4 CPU and 16 GiB memory, seeds only rollback-safe 2.6
-schemas, upgrades to a configured 2.6 target image, validates existing data,
-rolls back to v2.6.18, and validates the same checkpoint again.
+the v2.6.18 rollback compatibility lane. Client pods run in `qa` with the
+`milvus-upgrade-rollback-runner` ServiceAccount, while the Milvus Operator CR is
+created in `qa-milvus`. The template creates a standalone CR with parameterized
+4 CPU and 16 GiB defaults, seeds only rollback-safe 2.6 schemas, upgrades to a
+configured 2.6 target image, validates existing data, rolls back to v2.6.18, and
+validates the same checkpoint again. Client pods use the 4am default resources:
+2 CPU / 8 GiB requests and 4 CPU / 16 GiB limits.
 
 This template intentionally does not create `schema_matrix_3_0.yaml` data. New
 3.0 schema/data is upgrade-only for this scenario and is not expected to survive
@@ -81,11 +84,12 @@ a rollback to 2.6.
 Submit example:
 
 ```bash
+kubectl apply -f argo/standalone-2-6-upgrade-rollback-rbac.yaml
 argo submit -n qa --from workflowtemplate/milvus-standalone-2-6-upgrade-rollback \
-  -p repo-revision=feat/milvus-client-bricks-runtime \
-  -p base-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
-  -p target-image=harbor.milvus.io/milvusdb/milvus:2.6-20260707-682ac8df \
-  -p cleanup=false
+  -p repo-revision=main \
+  -p base-milvus-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
+  -p target-milvus-image=harbor.milvus.io/milvusdb/milvus:2.6-20260707-682ac8df \
+  -p keep-milvus=false
 ```
 
 The 4am template runs these strict foreground bricks:
@@ -115,6 +119,12 @@ data compatibility and integrity.
 The pressure daemon intentionally does not mount the checkpoint PVC. That keeps
 the read/write workload alive during foreground validation without relying on
 concurrent ReadWriteOnce volume mounts across multiple pods.
+
+The workflow emits `env_snapshot.json`, `flow_summary.json`,
+`orchestrator_report.json`, foreground brick results, checkpoints, pressure
+results, and Kubernetes snapshots. `keep-milvus=false` is the default cleanup
+policy; set `keep-milvus=true` only when preserving the generated Milvus CR for
+debugging.
 
 The current 2.6 schema matrix covers:
 

@@ -40,13 +40,19 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
 
     assert template["kind"] == "WorkflowTemplate"
     assert template["metadata"]["name"] == "milvus-standalone-2-6-upgrade-rollback"
+    assert template["metadata"]["namespace"] == "qa"
+    assert template["spec"]["serviceAccountName"] == "milvus-upgrade-rollback-runner"
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
 
-    assert parameter_values["base-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
-    assert parameter_values["target-image"].startswith("harbor.milvus.io/milvusdb/milvus:2.6-")
+    assert parameter_values["client-namespace"] == "qa"
+    assert parameter_values["milvus-namespace"] == "qa-milvus"
+    assert parameter_values["client-image"] == "harbor.milvus.io/qa/fouram:2.1"
+    assert parameter_values["repo-revision"] == "main"
+    assert parameter_values["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
+    assert parameter_values["target-milvus-image"].startswith("harbor.milvus.io/milvusdb/milvus:2.6-")
     assert parameter_values["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
     assert "forward-schema-matrix" not in parameter_values
-    assert parameter_values["cleanup"] in {"true", "false"}
+    assert parameter_values["keep-milvus"] == "false"
 
 
 def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pressure():
@@ -56,6 +62,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     templates = {item["name"]: item for item in template["spec"]["templates"]}
 
     expected_tasks = {
+        "resolve-inputs",
         "deploy-base",
         "wait-base-ready",
         "precheck-base",
@@ -73,13 +80,17 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "observe-after-rollback",
         "precheck-after-rollback",
         "validate-after-rollback",
+        "collect-artifacts",
     }
     assert expected_tasks <= set(tasks)
 
     assert templates["pressure-daemon"]["daemon"] is True
+    assert "readinessProbe" in templates["pressure-daemon"]["container"]
     assert "validator-daemon" not in templates
     assert tasks["patch-upgrade"]["dependencies"] == ["pressure-daemon"]
     assert tasks["patch-rollback"]["dependencies"] == ["validate-after-upgrade"]
+    assert tasks["deploy-base"]["dependencies"] == ["resolve-inputs"]
+    assert tasks["collect-artifacts"]["dependencies"] == ["validate-after-rollback"]
 
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
     pressure_modules = parameter_values["pressure-modules"]
@@ -92,6 +103,12 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
 
     pressure_template = templates["pressure-daemon"]
     assert "volumeMounts" not in pressure_template["container"]
+    pressure_artifacts = {artifact["name"] for artifact in pressure_template["outputs"]["artifacts"]}
+    assert "pressure-results" in pressure_artifacts
+
+    cleanup = templates["maybe-cleanup"]
+    cleanup_artifacts = {artifact["name"] for artifact in cleanup["outputs"]["artifacts"]}
+    assert {"orchestrator-report", "flow-summary", "env-snapshot", "k8s-snapshot"} <= cleanup_artifacts
 
 
 def test_standalone_2_6_upgrade_rollback_template_creates_4c16g_standalone():
@@ -100,7 +117,42 @@ def test_standalone_2_6_upgrade_rollback_template_creates_4c16g_standalone():
     command = deploy["container"]["args"][0]
 
     assert "mode: standalone" in command
-    assert 'cpu: "4"' in command
-    assert "memory: 16Gi" in command
+    assert 'cpu: "{{workflow.parameters.standalone-cpu}}"' in command
+    assert 'memory: "{{workflow.parameters.standalone-memory}}"' in command
+    assert "namespace: {{workflow.parameters.milvus-namespace}}" in command
+    assert "zilliz.com/workflow-run-id" in command
     assert "msgStreamType: rocksmq" in command
     assert "pvcDeletion: true" in command
+
+
+def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():
+    docs = [
+        doc
+        for doc in yaml.safe_load_all((ROOT / "argo" / "standalone-2-6-upgrade-rollback-rbac.yaml").read_text())
+        if doc
+    ]
+    kinds = [doc["kind"] for doc in docs]
+    assert kinds == ["ServiceAccount", "Role", "RoleBinding", "Role", "RoleBinding"]
+
+    service_account = docs[0]
+    qa_role = docs[1]
+    milvus_role = docs[3]
+    milvus_binding = docs[4]
+
+    assert service_account["metadata"]["namespace"] == "qa"
+    assert service_account["metadata"]["name"] == "milvus-upgrade-rollback-runner"
+    assert qa_role["metadata"]["namespace"] == "qa"
+    assert milvus_role["metadata"]["namespace"] == "qa-milvus"
+    assert milvus_binding["subjects"][0] == {
+        "kind": "ServiceAccount",
+        "name": "milvus-upgrade-rollback-runner",
+        "namespace": "qa",
+    }
+
+    milvus_resources = {
+        resource
+        for rule in milvus_role["rules"]
+        for resource in rule["resources"]
+    }
+    assert {"milvuses", "persistentvolumeclaims", "pods/log", "events"} <= milvus_resources
+    assert "pod logs" not in milvus_resources

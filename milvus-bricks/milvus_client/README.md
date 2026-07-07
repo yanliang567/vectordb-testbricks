@@ -151,6 +151,9 @@ See `docs/upgrade-rollback.md` for details.
 `../argo/standalone-2-6-upgrade-rollback.yaml` is a concrete 4am Argo
 WorkflowTemplate for the rollback-safe 2.6 path:
 
+- run client/workflow pods in `qa` with scoped RBAC from
+  `../argo/standalone-2-6-upgrade-rollback-rbac.yaml`;
+- deploy the Milvus standalone CR in `qa-milvus`;
 - create a 4c16g Milvus standalone from `v2.6.18`;
 - create and seed `schema_matrix_2_6.yaml` data only;
 - run baseline integrity validation;
@@ -161,7 +164,8 @@ WorkflowTemplate for the rollback-safe 2.6 path:
 - validate existing data after rollback.
 
 It intentionally skips 3.0 schema and workload creation because new 3.0 data is
-not rollback compatible with 2.6.
+not rollback compatible with 2.6. The default cleanup policy is
+`keep-milvus=false`; use `keep-milvus=true` only for debug retention.
 
 ## Tests
 
