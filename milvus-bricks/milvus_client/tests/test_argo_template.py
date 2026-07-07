@@ -99,13 +99,15 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "observe-after-rollback",
         "precheck-after-rollback",
         "validate-after-rollback",
-        "collect-artifacts",
+        "stop-pressure",
     ]
     for task_name in pressure_covered_tasks:
         assert "pressure-daemon" in tasks[task_name]["dependencies"]
     assert tasks["patch-rollback"]["dependencies"] == ["validate-after-upgrade", "pressure-daemon"]
     assert tasks["deploy-base"]["dependencies"] == ["resolve-inputs"]
-    assert tasks["collect-artifacts"]["dependencies"] == ["validate-after-rollback", "pressure-daemon"]
+    assert tasks["stop-pressure"]["dependencies"] == ["validate-after-rollback", "pressure-daemon"]
+    assert tasks["check-pressure-results"]["dependencies"] == ["stop-pressure"]
+    assert tasks["collect-artifacts"]["dependencies"] == ["check-pressure-results"]
 
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
     pressure_modules = parameter_values["pressure-modules"]
@@ -119,9 +121,13 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "mixed_rw_pressure" in pressure_modules
 
     pressure_template = templates["pressure-daemon"]
-    assert "volumeMounts" not in pressure_template["container"]
+    mounts = {mount["name"]: mount["mountPath"] for mount in pressure_template["container"]["volumeMounts"]}
+    assert mounts["milvus-test-state"] == "/tmp/milvus-bricks"
     pressure_command = pressure_template["container"]["args"][0]
     assert 'if [ "$rc" = "0" ] && [ ! -f /tmp/pressure-ready ]; then' in pressure_command
+    assert "pressure-stop" in pressure_command
+    assert "pressure-failed" in pressure_command
+    assert 'python3 -m json.tool "$result"' in pressure_command
     assert "python -m" not in pressure_command
     assert "python3 -m" in pressure_command
     assert "--baseline-rows-per-collection" in pressure_command
@@ -132,6 +138,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     cleanup = templates["maybe-cleanup"]
     cleanup_artifacts = {artifact["name"] for artifact in cleanup["outputs"]["artifacts"]}
     assert {"orchestrator-report", "flow-summary", "env-snapshot", "k8s-snapshot"} <= cleanup_artifacts
+
+    check_pressure = templates["check-pressure-results"]
+    check_artifacts = {artifact["name"] for artifact in check_pressure["outputs"]["artifacts"]}
+    assert "pressure-summary" in check_artifacts
 
 
 def test_standalone_2_6_upgrade_rollback_template_creates_4c16g_standalone():

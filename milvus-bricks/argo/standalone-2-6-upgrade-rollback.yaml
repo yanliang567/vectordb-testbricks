@@ -259,8 +259,16 @@ spec:
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
 
-          - name: collect-artifacts
+          - name: stop-pressure
             dependencies: [validate-after-rollback, pressure-daemon]
+            template: stop-pressure
+
+          - name: check-pressure-results
+            dependencies: [stop-pressure]
+            template: check-pressure-results
+
+          - name: collect-artifacts
+            dependencies: [check-pressure-results]
             template: collect-artifacts
 
     - name: resolve-inputs
@@ -496,7 +504,7 @@ spec:
       outputs:
         artifacts:
           - name: pressure-results
-            path: /tmp/milvus-pressure/results
+            path: /tmp/milvus-bricks/pressure-results
       container:
         image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
@@ -520,17 +528,20 @@ spec:
             rm -rf /tmp/repo
             git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
             cd /tmp/repo/milvus-bricks
-            mkdir -p /tmp/milvus-pressure/results /tmp/milvus-pressure/checkpoints
+            mkdir -p /tmp/milvus-bricks/pressure-results /tmp/milvus-bricks/pressure-checkpoints
             iteration=0
-            while true; do
+            while [ ! -f /tmp/milvus-bricks/pressure-stop ]; do
               for module in {{workflow.parameters.pressure-modules}}; do
+                if [ -f /tmp/milvus-bricks/pressure-stop ]; then
+                  break
+                fi
                 iteration=$((iteration + 1))
-                result="/tmp/milvus-pressure/results/${module}_${iteration}.json"
+                result="/tmp/milvus-bricks/pressure-results/${module}_${iteration}.json"
                 set +e
                 PYTHONPATH=. python3 -m "milvus_client.requests.${module}" \
                   --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
                   --collection-prefix "{{workflow.parameters.collection-prefix}}" \
-                  --checkpoint-dir /tmp/milvus-pressure/checkpoints \
+                  --checkpoint-dir /tmp/milvus-bricks/pressure-checkpoints \
                   --output-json "$result" \
                   --schema-matrix "{{workflow.parameters.schema-matrix}}" \
                   --duration-sec "{{workflow.parameters.pressure-slice-duration-sec}}" \
@@ -541,15 +552,101 @@ spec:
                 rc=$?
                 set -e
                 echo "pressure module=${module} iteration=${iteration} rc=${rc}"
+                python3 -m json.tool "$result" || cat "$result" || true
                 if [ "$rc" = "0" ] && [ ! -f /tmp/pressure-ready ]; then
                   touch /tmp/pressure-ready
                 fi
-                if [ "$rc" != "0" ] && [ "{{workflow.parameters.pressure-fail-on-error}}" = "true" ]; then
-                  exit "$rc"
+                if [ "$rc" != "0" ]; then
+                  touch /tmp/milvus-bricks/pressure-failed
                 fi
                 sleep "{{workflow.parameters.pressure-interval-sec}}"
               done
             done
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks
+
+    - name: stop-pressure
+      container:
+        image: alpine:3.20
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        args:
+          - |
+            set -eu
+            touch /tmp/milvus-bricks/pressure-stop
+            sleep $(({{workflow.parameters.pressure-slice-duration-sec}} + 5))
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks
+
+    - name: check-pressure-results
+      outputs:
+        artifacts:
+          - name: pressure-summary
+            path: /tmp/milvus-bricks/pressure-summary.json
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
+        args:
+          - |
+            set -eu
+            python3 - <<'PY'
+            import json
+            from pathlib import Path
+
+            result_dir = Path("/tmp/milvus-bricks/pressure-results")
+            files = sorted(result_dir.glob("*.json"))
+            failed = []
+            passed = 0
+            for path in files:
+                try:
+                    payload = json.loads(path.read_text())
+                except Exception as exc:
+                    failed.append({"file": path.name, "status": "unreadable", "error": str(exc)})
+                    continue
+                if payload.get("status") == "passed":
+                    passed += 1
+                else:
+                    failed.append(
+                        {
+                            "file": path.name,
+                            "brick": payload.get("brick"),
+                            "status": payload.get("status"),
+                            "failures": payload.get("failures", []),
+                            "metrics": payload.get("metrics", {}),
+                        }
+                    )
+            summary = {
+                "total": len(files),
+                "passed": passed,
+                "failed": len(failed),
+                "failed_results": failed,
+                "fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}" == "true",
+            }
+            Path("/tmp/milvus-bricks/pressure-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
+            print(json.dumps(summary, indent=2, sort_keys=True))
+            if not files:
+                raise SystemExit(1)
+            if summary["fail_on_error"] and failed:
+                raise SystemExit(1)
+            PY
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks
 
     - name: collect-artifacts
       outputs:
@@ -558,6 +655,10 @@ spec:
             path: /tmp/milvus-bricks/results
           - name: checkpoints
             path: /tmp/milvus-bricks/checkpoints
+          - name: pressure-results
+            path: /tmp/milvus-bricks/pressure-results
+          - name: pressure-summary
+            path: /tmp/milvus-bricks/pressure-summary.json
           - name: k8s-snapshot
             path: /tmp/milvus-bricks/k8s
       container:

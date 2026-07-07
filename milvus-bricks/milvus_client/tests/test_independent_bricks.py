@@ -113,3 +113,50 @@ def test_count_pressure_forwards_baseline_count_args(monkeypatch, tmp_path):
     assert captured["operations"] == ["count"]
     assert captured["baseline_start_id"] == 10
     assert captured["baseline_rows_per_collection"] == 5000
+
+
+def test_pressure_brick_retries_client_startup(monkeypatch, tmp_path):
+    output_json = tmp_path / "result.json"
+    attempts = {"count": 0}
+
+    def flaky_create_client(*args, **kwargs):
+        del args, kwargs
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise RuntimeError("temporarily unavailable")
+        return object()
+
+    def fake_sleep(seconds):
+        del seconds
+
+    def fake_run_pressure_workload(*args, **kwargs):
+        del args, kwargs
+        summary = WorkloadSummary()
+        summary.record("search", 1)
+        return summary
+
+    monkeypatch.setattr(_pressure, "create_client", flaky_create_client)
+    monkeypatch.setattr(_pressure.time, "sleep", fake_sleep)
+    monkeypatch.setattr(_pressure, "run_pressure_workload", fake_run_pressure_workload)
+
+    code = search_pressure.main(
+        [
+            "--uri",
+            "http://localhost:19530",
+            "--collection-prefix",
+            "qa",
+            "--schema-matrix",
+            "schema.yaml",
+            "--startup-retry-sec",
+            "5",
+            "--checkpoint-dir",
+            str(tmp_path),
+            "--output-json",
+            str(output_json),
+        ]
+    )
+
+    payload = json.loads(output_json.read_text())
+    assert code == 0
+    assert payload["status"] == "passed"
+    assert attempts["count"] == 2

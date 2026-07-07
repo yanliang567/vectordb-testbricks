@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from milvus_client.common.args import build_common_parser
 from milvus_client.common.client import create_client
 from milvus_client.common.result import FAILED, PASSED, result_from_args
@@ -13,6 +15,18 @@ def add_pressure_args(parser):
     parser.add_argument("--operation-interval-sec", type=float, default=0.0)
     parser.add_argument("--baseline-start-id", type=int, default=0)
     parser.add_argument("--baseline-rows-per-collection", type=int, default=0)
+    parser.add_argument("--startup-retry-sec", type=float, default=30.0)
+
+
+def create_client_with_retry(uri: str, token: str, db_name: str, retry_sec: float):
+    deadline = time.time() + max(0.0, retry_sec)
+    while True:
+        try:
+            return create_client(uri, token, db_name)
+        except Exception as exc:
+            if time.time() >= deadline:
+                raise
+            time.sleep(1.0)
 
 
 def run_pressure_brick(argv: list[str] | None, brick_name: str, operations: list[str]) -> int:
@@ -21,7 +35,7 @@ def run_pressure_brick(argv: list[str] | None, brick_name: str, operations: list
     args = parser.parse_args(argv)
     result = result_from_args(args, brick_name)
     try:
-        client = create_client(args.uri, args.token, args.db_name)
+        client = create_client_with_retry(args.uri, args.token, args.db_name, args.startup_retry_sec)
         summary = run_pressure_workload(
             client,
             args.schema_matrix,
