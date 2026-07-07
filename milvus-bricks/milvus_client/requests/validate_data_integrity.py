@@ -57,9 +57,10 @@ def main(argv: list[str] | None = None) -> int:
             schema_name = meta["schema_name"]
             primary_spec = primary_fields.get(schema_name)
             primary_field = meta.get("primary_field") or (primary_spec.name if primary_spec is not None else "id")
+            pk_values = meta.get("pk_values")
             pk_value_fn = (
                 (lambda pk, field=primary_spec: generate_primary_key_value(field, pk))
-                if primary_spec is not None
+                if primary_spec is not None and not pk_values
                 else (lambda pk: pk)
             )
             min_pk = int(meta["min_pk"])
@@ -73,7 +74,8 @@ def main(argv: list[str] | None = None) -> int:
                 metric_suffix="checkpoint_count",
             )
             mid_pk = min_pk + (max_pk - min_pk) // 2
-            validate_pk_samples(client, collection, primary_field, [pk_value_fn(min_pk), pk_value_fn(mid_pk), pk_value_fn(max_pk)], report)
+            sample_pks = meta.get("pk_samples") or [pk_value_fn(min_pk), pk_value_fn(mid_pk), pk_value_fn(max_pk)]
+            validate_pk_samples(client, collection, primary_field, sample_pks, report)
             checksum = meta.get("checksum")
             if checksum:
                 spec = specs.get(schema_name)
@@ -91,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
                     report,
                     batch_size=args.checksum_batch_size,
                     pk_value_fn=pk_value_fn,
+                    pk_values=pk_values,
                 )
 
         result.status = PASSED if report.passed else FAILED

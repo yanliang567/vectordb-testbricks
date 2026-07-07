@@ -475,18 +475,18 @@ spec:
         args:
           - |
             set -eux
-            python -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/results /tmp/milvus-bricks/checkpoints
-            PYTHONPATH=. python -m {{inputs.parameters.module}} \
+            PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
               --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
               --collection-prefix "{{workflow.parameters.collection-prefix}}" \
               --checkpoint-dir /tmp/milvus-bricks/checkpoints \
               --output-json /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json \
               {{inputs.parameters.args}}
-            python -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
+            python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
         volumeMounts:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks
@@ -516,7 +516,7 @@ spec:
           - |
             set -eu
             trap 'echo "stopping pressure daemon"; exit 0' TERM INT
-            python -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
             cd /tmp/repo/milvus-bricks
@@ -527,7 +527,7 @@ spec:
                 iteration=$((iteration + 1))
                 result="/tmp/milvus-pressure/results/${module}_${iteration}.json"
                 set +e
-                PYTHONPATH=. python -m "milvus_client.requests.${module}" \
+                PYTHONPATH=. python3 -m "milvus_client.requests.${module}" \
                   --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
                   --collection-prefix "{{workflow.parameters.collection-prefix}}" \
                   --checkpoint-dir /tmp/milvus-pressure/checkpoints \

@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from milvus_client.common.data import generate_primary_key_value, generate_rows, stable_vector_value, vector_fields
-from milvus_client.common.schema import SchemaSpec, collection_name, load_schema_matrix
+from milvus_client.common.schema import SchemaSpec, auto_id_enabled, collection_name, function_output_fields, load_schema_matrix
 from milvus_client.common.validators import format_filter_value
 
 
@@ -54,6 +54,28 @@ def metric_type_for_field(spec: SchemaSpec, field_name: str) -> str:
     return "COSINE"
 
 
+def index_type_for_field(spec: SchemaSpec, field_name: str) -> str:
+    for index in spec.indexes:
+        if index.field == field_name:
+            return index.index_type
+    return "AUTOINDEX"
+
+
+def search_params_for_field(spec: SchemaSpec, field_name: str) -> dict[str, Any]:
+    index_type = index_type_for_field(spec, field_name)
+    if index_type == "HNSW":
+        return {"ef": 32}
+    if index_type == "IVF_RABITQ":
+        return {"nprobe": 8}
+    if index_type == "DISKANN":
+        return {"search_list_size": 64}
+    if index_type in {"BIN_IVF_FLAT", "IVF_FLAT"}:
+        return {"nprobe": 8}
+    if index_type in {"SPARSE_INVERTED_INDEX", "SPARSE_WAND"}:
+        return {"drop_ratio_search": 0.0}
+    return {}
+
+
 def assert_search_result(result: Any, collection: str, field_name: str) -> None:
     if not isinstance(result, list) or len(result) != 1:
         raise AssertionError(f"{collection}.{field_name}: unexpected search result shape")
@@ -78,15 +100,20 @@ def _search_operation(client: Any, spec: SchemaSpec, collection: str, seed: int,
     fields = vector_fields(spec)
     if not fields:
         return ("search_skipped", 0)
+    function_outputs = function_output_fields(spec)
     searches = 0
     for vector_field in fields:
-        query_vector = stable_vector_value(vector_field, op_index + 1, seed)
+        metric_type = metric_type_for_field(spec, vector_field.name)
+        if vector_field.name in function_outputs and metric_type == "BM25":
+            query_vector = f"milvus compatibility token_{op_index % 16}"
+        else:
+            query_vector = stable_vector_value(vector_field, op_index + 1, seed)
         result = client.search(
             collection_name=collection,
             data=[query_vector],
             anns_field=vector_field.name,
             limit=5,
-            search_params={"metric_type": metric_type_for_field(spec, vector_field.name), "params": {}},
+            search_params={"metric_type": metric_type, "params": search_params_for_field(spec, vector_field.name)},
         )
         assert_search_result(result, collection, vector_field.name)
         searches += 1
@@ -138,6 +165,8 @@ def _query_iterator_operation(client: Any, spec: SchemaSpec, collection: str, ba
 
 def run_operation(client: Any, spec: SchemaSpec, collection: str, operation: str, seed: int, batch_size: int, op_index: int) -> tuple[str, int]:
     try:
+        if auto_id_enabled(spec) and operation in {"upsert", "delete"}:
+            return (f"{operation}_skipped_auto_id", 0)
         if operation == "insert":
             start_id = PRESSURE_INSERT_BASE + op_index * batch_size
             rows = generate_rows(spec, start_id=start_id, count=batch_size, seed=seed)

@@ -106,6 +106,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "volumeMounts" not in pressure_template["container"]
     pressure_command = pressure_template["container"]["args"][0]
     assert 'if [ "$rc" = "0" ] && [ ! -f /tmp/pressure-ready ]; then' in pressure_command
+    assert "python -m" not in pressure_command
+    assert "python3 -m" in pressure_command
     pressure_artifacts = {artifact["name"] for artifact in pressure_template["outputs"]["artifacts"]}
     assert "pressure-results" in pressure_artifacts
 
@@ -157,5 +159,11 @@ def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():
         for rule in milvus_role["rules"]
         for resource in rule["resources"]
     }
+    qa_resources = {
+        resource
+        for rule in qa_role["rules"]
+        for resource in rule["resources"]
+    }
     assert {"milvuses", "persistentvolumeclaims", "pods/log", "events"} <= milvus_resources
+    assert "workflowtaskresults" in qa_resources
     assert "pod logs" not in milvus_resources

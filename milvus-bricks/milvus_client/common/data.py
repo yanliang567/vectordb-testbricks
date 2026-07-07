@@ -7,7 +7,7 @@ import json
 from random import Random
 from typing import Any
 
-from milvus_client.common.schema import FieldSpec, SchemaSpec, VECTOR_TYPES
+from milvus_client.common.schema import FieldSpec, SchemaSpec, VECTOR_TYPES, function_output_fields
 
 
 def stable_float_vector(seed: int, pk: int, dim: int) -> list[float]:
@@ -73,6 +73,8 @@ def stable_vector_value(field: FieldSpec, pk: int, seed: int) -> Any:
 def _normalize_for_checksum(value: Any) -> Any:
     if isinstance(value, bytes):
         return {"__bytes__": value.hex()}
+    if isinstance(value, float):
+        return round(value, 6)
     if isinstance(value, dict):
         return {str(key): _normalize_for_checksum(value[key]) for key in sorted(value, key=str)}
     if isinstance(value, (list, tuple)):
@@ -102,7 +104,12 @@ def stable_checksum(
 
 
 def checksum_fields_for_spec(spec: SchemaSpec) -> list[str]:
-    return [field.name for field in spec.fields if field.dtype not in VECTOR_TYPES and not field.auto_id]
+    function_outputs = function_output_fields(spec)
+    return [
+        field.name
+        for field in spec.fields
+        if field.dtype not in VECTOR_TYPES and not field.auto_id and field.name not in function_outputs
+    ]
 
 
 def generate_primary_key_value(field: FieldSpec, pk: int) -> Any:
@@ -117,7 +124,9 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
     if field.nullable and pk % 10 == 0:
         return None
     if field.dtype == "INT64":
-        return pk % 1024 if field.name == "category" else pk
+        if field.name in {"category", "partition_key"}:
+            return pk % 1024
+        return pk
     if field.dtype in {"INT32", "INT16", "INT8"}:
         return pk % 127
     if field.dtype in {"FLOAT", "DOUBLE"}:
@@ -125,6 +134,10 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
     if field.dtype == "BOOL":
         return pk % 2 == 0
     if field.dtype in {"VARCHAR", "STRING", "TEXT"}:
+        if field.name in {"text", "document"}:
+            return f"document {pk} milvus compatibility upgrade rollback token_{pk % 16}"
+        if field.is_partition_key:
+            return f"tenant_{pk % 16}"
         return f"{field.name}_{pk}"
     if field.dtype == "JSON":
         return {"pk": pk, "bucket": pk % 16, "checksum": f"json_{pk}"}
@@ -154,15 +167,26 @@ def generate_rows(spec: SchemaSpec, start_id: int, count: int, seed: int) -> lis
     if len(primary_fields) != 1:
         raise ValueError(f"{spec.name}: expected exactly one primary field")
     primary = primary_fields[0]
+    function_outputs = function_output_fields(spec)
     for offset in range(count):
         pk = start_id + offset
         row = {}
         for field in spec.fields:
-            if field.primary and field.auto_id:
+            if (field.primary and field.auto_id) or field.name in function_outputs:
                 continue
             row[field.name] = generate_field_value(field, pk if field is not primary else pk, seed)
+        if spec.enable_dynamic_field:
+            row.update(generate_dynamic_fields(pk))
         rows.append(row)
     return rows
+
+
+def generate_dynamic_fields(pk: int) -> dict[str, Any]:
+    return {
+        "dyn_bucket": pk % 32,
+        "dyn_text": f"dynamic_{pk % 17}",
+        "dyn_json": {"pk_mod": pk % 11, "active": pk % 2 == 0},
+    }
 
 
 def first_vector_field(spec: SchemaSpec) -> FieldSpec | None:

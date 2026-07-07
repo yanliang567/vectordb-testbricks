@@ -121,6 +121,30 @@ def query_rows_by_pk_range(
     return rows
 
 
+def query_rows_by_pk_values(
+    client: Any,
+    collection_name: str,
+    primary_field: str,
+    pk_values: list[Any],
+    output_fields: list[str],
+    batch_size: int,
+) -> list[dict[str, Any]]:
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    rows = []
+    for offset in range(0, len(pk_values), batch_size):
+        batch_values = pk_values[offset : offset + batch_size]
+        values = ", ".join(format_filter_value(value) for value in batch_values)
+        batch = client.query(
+            collection_name=collection_name,
+            filter=f"{primary_field} in [{values}]",
+            output_fields=output_fields,
+            limit=len(batch_values),
+        )
+        rows.extend(batch)
+    return rows
+
+
 def validate_scalar_checksum(
     client: Any,
     collection_name: str,
@@ -132,19 +156,30 @@ def validate_scalar_checksum(
     report: ValidationReport,
     batch_size: int = 1000,
     pk_value_fn: Callable[[int], Any] | None = None,
+    pk_values: list[Any] | None = None,
 ) -> None:
     output_fields = list(dict.fromkeys([primary_field, *checksum_fields]))
     try:
-        rows = query_rows_by_pk_range(
-            client,
-            collection_name,
-            primary_field,
-            min_pk,
-            max_pk,
-            output_fields,
-            batch_size,
-            pk_value_fn=pk_value_fn,
-        )
+        if pk_values is not None:
+            rows = query_rows_by_pk_values(
+                client,
+                collection_name,
+                primary_field,
+                pk_values,
+                output_fields,
+                batch_size,
+            )
+        else:
+            rows = query_rows_by_pk_range(
+                client,
+                collection_name,
+                primary_field,
+                min_pk,
+                max_pk,
+                output_fields,
+                batch_size,
+                pk_value_fn=pk_value_fn,
+            )
     except Exception as exc:
         report.fail(QUERY_FAILED, "checksum query failed", collection=collection_name, error=str(exc))
         return

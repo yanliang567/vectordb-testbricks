@@ -3,6 +3,7 @@ from pathlib import Path
 
 from milvus_client.common.schema import load_schema_matrix
 from milvus_client.common.schema import FieldSpec, SchemaSpec
+from milvus_client.common.data import vector_fields
 from milvus_client.requests import mixed_rw_pressure
 from milvus_client.requests.mixed_rw_pressure import _run_operation
 
@@ -77,13 +78,13 @@ def test_search_operation_covers_all_vector_fields():
     op, count = _run_operation(client, spec, "qa_multi_vector_numeric", "search", 7, 10, 1)
 
     assert op == "search"
-    assert count == 3
-    assert [call["anns_field"] for call in client.search_calls] == [
-        "float16_vec",
-        "bfloat16_vec",
-        "int8_vec",
-    ]
-    assert all(call["search_params"]["metric_type"] == "COSINE" for call in client.search_calls)
+    assert count == len(vector_fields(spec))
+    assert [call["anns_field"] for call in client.search_calls] == [field.name for field in vector_fields(spec)]
+    metric_by_field = {call["anns_field"]: call["search_params"]["metric_type"] for call in client.search_calls}
+    assert metric_by_field["dense_hnsw"] == "COSINE"
+    assert metric_by_field["dense_diskann"] == "L2"
+    assert metric_by_field["binary_ivf"] == "HAMMING"
+    assert metric_by_field["sparse_bm25"] == "BM25"
 
 
 def test_search_operation_records_empty_hits_as_failed_operation():
