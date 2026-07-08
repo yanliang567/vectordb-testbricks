@@ -55,6 +55,8 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "milvus_client/manifests/schema_matrix_2_6.yaml",
         "--collection-prefix",
         "qa_upgrade",
+        "--forward-collection-prefix",
+        "qa_upgrade_forward",
         "--rows-per-collection",
         "5000",
         "--batch-size",
@@ -125,6 +127,7 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert report["validation"]["passed"] is True
     assert report["pressure"]["failed"] == 1
     assert report["parameters"]["pressure_fail_on_error"] is False
+    assert report["parameters"]["forward_collection_prefix"] == "qa_upgrade_forward"
     assert report["target"]["rollback_milvus_image"] == "harbor.milvus.io/milvusdb/milvus:2.6-latest"
     assert report["parameters"]["config_matrix"] == {
         "base_json_shredding_enabled": True,
@@ -142,6 +145,7 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert report["k8s_snapshot"]["pods.txt"] == str(tmp_path / "k8s" / "pods.txt")
     assert "## Config Matrix" in markdown
     assert "- rollback image: `harbor.milvus.io/milvusdb/milvus:2.6-latest`" in markdown
+    assert "- forward collection prefix: `qa_upgrade_forward`" in markdown
     assert "- base jsonShredding: `True`" in markdown
     assert "## Validation" in markdown
     assert "## Pressure" in markdown

@@ -95,6 +95,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "repo_revision": args.repo_revision,
             "schema_matrix": args.schema_matrix,
             "collection_prefix": args.collection_prefix,
+            "forward_collection_prefix": args.forward_collection_prefix,
             "rows_per_collection": args.rows_per_collection,
             "batch_size": args.batch_size,
             "pressure_modules": args.pressure_modules.split(),
@@ -172,6 +173,7 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- workflow: `{workflow['name']}`",
         f"- status: `{report['status']}`",
         f"- collection prefix: `{params['collection_prefix']}`",
+        f"- forward collection prefix: `{params['forward_collection_prefix']}`",
         f"- rows per collection: `{params['rows_per_collection']}`",
         f"- base image: `{target['base_milvus_image']}`",
         f"- target image: `{target['target_milvus_image']}`",
@@ -218,6 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo-revision", required=True)
     parser.add_argument("--schema-matrix", required=True)
     parser.add_argument("--collection-prefix", required=True)
+    parser.add_argument("--forward-collection-prefix", required=True)
     parser.add_argument("--rows-per-collection", type=int, required=True)
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--pressure-modules", required=True)

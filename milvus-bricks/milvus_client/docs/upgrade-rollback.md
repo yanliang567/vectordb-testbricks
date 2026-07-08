@@ -99,6 +99,7 @@ Both templates expose the same configuration matrix parameters:
 - `post-upgrade-json-shredding-enabled`
 - `forward-workload-enabled`
 - `forward-schema-matrix`
+- `forward-collection-prefix`
 - `rollback-forward-validation-enabled`
 
 The workflow writes `spec.config.common.storage.jsonShreddingEnabled` during
@@ -132,6 +133,11 @@ argo submit -n qa --from workflowtemplate/milvus-standalone-3-0-upgrade-rollback
   -p target-milvus-image=harbor.milvus.io/milvusdb/milvus:master-20260707-5617a46a \
   -p keep-milvus=false
 ```
+
+When enabling target-only forward workload, set `forward-collection-prefix` to a
+different value from `collection-prefix`. Forward create/seed/validate/schema
+evolution steps use the forward prefix, while baseline compatibility and
+pressure steps continue using `collection-prefix`.
 
 For `v2.6.18 -> master -> v2.6.18` runs, keep the 2.6 template and pass the
 master image as `target-milvus-image`. The schema matrix remains
