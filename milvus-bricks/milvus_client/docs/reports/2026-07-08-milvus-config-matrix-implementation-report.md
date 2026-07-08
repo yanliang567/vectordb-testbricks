@@ -10,7 +10,8 @@ workflows in `milvus-bricks/milvus_client`.
 
 - Added config matrix parameters to the 2.6 standalone upgrade/rollback
   workflow.
-- Added Milvus CR config patching for `jsonShreddingEnabled` and `useLoonFFI`.
+- Added Milvus CR config patching for `jsonShreddingEnabled`, `useLoonFFI`,
+  and `dataNode.storage.format=vortex` whenever `useLoonFFI=true`.
 - Added config snapshots after base deploy, upgrade, optional post-upgrade
   config toggle, and rollback.
 - Added independent `rollback-milvus-image` so base image and rollback image
@@ -29,7 +30,7 @@ workflows in `milvus-bricks/milvus_client`.
 | --- | --- | --- |
 | `v2.6.18 + jsonShredding -> 2.6-latest + jsonShredding -> rollback v2.6.18` | Implemented and tested | Round 1c passed data validation before upgrade, after upgrade, and after rollback. |
 | `v2.6.18 + jsonShredding -> master + jsonShredding -> rollback latest 2.6` | Implemented and tested | Rerun with rollback image `2.6-20260707-e9ee9a47` passed readiness and data validation. |
-| `v2.6.18 jsonShredding disabled -> master LoonFFI enabled -> post-upgrade jsonShredding enabled` | Implemented, product/query-service blocker found | Upgrade and forward workload passed; rollback to latest 2.6 became ready, but 2.6 baseline validation failed with channel distribution not serviceable. |
+| `v2.6.18 jsonShredding disabled -> master LoonFFI enabled -> post-upgrade jsonShredding enabled` | Implemented as unsupported negative rollback scenario | Upgrade and forward workload passed; rollback to latest 2.6 became ready, but 2.6 baseline validation failed after rollback. This path is not a supported 2.6 rollback gate because 2.6 does not support LoonFFI. |
 | `3.0 baseline -> master -> rollback 3.0 baseline` | Implemented and tested | Round 3 passed data validation before upgrade, after upgrade, and after rollback. |
 | `3.0 baseline + jsonShredding -> master + jsonShredding + LoonFFI -> rollback 3.0 baseline` | Implemented and tested | Data validation passed before upgrade, after upgrade, after rollback, and rollback-forward validation. |
 
@@ -106,6 +107,12 @@ Pressure configuration used in the 5k 4am runs:
   `argo lint argo/standalone-2-6-upgrade-rollback.yaml argo/standalone-3-0-upgrade-rollback.yaml argo/upgrade-rollback-compatibility.yaml`
   -> passed.
 - `git diff --check origin/main...HEAD`: passed with no output.
+- LoonFFI/vortex update verification:
+  `PYTHONPATH=. pytest milvus_client/tests -v` -> 70 passed.
+- LoonFFI/vortex Argo lint:
+  `argo lint argo/standalone-2-6-upgrade-rollback.yaml argo/standalone-3-0-upgrade-rollback.yaml argo/upgrade-rollback-compatibility.yaml`
+  -> passed.
+- LoonFFI/vortex `git diff --check origin/main...HEAD`: passed with no output.
 
 ## 4am Image Tags
 
@@ -300,13 +307,46 @@ Review:
 
 - This is no longer the session-version panic; latest 2.6 starts and reaches
   ready.
-- The remaining blocker is post-rollback query serviceability after the master
-  phase enabled LoonFFI, toggled jsonShredding, and created forward-only 3.0
-  collections. The baseline 2.6 validation cannot query channels even after a
-  180-second rollback observe window.
-- Treat this as a product compatibility/query-node recovery issue until proven
-  otherwise. The workflow surfaced it correctly as a hard data validation
-  failure.
+- Because 2.6 does not support LoonFFI, this is an unsupported negative
+  rollback scenario rather than a valid 2.6 release gate.
+- The workflow still surfaced the unsupported path as a hard data validation
+  failure, which is useful for documenting the compatibility boundary.
+
+### Round 4b: 2.6.18 disabled -> master LoonFFI + vortex -> post-upgrade jsonShredding -> latest 2.6
+
+- Workflow: `milvus-standalone-2-6-upgrade-rollback-x7t79`
+- Status: Argo `Failed`
+- Duration: 18m03s
+- Images:
+  - base: `harbor.milvus.io/milvusdb/milvus:v2.6.18`
+  - target: `harbor.milvus.io/milvusdb/milvus:master-20260707-5617a46a`
+  - rollback: `harbor.milvus.io/milvusdb/milvus:2.6-20260707-e9ee9a47`
+- Config:
+  - base `jsonShreddingEnabled=false`
+  - target upgrade patch set `jsonShreddingEnabled=false`,
+    `useLoonFFI=true`, and `dataNode.storage.format=vortex`
+  - post-upgrade config toggle set `jsonShreddingEnabled=true`,
+    retained `useLoonFFI=true`, and retained `dataNode.storage.format=vortex`
+  - rollback `jsonShreddingEnabled=true`
+  - forward workload enabled with `schema_matrix_3_0.yaml`
+- Progress:
+  - 2.6 baseline create/seed/validate passed.
+  - Upgrade to master with LoonFFI plus vortex passed.
+  - Post-upgrade 2.6 baseline validation passed.
+  - Post-upgrade config toggle passed.
+  - 3.0 forward schema create/seed/validate passed.
+  - Rollback to latest 2.6 image became ready.
+- Failure:
+  - `validate-after-rollback` failed.
+  - Repeated SDK query errors:
+    `channel distribution is not serviceable: channel not available`.
+
+Review:
+
+- The requested LoonFFI companion config was applied in both target upgrade
+  and post-upgrade config toggle phases.
+- The final rollback failure is still expected for this negative scenario:
+  data written after enabling LoonFFI is not a supported rollback path to 2.6.
 
 ### Round 5: 3.0 jsonShredding -> master jsonShredding + LoonFFI -> rollback 3.0
 
@@ -341,6 +381,37 @@ Review:
 - Remaining pressure failures are consistent with standalone restart-window
   unavailability and were explicitly warning-gated.
 
+### Round 5b: 3.0 jsonShredding -> master jsonShredding + LoonFFI + vortex -> rollback 3.0
+
+- Workflow: `milvus-standalone-3-0-upgrade-rollback-dzprm`
+- Status: Argo `Succeeded`, final report `warning`
+- Duration: 14m04s
+- Images:
+  - base: `harbor.milvus.io/milvusdb/milvus:3.0-20260701-d19d8484-47f6c14`
+  - target: `harbor.milvus.io/milvusdb/milvus:master-20260707-5617a46a`
+  - rollback: `harbor.milvus.io/milvusdb/milvus:3.0-20260701-d19d8484-47f6c14`
+- Config:
+  - base/target/rollback `jsonShreddingEnabled=true`
+  - target upgrade patch set `useLoonFFI=true` and
+    `dataNode.storage.format=vortex`
+  - forward workload disabled because the base schema matrix is already 3.0
+- Data:
+  - schema matrix: `milvus_client/manifests/schema_matrix_3_0.yaml`
+  - 3 collections x 5,000 rows
+  - validations passed before upgrade, after upgrade, after rollback, and
+    rollback-forward validation
+- Pressure:
+  - attempts: 33
+  - passed: 30
+  - failed: 3
+
+Review:
+
+- The 3.0 LoonFFI path is the supported rollback path for the new vortex
+  companion config and completed with data validation intact.
+- The final report stayed at `warning` only because pressure failures were
+  explicitly warning-gated for standalone restart-window behavior.
+
 ## Blocking Issues
 
 - Round 1 initial run
@@ -359,14 +430,15 @@ Review:
   `current version(2.6.18), session version(3.0.0-beta): session version check failure`.
   The workflow correctly reached rollback and waited for readiness; the target
   version could not become ready.
-- Round 4
+- Round 4 / Round 4b
   `milvus-standalone-2-6-upgrade-rollback-txrzw` and rerun
-  `milvus-standalone-2-6-upgrade-rollback-f8xxc` found a post-rollback query
-  serviceability blocker for the 2.6 disabled -> master LoonFFI -> post-upgrade
-  jsonShredding -> latest 2.6 path. Rollback readiness passed, but
-  `validate-after-rollback` repeatedly failed with
-  `channel distribution is not serviceable: channel not available`, even after
-  increasing rollback observation from 60s to 180s.
+  `milvus-standalone-2-6-upgrade-rollback-f8xxc` first documented the
+  post-rollback failure for the 2.6 disabled -> master LoonFFI -> post-upgrade
+  jsonShredding -> latest 2.6 path. Round 4b
+  `milvus-standalone-2-6-upgrade-rollback-x7t79` reproduced the same
+  unsupported rollback boundary after adding the required vortex companion
+  config. Because 2.6 does not support LoonFFI, this should remain an
+  unsupported negative scenario rather than a product rollback gate.
 
 ## Optimization Notes
 
@@ -385,10 +457,9 @@ Review:
 - Add a product-level decision for master/3.0 metadata rollback. If session
   metadata is intentionally forward-only, the 2.6 rollback scenario should
   become a documented unsupported negative test.
-- Before promoting LoonFFI scenarios to hard gates, confirm whether data written
-  while LoonFFI is enabled has rollback compatibility guarantees.
-- For 2.6 rollback after a master phase with forward-only 3.0 collections,
-  collect QueryNode/channel distribution diagnostics before cleanup when
-  `validate-after-rollback` fails. The current artifact set captures k8s
-  snapshots and validator logs, but deeper channel ownership state would shorten
-  product RCA.
+- LoonFFI hard gates should target 3.0 baseline -> master -> 3.0 rollback
+  unless product explicitly adds 2.6 rollback compatibility for LoonFFI data.
+- For unsupported 2.6 rollback after a master phase with forward-only 3.0
+  collections, keep collecting validator logs and config snapshots. Deeper
+  QueryNode/channel diagnostics are useful for product analysis, but this path
+  should not block supported release validation.
