@@ -129,6 +129,27 @@ def test_generate_workflow_report_fails_pressure_failures_in_strict_mode(tmp_pat
     assert report["parameters"]["pressure_fail_on_error"] is True
 
 
+def test_generate_workflow_report_can_soft_fail_after_writing_failed_report(tmp_path):
+    _write_successful_validation(tmp_path)
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 1,
+            "passed": 0,
+            "failed": 1,
+            "fail_on_error": True,
+            "failed_results": [{"file": "query_pressure_1.json", "brick": "query_pressure", "status": "failed"}],
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main([*_base_args(tmp_path, pressure_fail_on_error="true"), "--soft-fail"])
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 0
+    assert report["status"] == "failed"
+
+
 def test_generate_workflow_report_fails_when_validation_is_missing(tmp_path):
     _write_json(
         tmp_path / "pressure-summary.json",

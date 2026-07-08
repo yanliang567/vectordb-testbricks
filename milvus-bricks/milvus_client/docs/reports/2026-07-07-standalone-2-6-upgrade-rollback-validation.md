@@ -127,6 +127,8 @@ Request bricks covered:
 Implemented after this validation:
 - Standalone workflow default changed to `pressure-fail-on-error=false`; pressure failures are summarized as warnings for restart-window request interruptions.
 - The workflow now generates both `orchestrator_report.json` and `final_report.md`, merging validation results, pressure summary, environment metadata, flow summary, and Kubernetes snapshot paths.
+- Pressure attempts are logged separately from result JSON files, missing result files are summarized, and strict pressure gating runs only after the final report is generated.
+- `mixed_rw_pressure` now uses the same startup retry behavior as the independent pressure bricks.
 
 Remaining future work:
 - Add a separate cluster-mode workflow/template if the target is strict zero-request-failure rolling upgrade validation.

@@ -119,18 +119,20 @@ compatibility validation remains the hard gate. Set
 `pressure-fail-on-error=true` for cluster-mode or other zero-request-failure
 upgrade targets.
 
-The pressure daemon intentionally does not mount the checkpoint PVC. That keeps
-the read/write workload alive during foreground validation without relying on
-concurrent ReadWriteOnce volume mounts across multiple pods.
-The daemon receives the seeded row count as a parameter, so `count_pressure` and
-the count operation inside `mixed_rw_pressure` can keep checking row counts while
-upgrade and rollback are in progress.
+The pressure daemon writes its own pressure results, attempts log, stop marker,
+and pressure checkpoints under the workflow state PVC. It does not read the seed
+checkpoint used by foreground validation. The daemon receives the seeded row
+count as a parameter, so `count_pressure` and the count operation inside
+`mixed_rw_pressure` can keep checking row counts while upgrade and rollback are
+in progress.
 
 The workflow emits `env_snapshot.json`, `flow_summary.json`,
 `orchestrator_report.json`, `final_report.md`, foreground brick results,
 checkpoints, pressure results, `pressure-summary.json`, and Kubernetes
 snapshots. The final report merges validation results, pressure summary, target
-metadata, parameters, and snapshot paths into one comparable artifact.
+metadata, parameters, and snapshot paths into one comparable artifact. Strict
+pressure gating runs after final report generation, so `pressure-fail-on-error`
+does not prevent report artifacts from being produced.
 `keep-milvus=false` is the default cleanup policy; set `keep-milvus=true` only
 when preserving the generated Milvus CR for debugging.
 

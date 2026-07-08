@@ -275,6 +275,10 @@ spec:
             dependencies: [collect-artifacts]
             template: generate-final-report
 
+          - name: gate-final-status
+            dependencies: [generate-final-report]
+            template: gate-final-status
+
     - name: resolve-inputs
       outputs:
         artifacts:
@@ -539,6 +543,7 @@ spec:
             git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/pressure-results /tmp/milvus-bricks/pressure-checkpoints
+            attempts="/tmp/milvus-bricks/pressure-attempts.jsonl"
             iteration=0
             while [ ! -f /tmp/milvus-bricks/pressure-stop ]; do
               for module in {{workflow.parameters.pressure-modules}}; do
@@ -547,6 +552,7 @@ spec:
                 fi
                 iteration=$((iteration + 1))
                 result="/tmp/milvus-bricks/pressure-results/${module}_${iteration}.json"
+                printf '{"module":"%s","iteration":%s,"result_file":"%s"}\n' "$module" "$iteration" "$(basename "$result")" >> "$attempts"
                 set +e
                 PYTHONPATH=. python3 -m "milvus_client.requests.${module}" \
                   --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
@@ -568,6 +574,24 @@ spec:
                 fi
                 if [ "$rc" != "0" ]; then
                   touch /tmp/milvus-bricks/pressure-failed
+                  if [ ! -f "$result" ]; then
+                    cat > "$result" <<EOF
+            {
+              "brick": "$module",
+              "status": "failed",
+              "failures": [
+                {
+                  "type": "PRESSURE_PROCESS_FAILED",
+                  "message": "pressure module exited without writing result json",
+                  "return_code": $rc
+                }
+              ],
+              "metrics": {
+                "iteration": $iteration
+              }
+            }
+            EOF
+                  fi
                 fi
                 sleep "{{workflow.parameters.pressure-interval-sec}}"
               done
@@ -619,9 +643,36 @@ spec:
             from pathlib import Path
 
             result_dir = Path("/tmp/milvus-bricks/pressure-results")
+            attempts_path = Path("/tmp/milvus-bricks/pressure-attempts.jsonl")
+            attempts_path.parent.mkdir(parents=True, exist_ok=True)
+            attempts_path.touch(exist_ok=True)
             files = sorted(result_dir.glob("*.json"))
             failed = []
             passed = 0
+            attempt_files = []
+            if not files:
+                failed.append(
+                    {
+                        "file": "pressure-results",
+                        "status": "missing_result",
+                        "failures": [
+                            {
+                                "type": "NO_PRESSURE_RESULTS",
+                                "message": "pressure daemon did not produce any result json",
+                            }
+                        ],
+                    }
+                )
+            if attempts_path.exists():
+                for line in attempts_path.read_text().splitlines():
+                    try:
+                        attempt = json.loads(line)
+                    except Exception as exc:
+                        failed.append({"file": attempts_path.name, "status": "unreadable_attempt", "error": str(exc)})
+                        continue
+                    result_file = attempt.get("result_file")
+                    if result_file:
+                        attempt_files.append(result_file)
             for path in files:
                 try:
                     payload = json.loads(path.read_text())
@@ -640,8 +691,37 @@ spec:
                             "metrics": payload.get("metrics", {}),
                         }
                     )
+            existing_files = {path.name for path in files}
+            for result_file in attempt_files:
+                if result_file not in existing_files:
+                    failed.append(
+                        {
+                            "file": result_file,
+                            "status": "missing_result",
+                            "failures": [
+                                {
+                                    "type": "PRESSURE_RESULT_MISSING",
+                                    "message": "pressure attempt did not produce a result json",
+                                }
+                            ],
+                        }
+                    )
+            if Path("/tmp/milvus-bricks/pressure-failed").exists() and not failed:
+                failed.append(
+                    {
+                        "file": "pressure-failed",
+                        "status": "missing_failure_detail",
+                        "failures": [
+                            {
+                                "type": "PRESSURE_FAILURE_MARKER_WITHOUT_DETAIL",
+                                "message": "pressure failure marker exists but no failed result json was found",
+                            }
+                        ],
+                    }
+                )
             summary = {
                 "total": len(files),
+                "attempts": len(attempt_files),
                 "passed": passed,
                 "failed": len(failed),
                 "failed_results": failed,
@@ -649,10 +729,6 @@ spec:
             }
             Path("/tmp/milvus-bricks/pressure-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
             print(json.dumps(summary, indent=2, sort_keys=True))
-            if not files:
-                raise SystemExit(1)
-            if summary["fail_on_error"] and failed:
-                raise SystemExit(1)
             PY
         volumeMounts:
           - name: milvus-test-state
@@ -667,6 +743,8 @@ spec:
             path: /tmp/milvus-bricks/checkpoints
           - name: pressure-results
             path: /tmp/milvus-bricks/pressure-results
+          - name: pressure-attempts
+            path: /tmp/milvus-bricks/pressure-attempts.jsonl
           - name: pressure-summary
             path: /tmp/milvus-bricks/pressure-summary.json
           - name: k8s-snapshot
@@ -752,7 +830,39 @@ spec:
               --pressure-modules "{{workflow.parameters.pressure-modules}}" \
               --pressure-fail-on-error "{{workflow.parameters.pressure-fail-on-error}}" \
               --observe-after-upgrade-sec "{{workflow.parameters.observe-after-upgrade-sec}}" \
-              --observe-after-rollback-sec "{{workflow.parameters.observe-after-rollback-sec}}"
+              --observe-after-rollback-sec "{{workflow.parameters.observe-after-rollback-sec}}" \
+              --soft-fail
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks
+
+    - name: gate-final-status
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
+        args:
+          - |
+            set -eu
+            python3 - <<'PY'
+            import json
+            from pathlib import Path
+
+            report_path = Path("/tmp/milvus-bricks/reports/orchestrator_report.json")
+            if not report_path.exists():
+                raise SystemExit("missing orchestrator_report.json")
+            report = json.loads(report_path.read_text())
+            status = report.get("status")
+            print(json.dumps({"status": status}, indent=2, sort_keys=True))
+            if status not in {"passed", "warning"}:
+                raise SystemExit(1)
+            PY
         volumeMounts:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks

@@ -84,6 +84,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "check-pressure-results",
         "collect-artifacts",
         "generate-final-report",
+        "gate-final-status",
     }
     assert expected_tasks <= set(tasks)
 
@@ -112,6 +113,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert tasks["check-pressure-results"]["dependencies"] == ["stop-pressure"]
     assert tasks["collect-artifacts"]["dependencies"] == ["check-pressure-results"]
     assert tasks["generate-final-report"]["dependencies"] == ["collect-artifacts"]
+    assert tasks["gate-final-status"]["dependencies"] == ["generate-final-report"]
 
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
     pressure_modules = parameter_values["pressure-modules"]
@@ -131,6 +133,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert 'if [ "$rc" = "0" ] && [ ! -f /tmp/pressure-ready ]; then' in pressure_command
     assert "pressure-stop" in pressure_command
     assert "pressure-failed" in pressure_command
+    assert "pressure-attempts.jsonl" in pressure_command
+    assert "PRESSURE_PROCESS_FAILED" in pressure_command
     assert 'python3 -m json.tool "$result"' in pressure_command
     assert "python -m" not in pressure_command
     assert "python3 -m" in pressure_command
@@ -146,6 +150,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     check_pressure = templates["check-pressure-results"]
     check_artifacts = {artifact["name"] for artifact in check_pressure["outputs"]["artifacts"]}
     assert "pressure-summary" in check_artifacts
+    check_command = check_pressure["container"]["args"][0]
+    assert "NO_PRESSURE_RESULTS" in check_command
+    assert "PRESSURE_RESULT_MISSING" in check_command
+    assert "summary[\"fail_on_error\"] and failed" not in check_command
 
     final_report = templates["generate-final-report"]
     final_artifacts = {artifact["name"] for artifact in final_report["outputs"]["artifacts"]}
@@ -155,6 +163,12 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "pressure-summary.json" in final_command
     assert "final_report.md" in final_command
     assert "orchestrator_report.json" in final_command
+    assert "--soft-fail" in final_command
+
+    gate = templates["gate-final-status"]
+    gate_command = gate["container"]["args"][0]
+    assert "orchestrator_report.json" in gate_command
+    assert 'status not in {"passed", "warning"}' in gate_command
 
 
 def test_standalone_2_6_upgrade_rollback_template_creates_4c16g_standalone():

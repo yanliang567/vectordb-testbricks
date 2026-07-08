@@ -188,6 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pressure-fail-on-error", required=True)
     parser.add_argument("--observe-after-upgrade-sec", type=int, required=True)
     parser.add_argument("--observe-after-rollback-sec", type=int, required=True)
+    parser.add_argument("--soft-fail", action="store_true", help="Write failed report status but exit 0")
     return parser
 
 
@@ -199,6 +200,8 @@ def main(argv: list[str] | None = None) -> int:
     Path(args.output_md).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output_md).write_text(build_markdown(report))
     print(json.dumps(report, indent=2, sort_keys=True))
+    if args.soft_fail:
+        return 0
     return 0 if report["status"] in {"passed", "warning"} else 1
 
 

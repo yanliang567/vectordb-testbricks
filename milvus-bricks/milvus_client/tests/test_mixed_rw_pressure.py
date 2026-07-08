@@ -105,7 +105,7 @@ def test_mixed_rw_pressure_writes_structured_connection_failure(monkeypatch, tmp
         del args, kwargs
         raise RuntimeError("connect failed")
 
-    monkeypatch.setattr(mixed_rw_pressure, "create_client", fail_connect)
+    monkeypatch.setattr(mixed_rw_pressure, "create_client_with_retry", fail_connect)
 
     code = mixed_rw_pressure.main(
         [
@@ -155,7 +155,11 @@ def test_mixed_rw_pressure_includes_count_operation(monkeypatch, tmp_path):
         summary.record("count", 1)
         return summary
 
-    monkeypatch.setattr(mixed_rw_pressure, "create_client", lambda *args, **kwargs: object())
+    def fake_create_client_with_retry(uri, token, db_name, retry_sec):
+        captured["startup_retry_sec"] = retry_sec
+        return {"uri": uri, "token": token, "db_name": db_name}
+
+    monkeypatch.setattr(mixed_rw_pressure, "create_client_with_retry", fake_create_client_with_retry)
     monkeypatch.setattr(mixed_rw_pressure, "run_pressure_workload", fake_run_pressure_workload)
 
     code = mixed_rw_pressure.main(
@@ -168,6 +172,8 @@ def test_mixed_rw_pressure_includes_count_operation(monkeypatch, tmp_path):
             str(ROOT / "manifests" / "schema_matrix_2_6.yaml"),
             "--baseline-rows-per-collection",
             "5000",
+            "--startup-retry-sec",
+            "7.5",
             "--checkpoint-dir",
             str(tmp_path / "checkpoints"),
             "--output-json",
@@ -180,3 +186,4 @@ def test_mixed_rw_pressure_includes_count_operation(monkeypatch, tmp_path):
     assert payload["status"] == "passed"
     assert "count" in captured["operations"]
     assert captured["baseline_rows_per_collection"] == 5000
+    assert captured["startup_retry_sec"] == 7.5
