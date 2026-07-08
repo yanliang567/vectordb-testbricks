@@ -80,7 +80,11 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "observe-after-rollback",
         "precheck-after-rollback",
         "validate-after-rollback",
+        "stop-pressure",
+        "check-pressure-results",
         "collect-artifacts",
+        "generate-final-report",
+        "gate-final-status",
     }
     assert expected_tasks <= set(tasks)
 
@@ -88,9 +92,28 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "readinessProbe" in templates["pressure-daemon"]["container"]
     assert "validator-daemon" not in templates
     assert tasks["patch-upgrade"]["dependencies"] == ["pressure-daemon"]
-    assert tasks["patch-rollback"]["dependencies"] == ["validate-after-upgrade"]
+    pressure_covered_tasks = [
+        "patch-upgrade",
+        "wait-upgrade-ready",
+        "observe-after-upgrade",
+        "precheck-after-upgrade",
+        "validate-after-upgrade",
+        "patch-rollback",
+        "wait-rollback-ready",
+        "observe-after-rollback",
+        "precheck-after-rollback",
+        "validate-after-rollback",
+        "stop-pressure",
+    ]
+    for task_name in pressure_covered_tasks:
+        assert "pressure-daemon" in tasks[task_name]["dependencies"]
+    assert tasks["patch-rollback"]["dependencies"] == ["validate-after-upgrade", "pressure-daemon"]
     assert tasks["deploy-base"]["dependencies"] == ["resolve-inputs"]
-    assert tasks["collect-artifacts"]["dependencies"] == ["validate-after-rollback"]
+    assert tasks["stop-pressure"]["dependencies"] == ["validate-after-rollback", "pressure-daemon"]
+    assert tasks["check-pressure-results"]["dependencies"] == ["stop-pressure"]
+    assert tasks["collect-artifacts"]["dependencies"] == ["check-pressure-results"]
+    assert tasks["generate-final-report"]["dependencies"] == ["collect-artifacts"]
+    assert tasks["gate-final-status"]["dependencies"] == ["generate-final-report"]
 
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
     pressure_modules = parameter_values["pressure-modules"]
@@ -98,6 +121,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "search_pressure" in pressure_modules
     assert "query_pressure" in pressure_modules
     assert "query_iterator_scan" in pressure_modules
+    assert "count_pressure" in pressure_modules
     assert "upsert_pressure" in pressure_modules
     assert "delete_pressure" in pressure_modules
     assert "mixed_rw_pressure" in pressure_modules
@@ -106,12 +130,51 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "volumeMounts" not in pressure_template["container"]
     pressure_command = pressure_template["container"]["args"][0]
     assert 'if [ "$rc" = "0" ] && [ ! -f /tmp/pressure-ready ]; then' in pressure_command
-    pressure_artifacts = {artifact["name"] for artifact in pressure_template["outputs"]["artifacts"]}
-    assert "pressure-results" in pressure_artifacts
+    assert "pressure-stop" in pressure_command
+    assert "kubectl -n \"$pressure_ns\" create configmap \"$attempt_cm\"" in pressure_command
+    assert "zilliz.com/pressure-result=true" in pressure_command
+    assert "PRESSURE_PROCESS_FAILED" in pressure_command
+    assert 'python3 -m json.tool "$result"' in pressure_command
+    assert "python -m" not in pressure_command
+    assert "python3 -m" in pressure_command
+    assert "--baseline-rows-per-collection" in pressure_command
+    assert "{{workflow.parameters.rows-per-collection}}" in pressure_command
+
+    stop_pressure = templates["stop-pressure"]
+    assert "volumeMounts" not in stop_pressure["container"]
+    stop_command = stop_pressure["container"]["args"][0]
+    assert "{{workflow.name}}-pressure-stop" in stop_command
+    assert "zilliz.com/pressure-stop=true" in stop_command
 
     cleanup = templates["maybe-cleanup"]
     cleanup_artifacts = {artifact["name"] for artifact in cleanup["outputs"]["artifacts"]}
-    assert {"orchestrator-report", "flow-summary", "env-snapshot", "k8s-snapshot"} <= cleanup_artifacts
+    assert {"orchestrator-report", "final-report-md", "flow-summary", "env-snapshot", "k8s-snapshot"} <= cleanup_artifacts
+
+    check_pressure = templates["check-pressure-results"]
+    check_artifacts = {artifact["name"] for artifact in check_pressure["outputs"]["artifacts"]}
+    assert "pressure-summary" in check_artifacts
+    check_command = check_pressure["container"]["args"][0]
+    assert "NO_PRESSURE_RESULTS" in check_command
+    assert "PRESSURE_RESULT_MISSING" in check_command
+    assert "PRESSURE_ATTEMPT_PENDING" in check_command
+    assert "kubectl" in check_command
+    assert "zilliz.com/pressure-result=true" in check_command
+    assert "summary[\"fail_on_error\"] and failed" not in check_command
+
+    final_report = templates["generate-final-report"]
+    final_artifacts = {artifact["name"] for artifact in final_report["outputs"]["artifacts"]}
+    assert {"orchestrator-report", "final-report-md", "env-snapshot", "flow-summary"} <= final_artifacts
+    final_command = final_report["container"]["args"][0]
+    assert "milvus_client.requests.generate_workflow_report" in final_command
+    assert "pressure-summary.json" in final_command
+    assert "final_report.md" in final_command
+    assert "orchestrator_report.json" in final_command
+    assert "--soft-fail" in final_command
+
+    gate = templates["gate-final-status"]
+    gate_command = gate["container"]["args"][0]
+    assert "orchestrator_report.json" in gate_command
+    assert 'status != "passed"' in gate_command
 
 
 def test_standalone_2_6_upgrade_rollback_template_creates_4c16g_standalone():
@@ -157,5 +220,12 @@ def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():
         for rule in milvus_role["rules"]
         for resource in rule["resources"]
     }
+    qa_resources = {
+        resource
+        for rule in qa_role["rules"]
+        for resource in rule["resources"]
+    }
     assert {"milvuses", "persistentvolumeclaims", "pods/log", "events"} <= milvus_resources
+    assert "configmaps" in qa_resources
+    assert "workflowtaskresults" in qa_resources
     assert "pod logs" not in milvus_resources

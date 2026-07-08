@@ -1,44 +1,104 @@
 version: "2.6"
 schemas:
-  - name: dense_float_vector
-    feature_tags: ["compat_basic_vector"]
+  - name: scalar_dynamic_partition_key
+    description: "2.6 scalar, array, dynamic field, partition-key, and scalar-index coverage"
+    feature_tags: ["compat_basic_vector", "compat_json_array"]
+    compat_mode: rollback_safe
+    required_capabilities: []
+    validators: ["count", "pk_sample", "search_smoke"]
+    enable_dynamic_field: true
+    num_partitions: 16
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: partition_key, dtype: VARCHAR, max_length: 64, is_partition_key: true}
+      - {name: int8_bitmap, dtype: INT8}
+      - {name: int16_inverted, dtype: INT16}
+      - {name: int32_sort, dtype: INT32}
+      - {name: int64_category, dtype: INT64}
+      - {name: float_sort, dtype: FLOAT}
+      - {name: double_inverted, dtype: DOUBLE}
+      - {name: bool_bitmap, dtype: BOOL, nullable: true}
+      - {name: varchar_trie, dtype: VARCHAR, max_length: 256}
+      - {name: varchar_ngram, dtype: VARCHAR, max_length: 256}
+      - {name: nullable_text, dtype: VARCHAR, max_length: 1024, nullable: true}
+      - {name: json_profile, dtype: JSON, nullable: true}
+      - {name: arr_int64, dtype: ARRAY, element_type: INT64, max_capacity: 16}
+      - {name: arr_float, dtype: ARRAY, element_type: FLOAT, max_capacity: 16}
+      - {name: arr_bool, dtype: ARRAY, element_type: BOOL, max_capacity: 16}
+      - {name: arr_varchar, dtype: ARRAY, element_type: VARCHAR, max_capacity: 16, max_length: 128}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
+    indexes:
+      - {field: int8_bitmap, index_type: BITMAP}
+      - {field: int16_inverted, index_type: INVERTED}
+      - {field: int32_sort, index_type: STL_SORT}
+      - {field: int64_category, index_type: AUTOINDEX}
+      - {field: float_sort, index_type: STL_SORT}
+      - {field: double_inverted, index_type: INVERTED}
+      - {field: bool_bitmap, index_type: BITMAP}
+      - {field: varchar_trie, index_type: TRIE}
+      - {field: varchar_ngram, index_type: NGRAM, params: {min_gram: 2, max_gram: 4}}
+      - {field: json_profile, index_type: INVERTED, params: {json_cast_type: double, json_path: "json_profile['bucket']"}}
+      - {field: arr_int64, index_type: INVERTED}
+      - {field: arr_varchar, index_type: INVERTED}
+      - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}}
+
+  - name: vector_autoid_bm25
+    description: "2.6 auto-id, BM25 function, all vector data types, and vector-index coverage"
+    feature_tags: ["compat_basic_vector", "compat_multi_vector"]
     compat_mode: rollback_safe
     required_capabilities: []
     validators: ["count", "pk_sample", "search_smoke"]
     fields:
-      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: id, dtype: INT64, primary: true, auto_id: true}
       - {name: category, dtype: INT64}
-      - {name: content, dtype: VARCHAR, max_length: 1024, nullable: true}
-      - {name: flag, dtype: BOOL, nullable: true}
-      - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
+      - {name: document, dtype: VARCHAR, max_length: 2048, enable_analyzer: true, analyzer_params: {type: standard}}
+      - {name: dense_hnsw, dtype: FLOAT_VECTOR, dim: 128}
+      - {name: dense_rabitq, dtype: FLOAT_VECTOR, dim: 128}
+      - {name: dense_diskann, dtype: FLOAT_VECTOR, dim: 128}
+      - {name: dense_autoindex, dtype: FLOAT_VECTOR, dim: 128}
+      - {name: float16_hnsw, dtype: FLOAT16_VECTOR, dim: 128}
+      - {name: bfloat16_diskann, dtype: BFLOAT16_VECTOR, dim: 128}
+      - {name: int8_autoindex, dtype: INT8_VECTOR, dim: 128}
+      - {name: binary_ivf, dtype: BINARY_VECTOR, dim: 128}
+      - {name: sparse_manual, dtype: SPARSE_FLOAT_VECTOR}
+      - {name: sparse_bm25, dtype: SPARSE_FLOAT_VECTOR}
+    functions:
+      - name: bm25_document
+        function_type: BM25
+        input_fields: [document]
+        output_fields: [sparse_bm25]
     indexes:
-      - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}}
+      - {field: category, index_type: INVERTED}
+      - {field: dense_hnsw, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}}
+      - {field: dense_rabitq, index_type: IVF_RABITQ, metric_type: COSINE, params: {nlist: 128}}
+      - {field: dense_diskann, index_type: DISKANN, metric_type: L2, params: {search_list_size: 100}}
+      - {field: dense_autoindex, index_type: AUTOINDEX, metric_type: COSINE}
+      - {field: float16_hnsw, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}}
+      - {field: bfloat16_diskann, index_type: DISKANN, metric_type: COSINE, params: {search_list_size: 100}}
+      - {field: int8_autoindex, index_type: AUTOINDEX, metric_type: COSINE}
+      - {field: binary_ivf, index_type: BIN_IVF_FLAT, metric_type: HAMMING, params: {nlist: 128}}
+      - {field: sparse_manual, index_type: SPARSE_INVERTED_INDEX, metric_type: IP, params: {drop_ratio_build: 0.0}}
+      - {field: sparse_bm25, index_type: SPARSE_INVERTED_INDEX, metric_type: BM25, params: {drop_ratio_build: 0.0}}
 
-  - name: multi_vector_numeric
-    feature_tags: ["compat_multi_vector"]
+  - name: explicit_partitions_nullable
+    description: "2.6 explicit multi-partition, varchar primary key, and nullable scalar coverage"
+    feature_tags: ["compat_basic_vector", "compat_json_array"]
     compat_mode: rollback_safe
     required_capabilities: []
-    validators: ["count", "pk_sample"]
+    validators: ["count", "pk_sample", "search_smoke"]
+    partitions: ["p0", "p1", "p2", "p3"]
     fields:
-      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: pk, dtype: VARCHAR, primary: true, auto_id: false, max_length: 64}
+      - {name: tenant, dtype: VARCHAR, max_length: 64}
       - {name: category, dtype: INT64}
-      - {name: float16_vec, dtype: FLOAT16_VECTOR, dim: 128}
-      - {name: bfloat16_vec, dtype: BFLOAT16_VECTOR, dim: 128}
-      - {name: int8_vec, dtype: INT8_VECTOR, dim: 128}
-    indexes:
-      - {field: float16_vec, index_type: AUTOINDEX, metric_type: COSINE}
-      - {field: bfloat16_vec, index_type: AUTOINDEX, metric_type: COSINE}
-      - {field: int8_vec, index_type: AUTOINDEX, metric_type: COSINE}
-
-  - name: json_array_nullable
-    feature_tags: ["compat_json_array"]
-    compat_mode: rollback_safe
-    required_capabilities: []
-    validators: ["count", "pk_sample"]
-    fields:
-      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: nullable_score, dtype: DOUBLE, nullable: true}
+      - {name: nullable_flag, dtype: BOOL, nullable: true}
+      - {name: nullable_json, dtype: JSON, nullable: true}
       - {name: tags, dtype: ARRAY, element_type: VARCHAR, max_capacity: 32, max_length: 128}
-      - {name: profile, dtype: JSON, nullable: true}
-      - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
+      - {name: embedding_hnsw, dtype: FLOAT_VECTOR, dim: 128}
     indexes:
-      - {field: embedding, index_type: AUTOINDEX, metric_type: COSINE}
+      - {field: tenant, index_type: INVERTED}
+      - {field: category, index_type: STL_SORT}
+      - {field: nullable_flag, index_type: BITMAP}
+      - {field: tags, index_type: INVERTED}
+      - {field: embedding_hnsw, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}}

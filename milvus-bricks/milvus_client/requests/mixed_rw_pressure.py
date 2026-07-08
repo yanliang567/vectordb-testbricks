@@ -3,9 +3,9 @@ from __future__ import annotations
 import sys
 
 from milvus_client.common.args import build_common_parser
-from milvus_client.common.client import create_client
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.workload import run_operation, run_pressure_workload
+from milvus_client.requests._pressure import create_client_with_retry
 
 
 def add_args(parser):
@@ -13,6 +13,9 @@ def add_args(parser):
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=10)
     parser.add_argument("--operation-interval-sec", type=float, default=0.0)
+    parser.add_argument("--baseline-start-id", type=int, default=0)
+    parser.add_argument("--baseline-rows-per-collection", type=int, default=0)
+    parser.add_argument("--startup-retry-sec", type=float, default=30.0)
 
 
 def _run_operation(client, spec, collection, operation, seed, batch_size, op_index):
@@ -26,17 +29,19 @@ def main(argv: list[str] | None = None) -> int:
     result = result_from_args(args, "mixed_rw_pressure")
 
     try:
-        client = create_client(args.uri, args.token, args.db_name)
+        client = create_client_with_retry(args.uri, args.token, args.db_name, args.startup_retry_sec)
         summary = run_pressure_workload(
             client,
             args.schema_matrix,
             args.collection_prefix,
-            ["insert", "upsert", "query", "search"],
+            ["insert", "upsert", "query", "search", "count"],
             args.seed,
             args.duration_sec,
             args.max_workers,
             args.batch_size,
             operation_interval_sec=args.operation_interval_sec,
+            baseline_start_id=args.baseline_start_id,
+            baseline_rows_per_collection=args.baseline_rows_per_collection,
         )
     except Exception as exc:
         result.status = FAILED

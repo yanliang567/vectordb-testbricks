@@ -11,6 +11,7 @@ from milvus_client.common.schema import (
     build_index_params,
     build_milvus_schema,
     collection_name,
+    create_collection_kwargs,
     load_feature_inventory,
     load_schema_matrix,
     validate_schema_matrix,
@@ -82,7 +83,15 @@ def main(argv: list[str] | None = None) -> int:
                         loaded.append({"schema": spec.name, "collection": name, "reason": "collection exists"})
                     skipped.append({"schema": spec.name, "collection": name, "reason": "collection exists"})
                     continue
-            client.create_collection(collection_name=name, schema=build_milvus_schema(spec))
+            client.create_collection(collection_name=name, schema=build_milvus_schema(spec), **create_collection_kwargs(spec))
+            for partition in spec.partitions:
+                if not hasattr(client, "create_partition"):
+                    raise RuntimeError("client does not support create_partition")
+                has_partition = False
+                if hasattr(client, "has_partition"):
+                    has_partition = client.has_partition(collection_name=name, partition_name=partition)
+                if not has_partition:
+                    client.create_partition(collection_name=name, partition_name=partition)
             if spec.indexes:
                 client.create_index(collection_name=name, index_params=build_index_params(spec))
             if args.load_after_create:

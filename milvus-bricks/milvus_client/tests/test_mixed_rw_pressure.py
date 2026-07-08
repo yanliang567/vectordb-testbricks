@@ -3,6 +3,7 @@ from pathlib import Path
 
 from milvus_client.common.schema import load_schema_matrix
 from milvus_client.common.schema import FieldSpec, SchemaSpec
+from milvus_client.common.data import vector_fields
 from milvus_client.requests import mixed_rw_pressure
 from milvus_client.requests.mixed_rw_pressure import _run_operation
 
@@ -77,13 +78,13 @@ def test_search_operation_covers_all_vector_fields():
     op, count = _run_operation(client, spec, "qa_multi_vector_numeric", "search", 7, 10, 1)
 
     assert op == "search"
-    assert count == 3
-    assert [call["anns_field"] for call in client.search_calls] == [
-        "float16_vec",
-        "bfloat16_vec",
-        "int8_vec",
-    ]
-    assert all(call["search_params"]["metric_type"] == "COSINE" for call in client.search_calls)
+    assert count == len(vector_fields(spec))
+    assert [call["anns_field"] for call in client.search_calls] == [field.name for field in vector_fields(spec)]
+    metric_by_field = {call["anns_field"]: call["search_params"]["metric_type"] for call in client.search_calls}
+    assert metric_by_field["dense_hnsw"] == "COSINE"
+    assert metric_by_field["dense_diskann"] == "L2"
+    assert metric_by_field["binary_ivf"] == "HAMMING"
+    assert metric_by_field["sparse_bm25"] == "BM25"
 
 
 def test_search_operation_records_empty_hits_as_failed_operation():
@@ -104,7 +105,7 @@ def test_mixed_rw_pressure_writes_structured_connection_failure(monkeypatch, tmp
         del args, kwargs
         raise RuntimeError("connect failed")
 
-    monkeypatch.setattr(mixed_rw_pressure, "create_client", fail_connect)
+    monkeypatch.setattr(mixed_rw_pressure, "create_client_with_retry", fail_connect)
 
     code = mixed_rw_pressure.main(
         [
@@ -126,3 +127,63 @@ def test_mixed_rw_pressure_writes_structured_connection_failure(monkeypatch, tmp
     assert payload["status"] == "failed"
     assert payload["failures"][0]["type"] == "MIXED_RW_FAILED"
     assert payload["failures"][0]["error"] == "connect failed"
+
+
+def test_mixed_rw_pressure_includes_count_operation(monkeypatch, tmp_path):
+    output_json = tmp_path / "result.json"
+    captured = {}
+
+    def fake_run_pressure_workload(
+        client,
+        schema_matrix,
+        collection_prefix,
+        operations,
+        seed,
+        duration_sec,
+        max_workers,
+        batch_size,
+        operation_interval_sec=0.0,
+        baseline_start_id=0,
+        baseline_rows_per_collection=0,
+    ):
+        from milvus_client.common.workload import WorkloadSummary
+
+        del client, schema_matrix, collection_prefix, seed, duration_sec, max_workers, batch_size, operation_interval_sec
+        captured["operations"] = operations
+        captured["baseline_rows_per_collection"] = baseline_rows_per_collection
+        summary = WorkloadSummary()
+        summary.record("count", 1)
+        return summary
+
+    def fake_create_client_with_retry(uri, token, db_name, retry_sec):
+        captured["startup_retry_sec"] = retry_sec
+        return {"uri": uri, "token": token, "db_name": db_name}
+
+    monkeypatch.setattr(mixed_rw_pressure, "create_client_with_retry", fake_create_client_with_retry)
+    monkeypatch.setattr(mixed_rw_pressure, "run_pressure_workload", fake_run_pressure_workload)
+
+    code = mixed_rw_pressure.main(
+        [
+            "--uri",
+            "http://localhost:19530",
+            "--collection-prefix",
+            "qa",
+            "--schema-matrix",
+            str(ROOT / "manifests" / "schema_matrix_2_6.yaml"),
+            "--baseline-rows-per-collection",
+            "5000",
+            "--startup-retry-sec",
+            "7.5",
+            "--checkpoint-dir",
+            str(tmp_path / "checkpoints"),
+            "--output-json",
+            str(output_json),
+        ]
+    )
+
+    payload = json.loads(output_json.read_text())
+    assert code == 0
+    assert payload["status"] == "passed"
+    assert "count" in captured["operations"]
+    assert captured["baseline_rows_per_collection"] == 5000
+    assert captured["startup_retry_sec"] == 7.5

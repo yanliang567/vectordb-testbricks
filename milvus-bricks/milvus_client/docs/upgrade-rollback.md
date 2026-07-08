@@ -106,34 +106,68 @@ It also starts a daemon workload loop after the baseline validation:
 - `search_pressure`
 - `query_pressure`
 - `query_iterator_scan`
+- `count_pressure`
 - `upsert_pressure`
 - `delete_pressure`
 - `mixed_rw_pressure`
 
 For standalone upgrades, transient request failures can happen while the only
 Milvus process restarts. The daemon loops default to
-`pressure-fail-on-error=true`, so any pressure failure fails the workflow instead
-of being hidden behind foreground validation.
+`pressure-fail-on-error=true`, so pressure failures fail the workflow after the
+final report is generated. Override this only for exploratory standalone runs
+where restart-window request failures should be recorded as warnings instead of
+used as a regression gate.
 
-The pressure daemon intentionally does not mount the checkpoint PVC. That keeps
-the read/write workload alive during foreground validation without relying on
-concurrent ReadWriteOnce volume mounts across multiple pods.
+The pressure daemon does not mount the workflow state PVC while foreground
+`run-brick` steps are running. It stores pressure attempts/results and the stop
+signal in workflow-owned ConfigMaps in the Argo namespace, avoiding concurrent
+ReadWriteOnce PVC mounts. After pressure stops, `check-pressure-results`
+reconstructs pressure result artifacts and writes the pressure summary into the
+workflow state PVC. The daemon receives the seeded row count as a parameter, so
+`count_pressure` and the count operation inside `mixed_rw_pressure` can keep
+checking row counts while upgrade and rollback are in progress.
 
 The workflow emits `env_snapshot.json`, `flow_summary.json`,
-`orchestrator_report.json`, foreground brick results, checkpoints, pressure
-results, and Kubernetes snapshots. `keep-milvus=false` is the default cleanup
-policy; set `keep-milvus=true` only when preserving the generated Milvus CR for
-debugging.
+`orchestrator_report.json`, `final_report.md`, foreground brick results,
+checkpoints, pressure results, `pressure-summary.json`, and Kubernetes
+snapshots. The final report merges validation results, pressure summary, target
+metadata, parameters, and snapshot paths into one comparable artifact. Strict
+pressure gating runs after final report generation, so `pressure-fail-on-error`
+does not prevent report artifacts from being produced. The final gate accepts
+only `passed`; pressure warnings do not pass the regression workflow by default.
+`keep-milvus=false` is the default cleanup policy; set `keep-milvus=true` only
+when preserving the generated Milvus CR for debugging.
 
-The current 2.6 schema matrix covers:
+The current 2.6 schema matrix keeps the default workflow at three collections,
+but each collection is broader:
 
-- `INT64` primary key and scalar fields
-- nullable `VARCHAR`
-- nullable `BOOL`
-- nullable `JSON`
-- `ARRAY<VARCHAR>`
-- `FLOAT_VECTOR`
-- `FLOAT16_VECTOR`
-- `BFLOAT16_VECTOR`
-- `INT8_VECTOR`
-- `HNSW` and `AUTOINDEX` with `COSINE`
+- `scalar_dynamic_partition_key`: explicit `INT64` PK, partition key with
+  `num_partitions`, dynamic field, scalar types `INT8/INT16/INT32/INT64`,
+  `FLOAT/DOUBLE`, `BOOL`, `VARCHAR`, `JSON`, and `ARRAY` with
+  `INT64/FLOAT/BOOL/VARCHAR` elements.
+- `vector_autoid_bm25`: `auto_id` PK, BM25 function, and vector types
+  `FLOAT_VECTOR`, `FLOAT16_VECTOR`, `BFLOAT16_VECTOR`, `INT8_VECTOR`,
+  `BINARY_VECTOR`, and `SPARSE_FLOAT_VECTOR`.
+- `explicit_partitions_nullable`: explicit multi-partitions, `VARCHAR` PK,
+  nullable scalar fields, JSON/array data, and HNSW vector search.
+
+The matrix covers these vector indexes in rollback-safe 2.6 data:
+
+- `HNSW`
+- `IVF_RABITQ`
+- `DISKANN`
+- `AUTOINDEX`
+- `BIN_IVF_FLAT`
+- `SPARSE_INVERTED_INDEX`
+
+It also covers scalar index families used by 2.6 compatibility workloads:
+
+- `STL_SORT`
+- `INVERTED`
+- `BITMAP`
+- `TRIE`
+- `NGRAM`
+- scalar `AUTOINDEX`
+
+Nullable vector fields remain out of the 2.6 rollback-safe matrix because the
+capability catalog treats `NullableVector` as a 3.0+ forward-only capability.

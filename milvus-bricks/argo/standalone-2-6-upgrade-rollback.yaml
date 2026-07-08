@@ -46,7 +46,7 @@ spec:
       - name: batch-size
         value: "100"
       - name: pressure-modules
-        value: "search_pressure query_pressure query_iterator_scan upsert_pressure delete_pressure mixed_rw_pressure"
+        value: "search_pressure query_pressure query_iterator_scan count_pressure upsert_pressure delete_pressure mixed_rw_pressure"
       - name: pressure-slice-duration-sec
         value: "10"
       - name: pressure-max-workers
@@ -162,7 +162,7 @@ spec:
                   value: rollingUpgrade
 
           - name: wait-upgrade-ready
-            dependencies: [patch-upgrade]
+            dependencies: [patch-upgrade, pressure-daemon]
             template: wait-milvus-ready
             arguments:
               parameters:
@@ -170,7 +170,7 @@ spec:
                   value: "{{workflow.parameters.target-milvus-image}}"
 
           - name: observe-after-upgrade
-            dependencies: [wait-upgrade-ready]
+            dependencies: [wait-upgrade-ready, pressure-daemon]
             template: observe
             arguments:
               parameters:
@@ -180,7 +180,7 @@ spec:
                   value: after-upgrade
 
           - name: precheck-after-upgrade
-            dependencies: [observe-after-upgrade]
+            dependencies: [observe-after-upgrade, pressure-daemon]
             template: run-brick
             arguments:
               parameters:
@@ -192,7 +192,7 @@ spec:
                   value: ""
 
           - name: validate-after-upgrade
-            dependencies: [precheck-after-upgrade]
+            dependencies: [precheck-after-upgrade, pressure-daemon]
             template: run-brick
             arguments:
               parameters:
@@ -205,7 +205,7 @@ spec:
                     --schema-matrix {{workflow.parameters.schema-matrix}}
 
           - name: patch-rollback
-            dependencies: [validate-after-upgrade]
+            dependencies: [validate-after-upgrade, pressure-daemon]
             template: patch-milvus-image
             arguments:
               parameters:
@@ -217,7 +217,7 @@ spec:
                   value: rollingDowngrade
 
           - name: wait-rollback-ready
-            dependencies: [patch-rollback]
+            dependencies: [patch-rollback, pressure-daemon]
             template: wait-milvus-ready
             arguments:
               parameters:
@@ -225,7 +225,7 @@ spec:
                   value: "{{workflow.parameters.base-milvus-image}}"
 
           - name: observe-after-rollback
-            dependencies: [wait-rollback-ready]
+            dependencies: [wait-rollback-ready, pressure-daemon]
             template: observe
             arguments:
               parameters:
@@ -235,7 +235,7 @@ spec:
                   value: after-rollback
 
           - name: precheck-after-rollback
-            dependencies: [observe-after-rollback]
+            dependencies: [observe-after-rollback, pressure-daemon]
             template: run-brick
             arguments:
               parameters:
@@ -247,7 +247,7 @@ spec:
                   value: ""
 
           - name: validate-after-rollback
-            dependencies: [precheck-after-rollback]
+            dependencies: [precheck-after-rollback, pressure-daemon]
             template: run-brick
             arguments:
               parameters:
@@ -259,9 +259,25 @@ spec:
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
 
+          - name: stop-pressure
+            dependencies: [validate-after-rollback, pressure-daemon]
+            template: stop-pressure
+
+          - name: check-pressure-results
+            dependencies: [stop-pressure]
+            template: check-pressure-results
+
           - name: collect-artifacts
-            dependencies: [validate-after-rollback]
+            dependencies: [check-pressure-results]
             template: collect-artifacts
+
+          - name: generate-final-report
+            dependencies: [collect-artifacts]
+            template: generate-final-report
+
+          - name: gate-final-status
+            dependencies: [generate-final-report]
+            template: gate-final-status
 
     - name: resolve-inputs
       outputs:
@@ -303,6 +319,10 @@ spec:
               "standalone_memory": "{{workflow.parameters.standalone-memory}}",
               "etcd_pvc_size": "{{workflow.parameters.etcd-pvc-size}}",
               "storage_pvc_size": "{{workflow.parameters.storage-pvc-size}}",
+              "rows_per_collection": "{{workflow.parameters.rows-per-collection}}",
+              "batch_size": "{{workflow.parameters.batch-size}}",
+              "pressure_modules": "{{workflow.parameters.pressure-modules}}",
+              "pressure_fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}",
               "keep_milvus": "{{workflow.parameters.keep-milvus}}"
             }
             EOF
@@ -315,6 +335,8 @@ spec:
               "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
+              "rows_per_collection": "{{workflow.parameters.rows-per-collection}}",
+              "pressure_fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}",
               "cleanup_attempted": false,
               "cleanup_status": "pending",
               "cleanup_error": "",
@@ -475,28 +497,24 @@ spec:
         args:
           - |
             set -eux
-            python -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/results /tmp/milvus-bricks/checkpoints
-            PYTHONPATH=. python -m {{inputs.parameters.module}} \
+            PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
               --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
               --collection-prefix "{{workflow.parameters.collection-prefix}}" \
               --checkpoint-dir /tmp/milvus-bricks/checkpoints \
               --output-json /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json \
               {{inputs.parameters.args}}
-            python -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
+            python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
         volumeMounts:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks
 
     - name: pressure-daemon
       daemon: true
-      outputs:
-        artifacts:
-          - name: pressure-results
-            path: /tmp/milvus-pressure/results
       container:
         image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
@@ -516,38 +534,253 @@ spec:
           - |
             set -eu
             trap 'echo "stopping pressure daemon"; exit 0' TERM INT
-            python -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
             cd /tmp/repo/milvus-bricks
-            mkdir -p /tmp/milvus-pressure/results /tmp/milvus-pressure/checkpoints
+            mkdir -p /tmp/pressure-results /tmp/pressure-checkpoints
+            stop_cm="{{workflow.name}}-pressure-stop"
+            pressure_ns="{{workflow.namespace}}"
             iteration=0
-            while true; do
+            while ! kubectl -n "$pressure_ns" get configmap "$stop_cm" >/dev/null 2>&1; do
               for module in {{workflow.parameters.pressure-modules}}; do
+                if kubectl -n "$pressure_ns" get configmap "$stop_cm" >/dev/null 2>&1; then
+                  break
+                fi
                 iteration=$((iteration + 1))
-                result="/tmp/milvus-pressure/results/${module}_${iteration}.json"
+                result="/tmp/pressure-results/${module}_${iteration}.json"
+                result_file="$(basename "$result")"
+                safe_module="$(echo "$module" | tr '_' '-')"
+                attempt_cm="{{workflow.name}}-pressure-${iteration}-${safe_module}"
+                kubectl -n "$pressure_ns" create configmap "$attempt_cm" \
+                  --from-literal=module="$module" \
+                  --from-literal=iteration="$iteration" \
+                  --from-literal=result_file="$result_file" \
+                  --from-literal=return_code="pending" \
+                  --dry-run=client -o yaml > /tmp/pressure-attempt.yaml
+                kubectl label --local -f /tmp/pressure-attempt.yaml \
+                  app.kubernetes.io/managed-by=argo-workflow \
+                  app.kubernetes.io/name=milvus-standalone-2-6-upgrade-rollback \
+                  zilliz.com/workflow-run-id="{{workflow.uid}}" \
+                  zilliz.com/pressure-result=true \
+                  -o yaml | kubectl apply -f -
                 set +e
-                PYTHONPATH=. python -m "milvus_client.requests.${module}" \
+                PYTHONPATH=. python3 -m "milvus_client.requests.${module}" \
                   --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
                   --collection-prefix "{{workflow.parameters.collection-prefix}}" \
-                  --checkpoint-dir /tmp/milvus-pressure/checkpoints \
+                  --checkpoint-dir /tmp/pressure-checkpoints \
                   --output-json "$result" \
                   --schema-matrix "{{workflow.parameters.schema-matrix}}" \
                   --duration-sec "{{workflow.parameters.pressure-slice-duration-sec}}" \
                   --max-workers "{{workflow.parameters.pressure-max-workers}}" \
-                  --batch-size "{{workflow.parameters.pressure-batch-size}}"
+                  --batch-size "{{workflow.parameters.pressure-batch-size}}" \
+                  --baseline-start-id "0" \
+                  --baseline-rows-per-collection "{{workflow.parameters.rows-per-collection}}"
                 rc=$?
                 set -e
                 echo "pressure module=${module} iteration=${iteration} rc=${rc}"
+                python3 -m json.tool "$result" || cat "$result" || true
                 if [ "$rc" = "0" ] && [ ! -f /tmp/pressure-ready ]; then
                   touch /tmp/pressure-ready
                 fi
-                if [ "$rc" != "0" ] && [ "{{workflow.parameters.pressure-fail-on-error}}" = "true" ]; then
-                  exit "$rc"
+                if [ "$rc" != "0" ]; then
+                  if [ ! -f "$result" ]; then
+                    cat > "$result" <<EOF
+            {
+              "brick": "$module",
+              "status": "failed",
+              "failures": [
+                {
+                  "type": "PRESSURE_PROCESS_FAILED",
+                  "message": "pressure module exited without writing result json",
+                  "return_code": $rc
+                }
+              ],
+              "metrics": {
+                "iteration": $iteration
+              }
+            }
+            EOF
+                  fi
                 fi
+                kubectl -n "$pressure_ns" create configmap "$attempt_cm" \
+                  --from-literal=module="$module" \
+                  --from-literal=iteration="$iteration" \
+                  --from-literal=result_file="$result_file" \
+                  --from-literal=return_code="$rc" \
+                  --from-file=result.json="$result" \
+                  --dry-run=client -o yaml > /tmp/pressure-result.yaml
+                kubectl label --local -f /tmp/pressure-result.yaml \
+                  app.kubernetes.io/managed-by=argo-workflow \
+                  app.kubernetes.io/name=milvus-standalone-2-6-upgrade-rollback \
+                  zilliz.com/workflow-run-id="{{workflow.uid}}" \
+                  zilliz.com/pressure-result=true \
+                  -o yaml | kubectl apply -f -
                 sleep "{{workflow.parameters.pressure-interval-sec}}"
               done
             done
+
+    - name: stop-pressure
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        args:
+          - |
+            set -eu
+            kubectl -n "{{workflow.namespace}}" create configmap "{{workflow.name}}-pressure-stop" \
+              --from-literal=stop=true \
+              --dry-run=client -o yaml > /tmp/pressure-stop.yaml
+            kubectl label --local -f /tmp/pressure-stop.yaml \
+              app.kubernetes.io/managed-by=argo-workflow \
+              app.kubernetes.io/name=milvus-standalone-2-6-upgrade-rollback \
+              zilliz.com/workflow-run-id="{{workflow.uid}}" \
+              zilliz.com/pressure-stop=true \
+              -o yaml | kubectl apply -f -
+            sleep $(({{workflow.parameters.pressure-slice-duration-sec}} + 40))
+
+    - name: check-pressure-results
+      outputs:
+        artifacts:
+          - name: pressure-summary
+            path: /tmp/milvus-bricks/pressure-summary.json
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
+        args:
+          - |
+            set -eu
+            python3 - <<'PY'
+            import json
+            import subprocess
+            from pathlib import Path
+
+            root = Path("/tmp/milvus-bricks")
+            result_dir = root / "pressure-results"
+            attempts_path = root / "pressure-attempts.jsonl"
+            result_dir.mkdir(parents=True, exist_ok=True)
+            attempts_path.parent.mkdir(parents=True, exist_ok=True)
+            selector = "zilliz.com/workflow-run-id={{workflow.uid}},zilliz.com/pressure-result=true"
+            completed = subprocess.run(
+                ["kubectl", "-n", "{{workflow.namespace}}", "get", "configmaps", "-l", selector, "-o", "json"],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            if completed.returncode != 0:
+                raise SystemExit(completed.stderr or completed.stdout)
+            payload = json.loads(completed.stdout or '{"items":[]}')
+            result_dir = Path("/tmp/milvus-bricks/pressure-results")
+            attempts_path = Path("/tmp/milvus-bricks/pressure-attempts.jsonl")
+            attempts = []
+            for item in payload.get("items", []):
+                data = item.get("data", {})
+                result_file = data.get("result_file") or f"{item['metadata']['name']}.json"
+                attempts.append(
+                    {
+                        "module": data.get("module"),
+                        "iteration": data.get("iteration"),
+                        "result_file": result_file,
+                        "return_code": data.get("return_code"),
+                        "configmap": item["metadata"]["name"],
+                    }
+                )
+                if "result.json" in data:
+                    (result_dir / result_file).write_text(data["result.json"])
+            attempts_path.write_text("\n".join(json.dumps(attempt, sort_keys=True) for attempt in attempts) + ("\n" if attempts else ""))
+            files = sorted(result_dir.glob("*.json"))
+            failed = []
+            passed = 0
+            attempt_files = [attempt["result_file"] for attempt in attempts if attempt.get("result_file")]
+            if not files:
+                failed.append(
+                    {
+                        "file": "pressure-results",
+                        "status": "missing_result",
+                        "failures": [
+                            {
+                                "type": "NO_PRESSURE_RESULTS",
+                                "message": "pressure daemon did not produce any result json",
+                            }
+                        ],
+                    }
+                )
+            for attempt in attempts:
+                if attempt.get("return_code") == "pending":
+                    failed.append(
+                        {
+                            "file": attempt.get("result_file"),
+                            "brick": attempt.get("module"),
+                            "status": "pending_result",
+                            "configmap": attempt.get("configmap"),
+                            "failures": [
+                                {
+                                    "type": "PRESSURE_ATTEMPT_PENDING",
+                                    "message": "pressure attempt was recorded but did not complete",
+                                }
+                            ],
+                        }
+                    )
+            for path in files:
+                try:
+                    payload = json.loads(path.read_text())
+                except Exception as exc:
+                    failed.append({"file": path.name, "status": "unreadable", "error": str(exc)})
+                    continue
+                if payload.get("status") == "passed":
+                    passed += 1
+                else:
+                    failed.append(
+                        {
+                            "file": path.name,
+                            "brick": payload.get("brick"),
+                            "status": payload.get("status"),
+                            "failures": payload.get("failures", []),
+                            "metrics": payload.get("metrics", {}),
+                        }
+                    )
+            existing_files = {path.name for path in files}
+            for result_file in attempt_files:
+                if result_file not in existing_files:
+                    failed.append(
+                        {
+                            "file": result_file,
+                            "status": "missing_result",
+                            "failures": [
+                                {
+                                    "type": "PRESSURE_RESULT_MISSING",
+                                    "message": "pressure attempt did not produce a result json",
+                                }
+                            ],
+                        }
+                    )
+            summary = {
+                "total": len(files),
+                "attempts": len(attempt_files),
+                "passed": passed,
+                "failed": len(failed),
+                "failed_results": failed,
+                "fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}" == "true",
+            }
+            Path("/tmp/milvus-bricks/pressure-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
+            print(json.dumps(summary, indent=2, sort_keys=True))
+            PY
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks
 
     - name: collect-artifacts
       outputs:
@@ -556,6 +789,12 @@ spec:
             path: /tmp/milvus-bricks/results
           - name: checkpoints
             path: /tmp/milvus-bricks/checkpoints
+          - name: pressure-results
+            path: /tmp/milvus-bricks/pressure-results
+          - name: pressure-attempts
+            path: /tmp/milvus-bricks/pressure-attempts.jsonl
+          - name: pressure-summary
+            path: /tmp/milvus-bricks/pressure-summary.json
           - name: k8s-snapshot
             path: /tmp/milvus-bricks/k8s
       container:
@@ -579,6 +818,100 @@ spec:
             kubectl -n "$ns" get persistentvolumeclaims -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/pvcs.txt 2>&1 || true
             kubectl -n "$ns" get deployments,statefulsets,replicasets -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/workloads.txt 2>&1 || true
             kubectl -n "$ns" get events --sort-by=.lastTimestamp > /tmp/milvus-bricks/k8s/events.txt 2>&1 || true
+            kubectl -n "{{workflow.namespace}}" get configmaps -l zilliz.com/workflow-run-id="{{workflow.uid}}" -o wide > /tmp/milvus-bricks/k8s/workflow_configmaps.txt 2>&1 || true
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks
+
+    - name: generate-final-report
+      outputs:
+        artifacts:
+          - name: orchestrator-report
+            path: /tmp/milvus-bricks/reports/orchestrator_report.json
+          - name: final-report-md
+            path: /tmp/milvus-bricks/reports/final_report.md
+          - name: env-snapshot
+            path: /tmp/milvus-bricks/reports/env_snapshot.json
+          - name: flow-summary
+            path: /tmp/milvus-bricks/reports/flow_summary.json
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
+        args:
+          - |
+            set -eux
+            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            rm -rf /tmp/repo
+            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            cd /tmp/repo/milvus-bricks
+            mkdir -p /tmp/milvus-bricks/reports
+            PYTHONPATH=. python3 -m milvus_client.requests.generate_workflow_report \
+              --results-dir /tmp/milvus-bricks/results \
+              --pressure-summary /tmp/milvus-bricks/pressure-summary.json \
+              --k8s-dir /tmp/milvus-bricks/k8s \
+              --env-snapshot /tmp/milvus-bricks/reports/env_snapshot.json \
+              --flow-summary /tmp/milvus-bricks/reports/flow_summary.json \
+              --output-json /tmp/milvus-bricks/reports/orchestrator_report.json \
+              --output-md /tmp/milvus-bricks/reports/final_report.md \
+              --workflow-name "{{workflow.name}}" \
+              --workflow-uid "{{workflow.uid}}" \
+              --workflow-namespace "{{workflow.namespace}}" \
+              --milvus-release-name "{{workflow.name}}" \
+              --milvus-namespace "{{workflow.parameters.milvus-namespace}}" \
+              --milvus-host "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc" \
+              --base-milvus-image "{{workflow.parameters.base-milvus-image}}" \
+              --target-milvus-image "{{workflow.parameters.target-milvus-image}}" \
+              --base-version "{{workflow.parameters.base-version}}" \
+              --target-version "{{workflow.parameters.target-version}}" \
+              --repo-url "{{workflow.parameters.repo-url}}" \
+              --repo-revision "{{workflow.parameters.repo-revision}}" \
+              --schema-matrix "{{workflow.parameters.schema-matrix}}" \
+              --collection-prefix "{{workflow.parameters.collection-prefix}}" \
+              --rows-per-collection "{{workflow.parameters.rows-per-collection}}" \
+              --batch-size "{{workflow.parameters.batch-size}}" \
+              --pressure-modules "{{workflow.parameters.pressure-modules}}" \
+              --pressure-fail-on-error "{{workflow.parameters.pressure-fail-on-error}}" \
+              --observe-after-upgrade-sec "{{workflow.parameters.observe-after-upgrade-sec}}" \
+              --observe-after-rollback-sec "{{workflow.parameters.observe-after-rollback-sec}}" \
+              --soft-fail
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks
+
+    - name: gate-final-status
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
+        args:
+          - |
+            set -eu
+            python3 - <<'PY'
+            import json
+            from pathlib import Path
+
+            report_path = Path("/tmp/milvus-bricks/reports/orchestrator_report.json")
+            if not report_path.exists():
+                raise SystemExit("missing orchestrator_report.json")
+            report = json.loads(report_path.read_text())
+            status = report.get("status")
+            print(json.dumps({"status": status}, indent=2, sort_keys=True))
+            if status != "passed":
+                raise SystemExit(1)
+            PY
         volumeMounts:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks
@@ -608,6 +941,8 @@ spec:
         artifacts:
           - name: orchestrator-report
             path: /tmp/milvus-bricks/reports/orchestrator_report.json
+          - name: final-report-md
+            path: /tmp/milvus-bricks/reports/final_report.md
           - name: flow-summary
             path: /tmp/milvus-bricks/reports/flow_summary.json
           - name: env-snapshot
@@ -630,8 +965,10 @@ spec:
             mkdir -p /tmp/milvus-bricks/reports /tmp/milvus-bricks/k8s
             ns="{{workflow.parameters.milvus-namespace}}"
             selector="zilliz.com/workflow-run-id={{workflow.uid}}"
+            workflow_ns="{{workflow.namespace}}"
             kubectl -n "$ns" get milvuses -l "$selector" -o wide > /tmp/milvus-bricks/k8s/owned_milvuses.txt 2>&1 || true
             kubectl -n "$ns" get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/instance_resources.txt 2>&1 || true
+            kubectl -n "$workflow_ns" get configmaps -l "$selector" -o wide > /tmp/milvus-bricks/k8s/workflow_configmaps.txt 2>&1 || true
             kubectl -n "$ns" get events --sort-by=.lastTimestamp > /tmp/milvus-bricks/k8s/events.txt 2>&1 || true
             cleanup_attempted=false
             cleanup_status="skipped"
@@ -642,6 +979,7 @@ spec:
               if {
                 kubectl -n "$ns" delete milvuses -l "$selector" --ignore-not-found=true
                 kubectl -n "$ns" delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets -l app.kubernetes.io/instance="{{workflow.name}}" --ignore-not-found=true
+                kubectl -n "$workflow_ns" delete configmaps -l "$selector" --ignore-not-found=true
               } > /tmp/milvus-bricks/k8s/cleanup.txt 2>&1; then
                 cleanup_status="completed"
               else
@@ -651,7 +989,8 @@ spec:
             else
               kept_resources="[\"{{workflow.name}}\"]"
             fi
-            cat > /tmp/milvus-bricks/reports/env_snapshot.json <<EOF
+            if [ ! -f /tmp/milvus-bricks/reports/env_snapshot.json ]; then
+              cat > /tmp/milvus-bricks/reports/env_snapshot.json <<EOF
             {
               "workflow_name": "{{workflow.name}}",
               "workflow_uid": "{{workflow.uid}}",
@@ -664,7 +1003,36 @@ spec:
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}"
             }
             EOF
-            cat > /tmp/milvus-bricks/reports/flow_summary.json <<EOF
+            fi
+            python3 - <<PY
+            import json
+            from pathlib import Path
+
+            path = Path("/tmp/milvus-bricks/reports/flow_summary.json")
+            try:
+                payload = json.loads(path.read_text())
+            except Exception:
+                payload = {
+                    "workflow_name": "{{workflow.name}}",
+                    "workflow_uid": "{{workflow.uid}}",
+                    "milvus_release_name": "{{workflow.name}}",
+                    "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
+                    "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
+                    "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+                    "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
+                }
+            payload.update(
+                {
+                    "cleanup_attempted": json.loads("""$cleanup_attempted"""),
+                    "cleanup_status": "$cleanup_status",
+                    "cleanup_error": "$cleanup_error",
+                    "kept_resources": json.loads("""$kept_resources"""),
+                }
+            )
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+            PY
+            if [ ! -f /tmp/milvus-bricks/reports/orchestrator_report.json ]; then
+              cat > /tmp/milvus-bricks/reports/orchestrator_report.json <<EOF
             {
               "workflow_name": "{{workflow.name}}",
               "workflow_uid": "{{workflow.uid}}",
@@ -673,19 +1041,18 @@ spec:
               "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
-              "cleanup_attempted": $cleanup_attempted,
-              "cleanup_status": "$cleanup_status",
-              "cleanup_error": "$cleanup_error",
-              "kept_resources": $kept_resources
-            }
-            EOF
-            cat > /tmp/milvus-bricks/reports/orchestrator_report.json <<EOF
-            {
               "status": "{{workflow.status}}",
-              "workflow_name": "{{workflow.name}}",
-              "workflow_uid": "{{workflow.uid}}",
-              "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
               "schema_matrix": "{{workflow.parameters.schema-matrix}}",
               "collection_prefix": "{{workflow.parameters.collection-prefix}}"
             }
             EOF
+            fi
+            if [ ! -f /tmp/milvus-bricks/reports/final_report.md ]; then
+              {
+                printf '%s\n' '# Milvus Standalone 2.6 Upgrade/Rollback Report'
+                printf '\n'
+                printf '%s\n' '- workflow: `{{workflow.name}}`'
+                printf '%s\n' '- status: `{{workflow.status}}`'
+                printf '%s\n' '- collection prefix: `{{workflow.parameters.collection-prefix}}`'
+              } > /tmp/milvus-bricks/reports/final_report.md
+            fi

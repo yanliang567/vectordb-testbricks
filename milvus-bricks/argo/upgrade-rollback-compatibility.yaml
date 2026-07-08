@@ -70,9 +70,9 @@ spec:
         args:
           - |
             mkdir -p /tmp/brick-result /tmp/milvus-bricks/checkpoints /tmp/milvus-bricks/results
-            python -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             cd /workspace/repo/milvus-bricks
-            PYTHONPATH=. python -m {{inputs.parameters.module}} \
+            PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
               --uri "{{workflow.parameters.uri}}" \
               --token "$MILVUS_TOKEN" \
               --collection-prefix "{{workflow.parameters.collection-prefix}}" \
@@ -116,7 +116,7 @@ spec:
         args:
           - |
             mkdir -p /tmp/brick-result /tmp/milvus-bricks/checkpoints /tmp/milvus-bricks/results
-            python -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             cat >/tmp/milvus-bricks/scenario.yaml <<'EOF'
             name: upgrade_rollback_compatibility
             cycles: {{workflow.parameters.cycles}}
@@ -143,7 +143,7 @@ spec:
                 interval_sec: {{workflow.parameters.validator-interval-sec}}
             EOF
             cd /workspace/repo/milvus-bricks
-            PYTHONPATH=. python -m milvus_client.scenarios.upgrade_rollback_compatibility \
+            PYTHONPATH=. python3 -m milvus_client.scenarios.upgrade_rollback_compatibility \
               --scenario-manifest /tmp/milvus-bricks/scenario.yaml \
               --uri "{{workflow.parameters.uri}}" \
               --token "$MILVUS_TOKEN" \

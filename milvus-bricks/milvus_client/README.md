@@ -94,6 +94,10 @@ rows written by `mixed_rw_pressure` outside that range do not cause false count
 drift. The checkpoint checksum covers deterministic non-vector fields; vector
 compatibility is covered by search/query workload bricks.
 
+For `auto_id` schemas, `seed_data` captures the server-returned primary keys and
+stores them in the checkpoint. `validate_data_integrity` uses those captured
+keys for PK samples and checksum queries.
+
 ## Independent Workload Bricks
 
 The mixed workload is also available as independently schedulable request
@@ -102,6 +106,7 @@ bricks:
 - `milvus_client.requests.search_pressure`
 - `milvus_client.requests.query_pressure`
 - `milvus_client.requests.query_iterator_scan`
+- `milvus_client.requests.count_pressure`
 - `milvus_client.requests.upsert_pressure`
 - `milvus_client.requests.delete_pressure`
 
@@ -122,6 +127,12 @@ PYTHONPATH=. python -m milvus_client.requests.search_pressure \
 
 `delete_pressure` only targets the reserved high-PK pressure range and does not
 delete seed baseline rows tracked by `seed_data`.
+For `auto_id` schemas, destructive pressure operations (`upsert` and `delete`)
+are skipped; insert/query/search pressure still runs.
+`count_pressure` and the count operation inside `mixed_rw_pressure` check row
+counts while traffic is running. For explicit PK schemas they verify the seed PK
+range still has exactly `--baseline-rows-per-collection` rows; for `auto_id`
+schemas they verify the total collection count is at least that baseline.
 
 ## Upgrade/Rollback Scenario
 

@@ -79,6 +79,16 @@ bricks:
     lifecycle_phases: ["before_upgrade", "after_upgrade", "before_rollback", "after_rollback", "steady_state"]
     destructive: false
 
+  - name: count_pressure
+    module: milvus_client.requests.count_pressure
+    category: workload
+    milvus_versions: ["2.6", "3.0"]
+    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array"]
+    required_capabilities: []
+    compat_mode: rollback_safe
+    lifecycle_phases: ["before_upgrade", "after_upgrade", "before_rollback", "after_rollback", "steady_state"]
+    destructive: false
+
   - name: upsert_pressure
     module: milvus_client.requests.upsert_pressure
     category: workload
