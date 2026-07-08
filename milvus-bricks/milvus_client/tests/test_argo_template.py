@@ -117,7 +117,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
 
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
     pressure_modules = parameter_values["pressure-modules"]
-    assert parameter_values["pressure-fail-on-error"] == "false"
+    assert parameter_values["pressure-fail-on-error"] == "true"
     assert "search_pressure" in pressure_modules
     assert "query_pressure" in pressure_modules
     assert "query_iterator_scan" in pressure_modules
@@ -127,21 +127,24 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "mixed_rw_pressure" in pressure_modules
 
     pressure_template = templates["pressure-daemon"]
-    mounts = {mount["name"]: mount["mountPath"] for mount in pressure_template["container"]["volumeMounts"]}
-    assert mounts["milvus-test-state"] == "/tmp/milvus-bricks"
+    assert "volumeMounts" not in pressure_template["container"]
     pressure_command = pressure_template["container"]["args"][0]
     assert 'if [ "$rc" = "0" ] && [ ! -f /tmp/pressure-ready ]; then' in pressure_command
     assert "pressure-stop" in pressure_command
-    assert "pressure-failed" in pressure_command
-    assert "pressure-attempts.jsonl" in pressure_command
+    assert "kubectl -n \"$pressure_ns\" create configmap \"$attempt_cm\"" in pressure_command
+    assert "zilliz.com/pressure-result=true" in pressure_command
     assert "PRESSURE_PROCESS_FAILED" in pressure_command
     assert 'python3 -m json.tool "$result"' in pressure_command
     assert "python -m" not in pressure_command
     assert "python3 -m" in pressure_command
     assert "--baseline-rows-per-collection" in pressure_command
     assert "{{workflow.parameters.rows-per-collection}}" in pressure_command
-    pressure_artifacts = {artifact["name"] for artifact in pressure_template["outputs"]["artifacts"]}
-    assert "pressure-results" in pressure_artifacts
+
+    stop_pressure = templates["stop-pressure"]
+    assert "volumeMounts" not in stop_pressure["container"]
+    stop_command = stop_pressure["container"]["args"][0]
+    assert "{{workflow.name}}-pressure-stop" in stop_command
+    assert "zilliz.com/pressure-stop=true" in stop_command
 
     cleanup = templates["maybe-cleanup"]
     cleanup_artifacts = {artifact["name"] for artifact in cleanup["outputs"]["artifacts"]}
@@ -153,6 +156,9 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     check_command = check_pressure["container"]["args"][0]
     assert "NO_PRESSURE_RESULTS" in check_command
     assert "PRESSURE_RESULT_MISSING" in check_command
+    assert "PRESSURE_ATTEMPT_PENDING" in check_command
+    assert "kubectl" in check_command
+    assert "zilliz.com/pressure-result=true" in check_command
     assert "summary[\"fail_on_error\"] and failed" not in check_command
 
     final_report = templates["generate-final-report"]
@@ -168,7 +174,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     gate = templates["gate-final-status"]
     gate_command = gate["container"]["args"][0]
     assert "orchestrator_report.json" in gate_command
-    assert 'status not in {"passed", "warning"}' in gate_command
+    assert 'status != "passed"' in gate_command
 
 
 def test_standalone_2_6_upgrade_rollback_template_creates_4c16g_standalone():
@@ -220,5 +226,6 @@ def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():
         for resource in rule["resources"]
     }
     assert {"milvuses", "persistentvolumeclaims", "pods/log", "events"} <= milvus_resources
+    assert "configmaps" in qa_resources
     assert "workflowtaskresults" in qa_resources
     assert "pod logs" not in milvus_resources

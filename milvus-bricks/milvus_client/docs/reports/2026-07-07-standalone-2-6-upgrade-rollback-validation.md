@@ -52,7 +52,7 @@ Round 3 verification:
 
 3. Pressure failure visibility
    - Problem: pressure pod could exit with Error while Argo workflow still succeeded because daemon readiness had already unblocked downstream tasks.
-   - Fix: pressure results are written to the shared PVC, the daemon keeps running until `pressure-stop`, and `check-pressure-results` summarizes failures.
+   - Fix: pressure attempts/results are recorded through workflow-owned ConfigMaps while the daemon runs, `check-pressure-results` summarizes failures after pressure stops, and the final gate fails on non-`passed` report status.
 
 4. Transient startup resilience
    - Problem: pressure bricks can start exactly while standalone is restarting and fail client creation immediately.
@@ -68,7 +68,7 @@ Parameters:
 - `pressure-max-workers=4`
 - `pressure-slice-duration-sec=10`
 - `pressure-batch-size=10`
-- `pressure-fail-on-error=false` for standalone expected restart-window request failures.
+- `pressure-fail-on-error=false` for that supplemental exploratory run; the workflow default is now strict.
 
 Integrity results:
 - Before upgrade: passed.
@@ -125,9 +125,9 @@ Request bricks covered:
 ## Follow-up Status
 
 Implemented after this validation:
-- Standalone workflow default changed to `pressure-fail-on-error=false`; pressure failures are summarized as warnings for restart-window request interruptions.
+- Standalone workflow default is `pressure-fail-on-error=true`; pressure failures are summarized in the report and fail the final workflow gate.
 - The workflow now generates both `orchestrator_report.json` and `final_report.md`, merging validation results, pressure summary, environment metadata, flow summary, and Kubernetes snapshot paths.
-- Pressure attempts are logged separately from result JSON files, missing result files are summarized, and strict pressure gating runs only after the final report is generated.
+- Pressure attempts are logged separately from result JSON files through workflow-owned ConfigMaps, missing result files are summarized, and strict pressure gating runs only after the final report is generated.
 - `mixed_rw_pressure` now uses the same startup retry behavior as the independent pressure bricks.
 
 Remaining future work:

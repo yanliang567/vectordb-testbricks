@@ -113,18 +113,19 @@ It also starts a daemon workload loop after the baseline validation:
 
 For standalone upgrades, transient request failures can happen while the only
 Milvus process restarts. The daemon loops default to
-`pressure-fail-on-error=false`, so pressure failures are preserved in
-`pressure-summary.json` and the final report as warnings while foreground
-compatibility validation remains the hard gate. Set
-`pressure-fail-on-error=true` for cluster-mode or other zero-request-failure
-upgrade targets.
+`pressure-fail-on-error=true`, so pressure failures fail the workflow after the
+final report is generated. Override this only for exploratory standalone runs
+where restart-window request failures should be recorded as warnings instead of
+used as a regression gate.
 
-The pressure daemon writes its own pressure results, attempts log, stop marker,
-and pressure checkpoints under the workflow state PVC. It does not read the seed
-checkpoint used by foreground validation. The daemon receives the seeded row
-count as a parameter, so `count_pressure` and the count operation inside
-`mixed_rw_pressure` can keep checking row counts while upgrade and rollback are
-in progress.
+The pressure daemon does not mount the workflow state PVC while foreground
+`run-brick` steps are running. It stores pressure attempts/results and the stop
+signal in workflow-owned ConfigMaps in the Argo namespace, avoiding concurrent
+ReadWriteOnce PVC mounts. After pressure stops, `check-pressure-results`
+reconstructs pressure result artifacts and writes the pressure summary into the
+workflow state PVC. The daemon receives the seeded row count as a parameter, so
+`count_pressure` and the count operation inside `mixed_rw_pressure` can keep
+checking row counts while upgrade and rollback are in progress.
 
 The workflow emits `env_snapshot.json`, `flow_summary.json`,
 `orchestrator_report.json`, `final_report.md`, foreground brick results,
@@ -132,7 +133,8 @@ checkpoints, pressure results, `pressure-summary.json`, and Kubernetes
 snapshots. The final report merges validation results, pressure summary, target
 metadata, parameters, and snapshot paths into one comparable artifact. Strict
 pressure gating runs after final report generation, so `pressure-fail-on-error`
-does not prevent report artifacts from being produced.
+does not prevent report artifacts from being produced. The final gate accepts
+only `passed`; pressure warnings do not pass the regression workflow by default.
 `keep-milvus=false` is the default cleanup policy; set `keep-milvus=true` only
 when preserving the generated Milvus CR for debugging.
 
