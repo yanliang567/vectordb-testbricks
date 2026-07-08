@@ -644,25 +644,33 @@ spec:
         args:
           - |
             set -eux
-            cat >/tmp/milvus-patch.json <<EOF
-            {
-              "spec": {
-                "components": {
-                  "image": "{{inputs.parameters.image}}",
-                  "version": "{{inputs.parameters.version}}",
-                  "imageUpdateMode": "{{inputs.parameters.image-update-mode}}"
-                },
-                "config": {
-                  "common": {
-                    "storage": {
-                      "jsonShreddingEnabled": {{inputs.parameters.json-shredding-enabled}},
-                      "useLoonFFI": {{inputs.parameters.loon-ffi-enabled}}
-                    }
-                  }
+            python3 - <<'PY'
+            import json
+            from pathlib import Path
+
+            loon_ffi_enabled = json.loads("""{{inputs.parameters.loon-ffi-enabled}}""")
+            patch = {
+                "spec": {
+                    "components": {
+                        "image": "{{inputs.parameters.image}}",
+                        "version": "{{inputs.parameters.version}}",
+                        "imageUpdateMode": "{{inputs.parameters.image-update-mode}}",
+                    },
+                    "config": {
+                        "common": {
+                            "storage": {
+                                "jsonShreddingEnabled": json.loads("""{{inputs.parameters.json-shredding-enabled}}"""),
+                                "useLoonFFI": loon_ffi_enabled,
+                            }
+                        }
+                    },
                 }
-              }
             }
-            EOF
+            if loon_ffi_enabled:
+                patch["spec"]["config"]["dataNode"] = {"storage": {"format": "vortex"}}
+            Path("/tmp/milvus-patch.json").write_text(json.dumps(patch, indent=2, sort_keys=True))
+            print(json.dumps(patch, indent=2, sort_keys=True))
+            PY
             kubectl -n {{workflow.parameters.milvus-namespace}} patch mi {{workflow.name}} --type merge --patch-file /tmp/milvus-patch.json
             kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o yaml | sed -n '1,180p'
 
@@ -689,20 +697,28 @@ spec:
               echo "post-upgrade config toggle disabled"
               exit 0
             fi
-            cat >/tmp/milvus-config-patch.json <<EOF
-            {
-              "spec": {
-                "config": {
-                  "common": {
-                    "storage": {
-                      "jsonShreddingEnabled": {{inputs.parameters.json-shredding-enabled}},
-                      "useLoonFFI": {{inputs.parameters.loon-ffi-enabled}}
+            python3 - <<'PY'
+            import json
+            from pathlib import Path
+
+            loon_ffi_enabled = json.loads("""{{inputs.parameters.loon-ffi-enabled}}""")
+            patch = {
+                "spec": {
+                    "config": {
+                        "common": {
+                            "storage": {
+                                "jsonShreddingEnabled": json.loads("""{{inputs.parameters.json-shredding-enabled}}"""),
+                                "useLoonFFI": loon_ffi_enabled,
+                            }
+                        }
                     }
-                  }
                 }
-              }
             }
-            EOF
+            if loon_ffi_enabled:
+                patch["spec"]["config"]["dataNode"] = {"storage": {"format": "vortex"}}
+            Path("/tmp/milvus-config-patch.json").write_text(json.dumps(patch, indent=2, sort_keys=True))
+            print(json.dumps(patch, indent=2, sort_keys=True))
+            PY
             kubectl -n {{workflow.parameters.milvus-namespace}} patch mi {{workflow.name}} --type merge --patch-file /tmp/milvus-config-patch.json
             kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o yaml | sed -n '1,180p'
 

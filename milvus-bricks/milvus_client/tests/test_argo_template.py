@@ -255,11 +255,13 @@ def test_standalone_2_6_upgrade_rollback_template_patches_config_matrix():
     patch_command = templates["patch-milvus-image"]["container"]["args"][0]
     snapshot = templates["snapshot-milvus-config"]
 
-    assert '"jsonShreddingEnabled": {{inputs.parameters.json-shredding-enabled}}' in patch_command
-    assert '"useLoonFFI": {{inputs.parameters.loon-ffi-enabled}}' in patch_command
+    assert "json.loads(\"\"\"{{inputs.parameters.json-shredding-enabled}}\"\"\")" in patch_command
+    assert "json.loads(\"\"\"{{inputs.parameters.loon-ffi-enabled}}\"\"\")" in patch_command
+    assert '"dataNode"] = {"storage": {"format": "vortex"}}' in patch_command
     assert "--patch-file /tmp/milvus-patch.json" in patch_command
     config_patch_command = templates["patch-milvus-config"]["container"]["args"][0]
     assert 'if [ "{{inputs.parameters.enabled}}" != "true" ]; then' in config_patch_command
+    assert '"dataNode"] = {"storage": {"format": "vortex"}}' in config_patch_command
     assert "--patch-file /tmp/milvus-config-patch.json" in config_patch_command
     optional_command = templates["optional-run-brick"]["container"]["args"][0]
     assert '"status": "skipped"' in optional_command
