@@ -32,6 +32,14 @@ class FakeClient:
         return [[{"id": 1, "distance": 0.1}]]
 
 
+class FakeBm25DropRequiresFieldClient(FakeClient):
+    def drop_collection_function(self, collection_name, function_name, **kwargs):
+        self.calls.append(("drop_collection_function", collection_name, function_name))
+        raise RuntimeError(
+            "BM25 function must be dropped with its output field in drop_function_field interface"
+        )
+
+
 def _baseline_bm25_spec():
     return SchemaSpec(
         name="existing_bm25",
@@ -84,6 +92,26 @@ def test_schema_evolution_cycles_existing_collection_fields_functions_and_reads(
     assert metrics["failed_total"] == 0
     assert metrics["function_cycles_total"] == 1
     assert metrics["drop_field_skipped_total"] == 1
+
+
+def test_schema_evolution_skips_bm25_function_cycle_when_drop_function_field_api_is_missing():
+    client = FakeBm25DropRequiresFieldClient()
+    metrics = run_schema_evolution(
+        client,
+        [_baseline_bm25_spec()],
+        collection_prefix="qa",
+        rows_per_collection=2,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    collection = metrics["collections"][0]
+    assert metrics["failed_total"] == 0
+    assert metrics["function_cycles_total"] == 0
+    assert metrics["function_cycle_skipped_total"] == 1
+    assert collection["function_cycle_skip_reasons"] == ["skipped_drop_function_field_api_missing"]
+    assert not any(call[0] == "add_collection_function" for call in client.calls)
 
 
 def test_schema_evolution_updates_nullable_vector_collection():

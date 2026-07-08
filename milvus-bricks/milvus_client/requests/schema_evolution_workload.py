@@ -92,9 +92,23 @@ def _drop_field(client: Any, collection: str, field_name: str) -> str:
 def _function_cycle(client: Any, collection: str, function: FunctionSpec) -> str:
     if not hasattr(client, "drop_collection_function") or not hasattr(client, "add_collection_function"):
         return "skipped"
+    drop_function_field = getattr(client, "drop_function_field", None)
     from pymilvus import Function, FunctionType
 
-    client.drop_collection_function(collection_name=collection, function_name=function.name)
+    try:
+        client.drop_collection_function(collection_name=collection, function_name=function.name)
+    except Exception as exc:
+        message = str(exc)
+        if "drop_function_field" in message or "output field" in message:
+            if drop_function_field is None:
+                return "skipped_drop_function_field_api_missing"
+            drop_function_field(
+                collection_name=collection,
+                function_name=function.name,
+                field_name=function.output_fields[0] if function.output_fields else "",
+            )
+        else:
+            raise
     client.add_collection_function(
         collection_name=collection,
         function=Function(
@@ -241,6 +255,7 @@ def run_schema_evolution(
                     cycled += 1
                 else:
                     skipped += 1
+                    collection_metrics.setdefault("function_cycle_skip_reasons", []).append(status)
             metrics["function_cycles_total"] += cycled
             metrics["function_cycle_skipped_total"] += skipped
             collection_metrics["function_cycles"] = cycled
