@@ -49,9 +49,29 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["client-image"] == "harbor.milvus.io/qa/fouram:2.1"
     assert parameter_values["repo-revision"] == "main"
     assert parameter_values["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
+    assert parameter_values["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
+    assert parameter_values["rollback-version"] == "2.6.18"
     assert parameter_values["target-milvus-image"].startswith("harbor.milvus.io/milvusdb/milvus:2.6-")
     assert parameter_values["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
-    assert "forward-schema-matrix" not in parameter_values
+    assert parameter_values["forward-schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
+    assert parameter_values["forward-collection-prefix"] == "qa_upgrade_2618_forward"
+    assert parameter_values["base-json-shredding-enabled"] == "false"
+    assert parameter_values["target-json-shredding-enabled"] == "false"
+    assert parameter_values["rollback-json-shredding-enabled"] == "false"
+    assert parameter_values["target-loon-ffi-enabled"] == "false"
+    assert parameter_values["post-upgrade-config-toggle-enabled"] == "false"
+    assert parameter_values["forward-workload-enabled"] == "false"
+    assert parameter_values["rollback-enabled"] == "true"
+    assert parameter_values["schema-evolution-existing-enabled"] == "false"
+    assert parameter_values["schema-evolution-forward-enabled"] == "false"
+    assert parameter_values["standalone-cpu-request"] == "2"
+    assert parameter_values["standalone-memory-request"] == "4Gi"
+    assert parameter_values["standalone-cpu"] == "4"
+    assert parameter_values["standalone-memory"] == "8Gi"
+    assert parameter_values["observe-before-upgrade-sec"] == "300"
+    assert parameter_values["observe-after-upgrade-sec"] == "300"
+    assert parameter_values["observe-before-rollback-sec"] == "300"
+    assert parameter_values["observe-after-rollback-sec"] == "300"
     assert parameter_values["keep-milvus"] == "false"
 
 
@@ -60,26 +80,41 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     main = next(item for item in template["spec"]["templates"] if item["name"] == "main")
     tasks = {task["name"]: task for task in main["dag"]["tasks"]}
     templates = {item["name"]: item for item in template["spec"]["templates"]}
+    resolve_inputs = templates["resolve-inputs"]
 
     expected_tasks = {
         "resolve-inputs",
         "deploy-base",
         "wait-base-ready",
+        "snapshot-base-config",
         "precheck-base",
         "create-compat-schema",
         "seed-compat-data",
         "validate-before-upgrade",
         "pressure-daemon",
+        "observe-before-upgrade",
         "patch-upgrade",
         "wait-upgrade-ready",
+        "snapshot-after-upgrade-config",
         "observe-after-upgrade",
         "precheck-after-upgrade",
         "validate-after-upgrade",
+        "schema-evolution-existing",
+        "patch-post-upgrade-config",
+        "wait-post-upgrade-config-ready",
+        "snapshot-post-upgrade-config",
+        "create-forward-schema",
+        "seed-forward-data",
+        "validate-forward-after-upgrade",
+        "schema-evolution-forward",
+        "observe-before-rollback",
         "patch-rollback",
         "wait-rollback-ready",
+        "snapshot-after-rollback-config",
         "observe-after-rollback",
         "precheck-after-rollback",
         "validate-after-rollback",
+        "validate-forward-after-rollback",
         "stop-pressure",
         "check-pressure-results",
         "collect-artifacts",
@@ -89,27 +124,138 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert expected_tasks <= set(tasks)
 
     assert templates["pressure-daemon"]["daemon"] is True
+    assert resolve_inputs["container"]["resources"] == {
+        "requests": {"cpu": "1", "memory": "2Gi"},
+        "limits": {"cpu": "2", "memory": "4Gi"},
+    }
+    assert resolve_inputs["container"]["volumeMounts"][0] == {
+        "name": "milvus-test-state",
+        "mountPath": "/tmp/milvus-bricks",
+    }
     assert "readinessProbe" in templates["pressure-daemon"]["container"]
     assert "validator-daemon" not in templates
-    assert tasks["patch-upgrade"]["dependencies"] == ["pressure-daemon"]
+    assert tasks["observe-before-upgrade"]["dependencies"] == ["pressure-daemon"]
+    assert tasks["patch-upgrade"]["dependencies"] == ["observe-before-upgrade", "pressure-daemon"]
+    assert tasks["precheck-base"]["dependencies"] == ["snapshot-base-config"]
+    assert tasks["snapshot-after-upgrade-config"]["dependencies"] == ["wait-upgrade-ready", "pressure-daemon"]
+    assert tasks["snapshot-after-rollback-config"]["dependencies"] == ["wait-rollback-ready", "pressure-daemon"]
     pressure_covered_tasks = [
+        "observe-before-upgrade",
         "patch-upgrade",
         "wait-upgrade-ready",
+        "snapshot-after-upgrade-config",
         "observe-after-upgrade",
         "precheck-after-upgrade",
         "validate-after-upgrade",
+        "schema-evolution-existing",
+        "patch-post-upgrade-config",
+        "wait-post-upgrade-config-ready",
+        "snapshot-post-upgrade-config",
+        "create-forward-schema",
+        "seed-forward-data",
+        "validate-forward-after-upgrade",
+        "schema-evolution-forward",
+        "observe-before-rollback",
         "patch-rollback",
         "wait-rollback-ready",
+        "snapshot-after-rollback-config",
         "observe-after-rollback",
         "precheck-after-rollback",
         "validate-after-rollback",
+        "validate-forward-after-rollback",
         "stop-pressure",
     ]
     for task_name in pressure_covered_tasks:
         assert "pressure-daemon" in tasks[task_name]["dependencies"]
-    assert tasks["patch-rollback"]["dependencies"] == ["validate-after-upgrade", "pressure-daemon"]
+    assert tasks["schema-evolution-existing"]["dependencies"] == ["validate-after-upgrade", "pressure-daemon"]
+    assert tasks["schema-evolution-existing"]["template"] == "optional-run-brick"
+    assert tasks["patch-post-upgrade-config"]["dependencies"] == ["schema-evolution-existing", "pressure-daemon"]
+    assert tasks["wait-post-upgrade-config-ready"]["dependencies"] == ["patch-post-upgrade-config", "pressure-daemon"]
+    assert tasks["create-forward-schema"]["template"] == "optional-run-brick"
+    assert tasks["validate-forward-after-upgrade"]["template"] == "optional-run-brick"
+    assert tasks["schema-evolution-forward"]["dependencies"] == ["validate-forward-after-upgrade", "pressure-daemon"]
+    assert tasks["schema-evolution-forward"]["template"] == "optional-run-brick"
+    assert tasks["observe-before-rollback"]["dependencies"] == ["schema-evolution-forward", "pressure-daemon"]
+    assert tasks["patch-rollback"]["dependencies"] == ["observe-before-rollback", "pressure-daemon"]
+    rollback_gated_tasks = [
+        "observe-before-rollback",
+        "patch-rollback",
+        "wait-rollback-ready",
+        "snapshot-after-rollback-config",
+        "observe-after-rollback",
+        "precheck-after-rollback",
+        "validate-after-rollback",
+    ]
+    for task_name in rollback_gated_tasks:
+        assert tasks[task_name]["when"] == "{{workflow.parameters.rollback-enabled}} == true"
+    assert tasks["validate-forward-after-rollback"]["when"] == (
+        "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
+    )
+    seed_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["seed-compat-data"]["arguments"]["parameters"]
+    }
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json" in seed_args["args"]
+    validate_before_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-before-upgrade"]["arguments"]["parameters"]
+    }
+    validate_after_upgrade_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-after-upgrade"]["arguments"]["parameters"]
+    }
+    validate_after_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-after-rollback"]["arguments"]["parameters"]
+    }
+    for validate_args in [validate_before_args, validate_after_upgrade_args, validate_after_rollback_args]:
+        assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json" in validate_args["args"]
+    seed_forward_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["seed-forward-data"]["arguments"]["parameters"]
+    }
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json" in seed_forward_args["args"]
+    validate_forward_after_upgrade_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-forward-after-upgrade"]["arguments"]["parameters"]
+    }
+    assert (
+        "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json"
+        in validate_forward_after_upgrade_args["args"]
+    )
+    schema_evolution_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["schema-evolution-existing"]["arguments"]["parameters"]
+    }
+    assert schema_evolution_args["module"] == "milvus_client.requests.schema_evolution_workload"
+    assert schema_evolution_args["collection-prefix"] == "{{workflow.parameters.collection-prefix}}"
+    assert "--schema-matrix {{workflow.parameters.schema-matrix}}" in schema_evolution_args["args"]
+    forward_evolution_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["schema-evolution-forward"]["arguments"]["parameters"]
+    }
+    assert forward_evolution_args["collection-prefix"] == "{{workflow.parameters.forward-collection-prefix}}"
+    assert "--schema-matrix {{workflow.parameters.forward-schema-matrix}}" in forward_evolution_args["args"]
+    forward_validate_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-forward-after-rollback"]["arguments"]["parameters"]
+    }
+    assert forward_validate_args["collection-prefix"] == "{{workflow.parameters.forward-collection-prefix}}"
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json" in forward_validate_args["args"]
+    patch_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["patch-rollback"]["arguments"]["parameters"]
+    }
+    assert patch_rollback_args["image"] == "{{workflow.parameters.rollback-milvus-image}}"
+    assert patch_rollback_args["version"] == "{{workflow.parameters.rollback-version}}"
+    wait_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["wait-rollback-ready"]["arguments"]["parameters"]
+    }
+    assert wait_rollback_args["expected-image"] == "{{workflow.parameters.rollback-milvus-image}}"
     assert tasks["deploy-base"]["dependencies"] == ["resolve-inputs"]
-    assert tasks["stop-pressure"]["dependencies"] == ["validate-after-rollback", "pressure-daemon"]
+    assert tasks["validate-forward-after-rollback"]["dependencies"] == ["validate-after-rollback", "pressure-daemon"]
+    assert tasks["stop-pressure"]["dependencies"] == ["validate-forward-after-rollback", "pressure-daemon"]
     assert tasks["check-pressure-results"]["dependencies"] == ["stop-pressure"]
     assert tasks["collect-artifacts"]["dependencies"] == ["check-pressure-results"]
     assert tasks["generate-final-report"]["dependencies"] == ["collect-artifacts"]
@@ -118,6 +264,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
     pressure_modules = parameter_values["pressure-modules"]
     assert parameter_values["pressure-fail-on-error"] == "true"
+    assert parameter_values["gate-allow-warning"] == "false"
     assert "search_pressure" in pressure_modules
     assert "query_pressure" in pressure_modules
     assert "query_iterator_scan" in pressure_modules
@@ -149,6 +296,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     cleanup = templates["maybe-cleanup"]
     cleanup_artifacts = {artifact["name"] for artifact in cleanup["outputs"]["artifacts"]}
     assert {"orchestrator-report", "final-report-md", "flow-summary", "env-snapshot", "k8s-snapshot"} <= cleanup_artifacts
+    assert cleanup["container"]["volumeMounts"][0] == {
+        "name": "milvus-test-state",
+        "mountPath": "/tmp/milvus-bricks",
+    }
 
     check_pressure = templates["check-pressure-results"]
     check_artifacts = {artifact["name"] for artifact in check_pressure["outputs"]["artifacts"]}
@@ -170,25 +321,128 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "final_report.md" in final_command
     assert "orchestrator_report.json" in final_command
     assert "--soft-fail" in final_command
+    assert "--base-json-shredding-enabled" in final_command
+    assert "--rollback-milvus-image" in final_command
+    assert "--rollback-version" in final_command
+    assert "--target-json-shredding-enabled" in final_command
+    assert "--target-loon-ffi-enabled" in final_command
+    assert "--forward-workload-enabled" in final_command
+    assert "--rollback-enabled" in final_command
+    assert "--observe-before-upgrade-sec" in final_command
+    assert "--observe-before-rollback-sec" in final_command
+    assert "--schema-evolution-existing-enabled" in final_command
+    assert "--schema-evolution-forward-enabled" in final_command
 
     gate = templates["gate-final-status"]
     gate_command = gate["container"]["args"][0]
     assert "orchestrator_report.json" in gate_command
+    assert "allow_warning" in gate_command
     assert 'status != "passed"' in gate_command
+    assert 'allow_warning and status == "warning"' in gate_command
 
 
-def test_standalone_2_6_upgrade_rollback_template_creates_4c16g_standalone():
+def test_standalone_2_6_upgrade_rollback_template_creates_configurable_standalone_resources():
     template = yaml.safe_load((ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml").read_text())
     deploy = next(item for item in template["spec"]["templates"] if item["name"] == "deploy-milvus")
     command = deploy["container"]["args"][0]
 
     assert "mode: standalone" in command
+    assert 'cpu: "{{workflow.parameters.standalone-cpu-request}}"' in command
+    assert 'memory: "{{workflow.parameters.standalone-memory-request}}"' in command
     assert 'cpu: "{{workflow.parameters.standalone-cpu}}"' in command
     assert 'memory: "{{workflow.parameters.standalone-memory}}"' in command
     assert "namespace: {{workflow.parameters.milvus-namespace}}" in command
+    assert "jsonShreddingEnabled: {{workflow.parameters.base-json-shredding-enabled}}" in command
     assert "zilliz.com/workflow-run-id" in command
     assert "msgStreamType: rocksmq" in command
     assert "pvcDeletion: true" in command
+
+
+def test_standalone_2_6_upgrade_rollback_template_patches_config_matrix():
+    template = yaml.safe_load((ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml").read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    patch_command = templates["patch-milvus-image"]["container"]["args"][0]
+    snapshot = templates["snapshot-milvus-config"]
+
+    assert "json.loads(\"\"\"{{inputs.parameters.json-shredding-enabled}}\"\"\")" in patch_command
+    assert "json.loads(\"\"\"{{inputs.parameters.loon-ffi-enabled}}\"\"\")" in patch_command
+    assert '"dataNode"] = {"storage": {"format": "vortex"}}' in patch_command
+    assert '"dataNode"] = {"storage": {"format": None}}' in patch_command
+    assert "--patch-file /tmp/milvus-patch.json" in patch_command
+    config_patch_command = templates["patch-milvus-config"]["container"]["args"][0]
+    assert 'if [ "{{inputs.parameters.enabled}}" != "true" ]; then' in config_patch_command
+    assert '"dataNode"] = {"storage": {"format": "vortex"}}' in config_patch_command
+    assert '"dataNode"] = {"storage": {"format": None}}' in config_patch_command
+    assert "--patch-file /tmp/milvus-config-patch.json" in config_patch_command
+    optional_command = templates["optional-run-brick"]["container"]["args"][0]
+    assert '"status": "skipped"' in optional_command
+    assert "python3 -m {{inputs.parameters.module}}" in optional_command
+    assert snapshot["outputs"]["artifacts"][0]["path"] == "/tmp/milvus-bricks/k8s/config-{{inputs.parameters.phase}}.json"
+    assert snapshot["container"]["volumeMounts"][0]["name"] == "milvus-test-state"
+
+
+def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
+    template = yaml.safe_load((ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml").read_text())
+
+    assert template["kind"] == "WorkflowTemplate"
+    assert template["metadata"]["name"] == "milvus-standalone-3-0-upgrade-rollback"
+    assert template["metadata"]["namespace"] == "qa"
+    assert template["spec"]["serviceAccountName"] == "milvus-upgrade-rollback-runner"
+    parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
+
+    assert parameter_values["client-image"] == "harbor.milvus.io/qa/fouram:2.1"
+    assert parameter_values["base-milvus-image"] == (
+        "harbor.milvus.io/milvusdb/milvus:3.0-20260701-d19d8484-47f6c14"
+    )
+    assert parameter_values["rollback-milvus-image"] == (
+        "harbor.milvus.io/milvusdb/milvus:3.0-20260701-d19d8484-47f6c14"
+    )
+    assert parameter_values["rollback-version"] == "3.0.0"
+    assert parameter_values["target-milvus-image"].startswith("harbor.milvus.io/milvusdb/milvus:master-")
+    assert parameter_values["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
+    assert parameter_values["forward-schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
+    assert parameter_values["collection-prefix"] == "qa_upgrade_30"
+    assert parameter_values["forward-collection-prefix"] == "qa_upgrade_30_forward"
+    assert parameter_values["rollback-enabled"] == "true"
+    assert parameter_values["rollback-forward-validation-enabled"] == "true"
+    assert parameter_values["schema-evolution-existing-enabled"] == "true"
+    assert parameter_values["schema-evolution-forward-enabled"] == "false"
+    assert parameter_values["standalone-cpu-request"] == "2"
+    assert parameter_values["standalone-memory-request"] == "4Gi"
+    assert parameter_values["standalone-cpu"] == "4"
+    assert parameter_values["standalone-memory"] == "8Gi"
+    assert parameter_values["observe-before-upgrade-sec"] == "300"
+    assert parameter_values["observe-after-upgrade-sec"] == "300"
+    assert parameter_values["observe-before-rollback-sec"] == "300"
+    assert parameter_values["observe-after-rollback-sec"] == "300"
+    assert parameter_values["pressure-fail-on-error"] == "true"
+
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    assert templates["pressure-daemon"]["daemon"] is True
+    assert "volumeMounts" not in templates["pressure-daemon"]["container"]
+    assert templates["maybe-cleanup"]["container"]["volumeMounts"][0] == {
+        "name": "milvus-test-state",
+        "mountPath": "/tmp/milvus-bricks",
+    }
+    assert "patch-milvus-config" in templates
+    assert "optional-run-brick" in templates
+    main = next(item for item in template["spec"]["templates"] if item["name"] == "main")
+    tasks = {task["name"]: task for task in main["dag"]["tasks"]}
+    assert tasks["schema-evolution-existing"]["template"] == "optional-run-brick"
+    assert tasks["schema-evolution-existing"]["dependencies"] == ["validate-after-upgrade", "pressure-daemon"]
+    assert tasks["validate-forward-after-rollback"]["when"] == (
+        "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
+    )
+    seed_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["seed-compat-data"]["arguments"]["parameters"]
+    }
+    forward_seed_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["seed-forward-data"]["arguments"]["parameters"]
+    }
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json" in seed_args["args"]
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json" in forward_seed_args["args"]
 
 
 def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():

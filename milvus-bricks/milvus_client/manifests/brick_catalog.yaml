@@ -39,6 +39,16 @@ bricks:
     lifecycle_phases: ["before_upgrade", "after_upgrade", "before_rollback", "after_rollback", "steady_state"]
     destructive: false
 
+  - name: schema_evolution_workload
+    module: milvus_client.requests.schema_evolution_workload
+    category: schema
+    milvus_versions: ["3.0"]
+    feature_tags: ["nullable_vector", "geometry", "timestamptz", "entity_ttl", "schema_evolution"]
+    required_capabilities: []
+    compat_mode: forward_only
+    lifecycle_phases: ["after_upgrade", "steady_state"]
+    destructive: optional
+
   - name: mixed_rw_pressure
     module: milvus_client.requests.mixed_rw_pressure
     category: workload

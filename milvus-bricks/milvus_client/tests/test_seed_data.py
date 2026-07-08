@@ -138,3 +138,37 @@ schemas:
     assert meta["max_pk"] == 1011
     assert meta["pk_samples"] == [1010, 1011]
     assert meta["pk_values"] == [1010, 1011]
+
+
+def test_seed_data_writes_explicit_checkpoint_file(monkeypatch, tmp_path):
+    output_json = tmp_path / "result.json"
+    checkpoint_file = tmp_path / "named" / "baseline.json"
+    client = AutoIdClient()
+    monkeypatch.setattr(seed_data, "create_client", lambda *args, **kwargs: client)
+
+    code = seed_data.main(
+        [
+            "--uri",
+            "http://localhost:19530",
+            "--collection-prefix",
+            "qa_seed",
+            "--schema-matrix",
+            str(ROOT / "manifests" / "schema_matrix_2_6.yaml"),
+            "--rows-per-collection",
+            "1",
+            "--batch-size",
+            "1",
+            "--checkpoint-dir",
+            str(tmp_path / "checkpoints"),
+            "--checkpoint-file",
+            str(checkpoint_file),
+            "--output-json",
+            str(output_json),
+        ]
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 0
+    assert checkpoint_file.exists()
+    assert result["checkpoint"]["path"] == str(checkpoint_file)
+    assert not (tmp_path / "checkpoints" / "seed_data.json").exists()

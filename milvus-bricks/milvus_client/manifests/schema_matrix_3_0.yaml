@@ -37,3 +37,21 @@ schemas:
       - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
     indexes:
       - {field: embedding, index_type: AUTOINDEX, metric_type: COSINE}
+
+  - name: bm25_schema_evolution
+    feature_tags: ["schema_evolution"]
+    compat_mode: forward_only
+    validators: ["count", "pk_sample"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: document, dtype: VARCHAR, max_length: 1024, enable_analyzer: true}
+      - {name: sparse_bm25, dtype: SPARSE_FLOAT_VECTOR}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
+    functions:
+      - name: document_bm25_emb
+        function_type: BM25
+        input_fields: ["document"]
+        output_fields: ["sparse_bm25"]
+    indexes:
+      - {field: sparse_bm25, index_type: SPARSE_INVERTED_INDEX, metric_type: BM25, params: {drop_ratio_build: 0.0}}
+      - {field: embedding, index_type: AUTOINDEX, metric_type: COSINE}

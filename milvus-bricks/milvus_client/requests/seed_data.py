@@ -13,6 +13,7 @@ from milvus_client.common.schema import auto_id_enabled, collection_name, load_s
 
 def add_args(parser):
     parser.add_argument("--schema-matrix", required=True)
+    parser.add_argument("--checkpoint-file", default="")
     parser.add_argument("--rows-per-collection", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--start-id", type=int, default=0)
@@ -149,7 +150,11 @@ def main(argv: list[str] | None = None) -> int:
                 collection_checkpoint["partitions"] = spec.partitions
             checkpoint["collections"][name] = collection_checkpoint
 
-        checkpoint_path = Path(args.checkpoint_dir) / "seed_data.json"
+        checkpoint_path = (
+            Path(args.checkpoint_file)
+            if args.checkpoint_file
+            else Path(args.checkpoint_dir) / "seed_data.json"
+        )
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         checkpoint_path.write_text(json.dumps(checkpoint, indent=2, sort_keys=True))
         result.checkpoint = {"path": str(checkpoint_path), "version": 1}
