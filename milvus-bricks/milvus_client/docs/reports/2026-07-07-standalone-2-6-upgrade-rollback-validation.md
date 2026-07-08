@@ -122,9 +122,11 @@ Request bricks covered:
 - `delete_pressure`
 - `mixed_rw_pressure`
 
-## Remaining Recommendations
+## Follow-up Status
 
-- Keep `pressure-fail-on-error=true` for clusters where rolling upgrade is expected to be online with zero request failures.
-- Use `pressure-fail-on-error=false` for standalone upgrade/rollback workflows and treat pressure failures as warning artifacts, because standalone restart windows can make the service briefly unavailable.
-- Add a higher-level report generator that merges `validate_*`, `pressure-summary`, and Kubernetes snapshots into one JSON/Markdown artifact.
-- Consider a cluster-mode variant if the goal is strict zero request failure during rolling upgrade.
+Implemented after this validation:
+- Standalone workflow default changed to `pressure-fail-on-error=false`; pressure failures are summarized as warnings for restart-window request interruptions.
+- The workflow now generates both `orchestrator_report.json` and `final_report.md`, merging validation results, pressure summary, environment metadata, flow summary, and Kubernetes snapshot paths.
+
+Remaining future work:
+- Add a separate cluster-mode workflow/template if the target is strict zero-request-failure rolling upgrade validation.

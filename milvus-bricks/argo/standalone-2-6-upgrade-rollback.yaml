@@ -56,7 +56,7 @@ spec:
       - name: pressure-interval-sec
         value: "1"
       - name: pressure-fail-on-error
-        value: "true"
+        value: "false"
       - name: observe-after-upgrade-sec
         value: "60"
       - name: observe-after-rollback-sec
@@ -271,6 +271,10 @@ spec:
             dependencies: [check-pressure-results]
             template: collect-artifacts
 
+          - name: generate-final-report
+            dependencies: [collect-artifacts]
+            template: generate-final-report
+
     - name: resolve-inputs
       outputs:
         artifacts:
@@ -311,6 +315,10 @@ spec:
               "standalone_memory": "{{workflow.parameters.standalone-memory}}",
               "etcd_pvc_size": "{{workflow.parameters.etcd-pvc-size}}",
               "storage_pvc_size": "{{workflow.parameters.storage-pvc-size}}",
+              "rows_per_collection": "{{workflow.parameters.rows-per-collection}}",
+              "batch_size": "{{workflow.parameters.batch-size}}",
+              "pressure_modules": "{{workflow.parameters.pressure-modules}}",
+              "pressure_fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}",
               "keep_milvus": "{{workflow.parameters.keep-milvus}}"
             }
             EOF
@@ -323,6 +331,8 @@ spec:
               "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
+              "rows_per_collection": "{{workflow.parameters.rows-per-collection}}",
+              "pressure_fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}",
               "cleanup_attempted": false,
               "cleanup_status": "pending",
               "cleanup_error": "",
@@ -686,6 +696,67 @@ spec:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks
 
+    - name: generate-final-report
+      outputs:
+        artifacts:
+          - name: orchestrator-report
+            path: /tmp/milvus-bricks/reports/orchestrator_report.json
+          - name: final-report-md
+            path: /tmp/milvus-bricks/reports/final_report.md
+          - name: env-snapshot
+            path: /tmp/milvus-bricks/reports/env_snapshot.json
+          - name: flow-summary
+            path: /tmp/milvus-bricks/reports/flow_summary.json
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "4"
+            memory: 16Gi
+        args:
+          - |
+            set -eux
+            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            rm -rf /tmp/repo
+            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            cd /tmp/repo/milvus-bricks
+            mkdir -p /tmp/milvus-bricks/reports
+            PYTHONPATH=. python3 -m milvus_client.requests.generate_workflow_report \
+              --results-dir /tmp/milvus-bricks/results \
+              --pressure-summary /tmp/milvus-bricks/pressure-summary.json \
+              --k8s-dir /tmp/milvus-bricks/k8s \
+              --env-snapshot /tmp/milvus-bricks/reports/env_snapshot.json \
+              --flow-summary /tmp/milvus-bricks/reports/flow_summary.json \
+              --output-json /tmp/milvus-bricks/reports/orchestrator_report.json \
+              --output-md /tmp/milvus-bricks/reports/final_report.md \
+              --workflow-name "{{workflow.name}}" \
+              --workflow-uid "{{workflow.uid}}" \
+              --workflow-namespace "{{workflow.namespace}}" \
+              --milvus-release-name "{{workflow.name}}" \
+              --milvus-namespace "{{workflow.parameters.milvus-namespace}}" \
+              --milvus-host "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc" \
+              --base-milvus-image "{{workflow.parameters.base-milvus-image}}" \
+              --target-milvus-image "{{workflow.parameters.target-milvus-image}}" \
+              --base-version "{{workflow.parameters.base-version}}" \
+              --target-version "{{workflow.parameters.target-version}}" \
+              --repo-url "{{workflow.parameters.repo-url}}" \
+              --repo-revision "{{workflow.parameters.repo-revision}}" \
+              --schema-matrix "{{workflow.parameters.schema-matrix}}" \
+              --collection-prefix "{{workflow.parameters.collection-prefix}}" \
+              --rows-per-collection "{{workflow.parameters.rows-per-collection}}" \
+              --batch-size "{{workflow.parameters.batch-size}}" \
+              --pressure-modules "{{workflow.parameters.pressure-modules}}" \
+              --pressure-fail-on-error "{{workflow.parameters.pressure-fail-on-error}}" \
+              --observe-after-upgrade-sec "{{workflow.parameters.observe-after-upgrade-sec}}" \
+              --observe-after-rollback-sec "{{workflow.parameters.observe-after-rollback-sec}}"
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks
+
     - name: observe
       inputs:
         parameters:
@@ -711,6 +782,8 @@ spec:
         artifacts:
           - name: orchestrator-report
             path: /tmp/milvus-bricks/reports/orchestrator_report.json
+          - name: final-report-md
+            path: /tmp/milvus-bricks/reports/final_report.md
           - name: flow-summary
             path: /tmp/milvus-bricks/reports/flow_summary.json
           - name: env-snapshot
@@ -754,7 +827,8 @@ spec:
             else
               kept_resources="[\"{{workflow.name}}\"]"
             fi
-            cat > /tmp/milvus-bricks/reports/env_snapshot.json <<EOF
+            if [ ! -f /tmp/milvus-bricks/reports/env_snapshot.json ]; then
+              cat > /tmp/milvus-bricks/reports/env_snapshot.json <<EOF
             {
               "workflow_name": "{{workflow.name}}",
               "workflow_uid": "{{workflow.uid}}",
@@ -767,7 +841,36 @@ spec:
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}"
             }
             EOF
-            cat > /tmp/milvus-bricks/reports/flow_summary.json <<EOF
+            fi
+            python3 - <<PY
+            import json
+            from pathlib import Path
+
+            path = Path("/tmp/milvus-bricks/reports/flow_summary.json")
+            try:
+                payload = json.loads(path.read_text())
+            except Exception:
+                payload = {
+                    "workflow_name": "{{workflow.name}}",
+                    "workflow_uid": "{{workflow.uid}}",
+                    "milvus_release_name": "{{workflow.name}}",
+                    "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
+                    "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
+                    "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+                    "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
+                }
+            payload.update(
+                {
+                    "cleanup_attempted": json.loads("""$cleanup_attempted"""),
+                    "cleanup_status": "$cleanup_status",
+                    "cleanup_error": "$cleanup_error",
+                    "kept_resources": json.loads("""$kept_resources"""),
+                }
+            )
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+            PY
+            if [ ! -f /tmp/milvus-bricks/reports/orchestrator_report.json ]; then
+              cat > /tmp/milvus-bricks/reports/orchestrator_report.json <<EOF
             {
               "workflow_name": "{{workflow.name}}",
               "workflow_uid": "{{workflow.uid}}",
@@ -776,19 +879,18 @@ spec:
               "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
-              "cleanup_attempted": $cleanup_attempted,
-              "cleanup_status": "$cleanup_status",
-              "cleanup_error": "$cleanup_error",
-              "kept_resources": $kept_resources
-            }
-            EOF
-            cat > /tmp/milvus-bricks/reports/orchestrator_report.json <<EOF
-            {
               "status": "{{workflow.status}}",
-              "workflow_name": "{{workflow.name}}",
-              "workflow_uid": "{{workflow.uid}}",
-              "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
               "schema_matrix": "{{workflow.parameters.schema-matrix}}",
               "collection_prefix": "{{workflow.parameters.collection-prefix}}"
             }
             EOF
+            fi
+            if [ ! -f /tmp/milvus-bricks/reports/final_report.md ]; then
+              {
+                printf '%s\n' '# Milvus Standalone 2.6 Upgrade/Rollback Report'
+                printf '\n'
+                printf '%s\n' '- workflow: `{{workflow.name}}`'
+                printf '%s\n' '- status: `{{workflow.status}}`'
+                printf '%s\n' '- collection prefix: `{{workflow.parameters.collection-prefix}}`'
+              } > /tmp/milvus-bricks/reports/final_report.md
+            fi

@@ -80,7 +80,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "observe-after-rollback",
         "precheck-after-rollback",
         "validate-after-rollback",
+        "stop-pressure",
+        "check-pressure-results",
         "collect-artifacts",
+        "generate-final-report",
     }
     assert expected_tasks <= set(tasks)
 
@@ -108,10 +111,11 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert tasks["stop-pressure"]["dependencies"] == ["validate-after-rollback", "pressure-daemon"]
     assert tasks["check-pressure-results"]["dependencies"] == ["stop-pressure"]
     assert tasks["collect-artifacts"]["dependencies"] == ["check-pressure-results"]
+    assert tasks["generate-final-report"]["dependencies"] == ["collect-artifacts"]
 
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
     pressure_modules = parameter_values["pressure-modules"]
-    assert parameter_values["pressure-fail-on-error"] == "true"
+    assert parameter_values["pressure-fail-on-error"] == "false"
     assert "search_pressure" in pressure_modules
     assert "query_pressure" in pressure_modules
     assert "query_iterator_scan" in pressure_modules
@@ -137,11 +141,20 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
 
     cleanup = templates["maybe-cleanup"]
     cleanup_artifacts = {artifact["name"] for artifact in cleanup["outputs"]["artifacts"]}
-    assert {"orchestrator-report", "flow-summary", "env-snapshot", "k8s-snapshot"} <= cleanup_artifacts
+    assert {"orchestrator-report", "final-report-md", "flow-summary", "env-snapshot", "k8s-snapshot"} <= cleanup_artifacts
 
     check_pressure = templates["check-pressure-results"]
     check_artifacts = {artifact["name"] for artifact in check_pressure["outputs"]["artifacts"]}
     assert "pressure-summary" in check_artifacts
+
+    final_report = templates["generate-final-report"]
+    final_artifacts = {artifact["name"] for artifact in final_report["outputs"]["artifacts"]}
+    assert {"orchestrator-report", "final-report-md", "env-snapshot", "flow-summary"} <= final_artifacts
+    final_command = final_report["container"]["args"][0]
+    assert "milvus_client.requests.generate_workflow_report" in final_command
+    assert "pressure-summary.json" in final_command
+    assert "final_report.md" in final_command
+    assert "orchestrator_report.json" in final_command
 
 
 def test_standalone_2_6_upgrade_rollback_template_creates_4c16g_standalone():

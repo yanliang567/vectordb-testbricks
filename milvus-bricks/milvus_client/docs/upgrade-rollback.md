@@ -113,8 +113,11 @@ It also starts a daemon workload loop after the baseline validation:
 
 For standalone upgrades, transient request failures can happen while the only
 Milvus process restarts. The daemon loops default to
-`pressure-fail-on-error=true`, so any pressure failure fails the workflow instead
-of being hidden behind foreground validation.
+`pressure-fail-on-error=false`, so pressure failures are preserved in
+`pressure-summary.json` and the final report as warnings while foreground
+compatibility validation remains the hard gate. Set
+`pressure-fail-on-error=true` for cluster-mode or other zero-request-failure
+upgrade targets.
 
 The pressure daemon intentionally does not mount the checkpoint PVC. That keeps
 the read/write workload alive during foreground validation without relying on
@@ -124,10 +127,12 @@ the count operation inside `mixed_rw_pressure` can keep checking row counts whil
 upgrade and rollback are in progress.
 
 The workflow emits `env_snapshot.json`, `flow_summary.json`,
-`orchestrator_report.json`, foreground brick results, checkpoints, pressure
-results, and Kubernetes snapshots. `keep-milvus=false` is the default cleanup
-policy; set `keep-milvus=true` only when preserving the generated Milvus CR for
-debugging.
+`orchestrator_report.json`, `final_report.md`, foreground brick results,
+checkpoints, pressure results, `pressure-summary.json`, and Kubernetes
+snapshots. The final report merges validation results, pressure summary, target
+metadata, parameters, and snapshot paths into one comparable artifact.
+`keep-milvus=false` is the default cleanup policy; set `keep-milvus=true` only
+when preserving the generated Milvus CR for debugging.
 
 The current 2.6 schema matrix keeps the default workflow at three collections,
 but each collection is broader:
