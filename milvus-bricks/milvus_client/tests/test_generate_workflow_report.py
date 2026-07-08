@@ -85,6 +85,10 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "milvus_client/manifests/schema_matrix_3_0.yaml",
         "--rollback-forward-validation-enabled",
         "false",
+        "--schema-evolution-existing-enabled",
+        "true",
+        "--schema-evolution-forward-enabled",
+        "false",
     ]
 
 
@@ -132,6 +136,8 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
         "forward_workload_enabled": False,
         "forward_schema_matrix": "milvus_client/manifests/schema_matrix_3_0.yaml",
         "rollback_forward_validation_enabled": False,
+        "schema_evolution_existing_enabled": True,
+        "schema_evolution_forward_enabled": False,
     }
     assert report["k8s_snapshot"]["pods.txt"] == str(tmp_path / "k8s" / "pods.txt")
     assert "## Config Matrix" in markdown

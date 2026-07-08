@@ -56,12 +56,17 @@ SPARSE_INVERTED_INDEX, COSINE, L2, HAMMING, IP, and BM25 metrics.
 
 ### 3.0 forward schema matrix
 
-The 3.0 matrix uses three forward-compatible collections:
+The current 3.0 matrix uses four forward-compatible collections. Earlier 4am
+runs in this report used the previous three-collection matrix before
+`bm25_schema_evolution` was added.
 
 - `nullable_vector`: nullable FLOAT_VECTOR with null-vector semantics
   validation.
 - `geometry_rtree`: GEOMETRY scalar field with RTREE index.
 - `timestamptz_ttl`: TIMESTAMPTZ plus TTL-oriented timestamp fields.
+- `bm25_schema_evolution`: analyzer-enabled VARCHAR, BM25 function output,
+  SPARSE_FLOAT_VECTOR, FLOAT_VECTOR, and function/index coverage for schema
+  evolution.
 
 ### Request coverage
 
@@ -69,6 +74,10 @@ The workflow runs these independent request bricks:
 
 - Setup and validation: `precheck`, `create_schema_matrix`, `seed_data`,
   `validate_data_integrity`.
+- Schema evolution: `schema_evolution_workload` adds nullable fields, records
+  drop-field support as skipped when the SDK/server has no API, cycles
+  add/drop function for BM25 collections, upserts evolution rows, updates
+  nullable vector rows, and validates query/search/count behavior.
 - Continuous pressure: `search_pressure`, `query_pressure`,
   `query_iterator_scan`, `count_pressure`, `upsert_pressure`,
   `delete_pressure`, `mixed_rw_pressure`.
@@ -113,6 +122,12 @@ Pressure configuration used in the 5k 4am runs:
   `argo lint argo/standalone-2-6-upgrade-rollback.yaml argo/standalone-3-0-upgrade-rollback.yaml argo/upgrade-rollback-compatibility.yaml`
   -> passed.
 - LoonFFI/vortex `git diff --check origin/main...HEAD`: passed with no output.
+- Schema evolution targeted pytest:
+  `PYTHONPATH=. pytest milvus_client/tests/test_schema_evolution_workload.py milvus_client/tests/test_schema_manifest.py milvus_client/tests/test_brick_catalog.py milvus_client/tests/test_argo_template.py -v`
+  -> 16 passed.
+- Schema evolution Argo lint:
+  `argo lint argo/standalone-2-6-upgrade-rollback.yaml argo/standalone-3-0-upgrade-rollback.yaml`
+  -> passed.
 
 ## 4am Image Tags
 

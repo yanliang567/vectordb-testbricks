@@ -58,6 +58,22 @@ def test_schema_matrix_2_6_covers_expanded_rollback_safe_shapes():
     assert {"STL_SORT", "INVERTED", "BITMAP", "TRIE", "NGRAM"}.issubset(index_types)
 
 
+def test_schema_matrix_3_0_covers_forward_schema_evolution_shapes():
+    specs = load_schema_matrix(ROOT / "manifests" / "schema_matrix_3_0.yaml")
+
+    assert [spec.name for spec in specs] == [
+        "nullable_vector",
+        "geometry_rtree",
+        "timestamptz_ttl",
+        "bm25_schema_evolution",
+    ]
+    dtypes = {field.dtype for spec in specs for field in spec.fields}
+    assert {"FLOAT_VECTOR", "GEOMETRY", "TIMESTAMPTZ", "SPARSE_FLOAT_VECTOR", "VARCHAR"}.issubset(dtypes)
+    assert any(any(field.nullable and field.dtype == "FLOAT_VECTOR" for field in spec.fields) for spec in specs)
+    assert any(any(function.function_type == "BM25" for function in spec.functions) for spec in specs)
+    assert any(any(index.index_type == "RTREE" for index in spec.indexes) for spec in specs)
+
+
 def test_schema_validation_rejects_invalid_partition_key_shapes():
     specs = [
         SchemaSpec(

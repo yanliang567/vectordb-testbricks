@@ -71,6 +71,7 @@ features:
       - create_schema_matrix
       - seed_data
       - mixed_rw_pressure
+      - schema_evolution_workload
       - validate_data_integrity
 
   - id: geometry
@@ -82,6 +83,7 @@ features:
       - create_schema_matrix
       - seed_data
       - mixed_rw_pressure
+      - schema_evolution_workload
       - validate_data_integrity
 
   - id: timestamptz
@@ -93,6 +95,7 @@ features:
       - create_schema_matrix
       - seed_data
       - mixed_rw_pressure
+      - schema_evolution_workload
       - validate_data_integrity
 
   - id: entity_ttl
@@ -100,7 +103,20 @@ features:
     priority: P1
     compat_mode: forward_only
     required_capabilities: ["EntityTTL"]
-    bricks: []
+    bricks:
+      - schema_evolution_workload
+
+  - id: schema_evolution
+    domain: schema
+    priority: P1
+    compat_mode: forward_only
+    required_capabilities: []
+    bricks:
+      - create_schema_matrix
+      - seed_data
+      - mixed_rw_pressure
+      - schema_evolution_workload
+      - validate_data_integrity
 
   - id: struct_array_element_hybrid_search
     domain: struct_array

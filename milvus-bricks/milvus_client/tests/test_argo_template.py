@@ -59,6 +59,8 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["target-loon-ffi-enabled"] == "false"
     assert parameter_values["post-upgrade-config-toggle-enabled"] == "false"
     assert parameter_values["forward-workload-enabled"] == "false"
+    assert parameter_values["schema-evolution-existing-enabled"] == "false"
+    assert parameter_values["schema-evolution-forward-enabled"] == "false"
     assert parameter_values["keep-milvus"] == "false"
 
 
@@ -85,12 +87,14 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "observe-after-upgrade",
         "precheck-after-upgrade",
         "validate-after-upgrade",
+        "schema-evolution-existing",
         "patch-post-upgrade-config",
         "wait-post-upgrade-config-ready",
         "snapshot-post-upgrade-config",
         "create-forward-schema",
         "seed-forward-data",
         "validate-forward-after-upgrade",
+        "schema-evolution-forward",
         "patch-rollback",
         "wait-rollback-ready",
         "snapshot-after-rollback-config",
@@ -124,12 +128,14 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "observe-after-upgrade",
         "precheck-after-upgrade",
         "validate-after-upgrade",
+        "schema-evolution-existing",
         "patch-post-upgrade-config",
         "wait-post-upgrade-config-ready",
         "snapshot-post-upgrade-config",
         "create-forward-schema",
         "seed-forward-data",
         "validate-forward-after-upgrade",
+        "schema-evolution-forward",
         "patch-rollback",
         "wait-rollback-ready",
         "snapshot-after-rollback-config",
@@ -141,11 +147,26 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     ]
     for task_name in pressure_covered_tasks:
         assert "pressure-daemon" in tasks[task_name]["dependencies"]
-    assert tasks["patch-post-upgrade-config"]["dependencies"] == ["validate-after-upgrade", "pressure-daemon"]
+    assert tasks["schema-evolution-existing"]["dependencies"] == ["validate-after-upgrade", "pressure-daemon"]
+    assert tasks["schema-evolution-existing"]["template"] == "optional-run-brick"
+    assert tasks["patch-post-upgrade-config"]["dependencies"] == ["schema-evolution-existing", "pressure-daemon"]
     assert tasks["wait-post-upgrade-config-ready"]["dependencies"] == ["patch-post-upgrade-config", "pressure-daemon"]
     assert tasks["create-forward-schema"]["template"] == "optional-run-brick"
     assert tasks["validate-forward-after-upgrade"]["template"] == "optional-run-brick"
-    assert tasks["patch-rollback"]["dependencies"] == ["validate-forward-after-upgrade", "pressure-daemon"]
+    assert tasks["schema-evolution-forward"]["dependencies"] == ["validate-forward-after-upgrade", "pressure-daemon"]
+    assert tasks["schema-evolution-forward"]["template"] == "optional-run-brick"
+    assert tasks["patch-rollback"]["dependencies"] == ["schema-evolution-forward", "pressure-daemon"]
+    schema_evolution_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["schema-evolution-existing"]["arguments"]["parameters"]
+    }
+    assert schema_evolution_args["module"] == "milvus_client.requests.schema_evolution_workload"
+    assert "--schema-matrix {{workflow.parameters.schema-matrix}}" in schema_evolution_args["args"]
+    forward_evolution_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["schema-evolution-forward"]["arguments"]["parameters"]
+    }
+    assert "--schema-matrix {{workflow.parameters.forward-schema-matrix}}" in forward_evolution_args["args"]
     patch_rollback_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["patch-rollback"]["arguments"]["parameters"]
@@ -225,6 +246,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "--target-json-shredding-enabled" in final_command
     assert "--target-loon-ffi-enabled" in final_command
     assert "--forward-workload-enabled" in final_command
+    assert "--schema-evolution-existing-enabled" in final_command
+    assert "--schema-evolution-forward-enabled" in final_command
 
     gate = templates["gate-final-status"]
     gate_command = gate["container"]["args"][0]
@@ -291,6 +314,8 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     assert parameter_values["forward-schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
     assert parameter_values["collection-prefix"] == "qa_upgrade_30"
     assert parameter_values["rollback-forward-validation-enabled"] == "true"
+    assert parameter_values["schema-evolution-existing-enabled"] == "true"
+    assert parameter_values["schema-evolution-forward-enabled"] == "false"
     assert parameter_values["pressure-fail-on-error"] == "true"
 
     templates = {item["name"]: item for item in template["spec"]["templates"]}
@@ -298,6 +323,10 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     assert "volumeMounts" not in templates["pressure-daemon"]["container"]
     assert "patch-milvus-config" in templates
     assert "optional-run-brick" in templates
+    main = next(item for item in template["spec"]["templates"] if item["name"] == "main")
+    tasks = {task["name"]: task for task in main["dag"]["tasks"]}
+    assert tasks["schema-evolution-existing"]["template"] == "optional-run-brick"
+    assert tasks["schema-evolution-existing"]["dependencies"] == ["validate-after-upgrade", "pressure-daemon"]
 
 
 def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():

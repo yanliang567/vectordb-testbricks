@@ -49,6 +49,10 @@ spec:
         value: milvus_client/manifests/schema_matrix_3_0.yaml
       - name: rollback-forward-validation-enabled
         value: "true"
+      - name: schema-evolution-existing-enabled
+        value: "true"
+      - name: schema-evolution-forward-enabled
+        value: "false"
       - name: standalone-cpu
         value: "4"
       - name: standalone-memory
@@ -246,8 +250,25 @@ spec:
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
 
-          - name: patch-post-upgrade-config
+          - name: schema-evolution-existing
             dependencies: [validate-after-upgrade, pressure-daemon]
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.schema-evolution-existing-enabled}}"
+                - name: brick-name
+                  value: schema_evolution_existing
+                - name: module
+                  value: milvus_client.requests.schema_evolution_workload
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --rows-per-collection {{workflow.parameters.rows-per-collection}}
+                    --batch-size {{workflow.parameters.batch-size}}
+
+          - name: patch-post-upgrade-config
+            dependencies: [schema-evolution-existing, pressure-daemon]
             template: patch-milvus-config
             arguments:
               parameters:
@@ -323,8 +344,25 @@ spec:
                   value: >-
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
 
-          - name: patch-rollback
+          - name: schema-evolution-forward
             dependencies: [validate-forward-after-upgrade, pressure-daemon]
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.schema-evolution-forward-enabled}}"
+                - name: brick-name
+                  value: schema_evolution_forward
+                - name: module
+                  value: milvus_client.requests.schema_evolution_workload
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --rows-per-collection {{workflow.parameters.rows-per-collection}}
+                    --batch-size {{workflow.parameters.batch-size}}
+
+          - name: patch-rollback
+            dependencies: [schema-evolution-forward, pressure-daemon]
             template: patch-milvus-image
             arguments:
               parameters:
@@ -469,6 +507,8 @@ spec:
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",
               "forward_schema_matrix": "{{workflow.parameters.forward-schema-matrix}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
+              "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
+              "schema_evolution_forward_enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}",
               "collection_prefix": "{{workflow.parameters.collection-prefix}}",
               "schema_matrix": "{{workflow.parameters.schema-matrix}}",
               "standalone_cpu": "{{workflow.parameters.standalone-cpu}}",
@@ -502,6 +542,8 @@ spec:
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",
               "forward_schema_matrix": "{{workflow.parameters.forward-schema-matrix}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
+              "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
+              "schema_evolution_forward_enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}",
               "rows_per_collection": "{{workflow.parameters.rows-per-collection}}",
               "pressure_fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}",
               "gate_allow_warning": "{{workflow.parameters.gate-allow-warning}}",
@@ -1282,6 +1324,8 @@ spec:
               --forward-workload-enabled "{{workflow.parameters.forward-workload-enabled}}" \
               --forward-schema-matrix "{{workflow.parameters.forward-schema-matrix}}" \
               --rollback-forward-validation-enabled "{{workflow.parameters.rollback-forward-validation-enabled}}" \
+              --schema-evolution-existing-enabled "{{workflow.parameters.schema-evolution-existing-enabled}}" \
+              --schema-evolution-forward-enabled "{{workflow.parameters.schema-evolution-forward-enabled}}" \
               --soft-fail
         volumeMounts:
           - name: milvus-test-state
@@ -1413,7 +1457,9 @@ spec:
               "post_upgrade_json_shredding_enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",
               "forward_schema_matrix": "{{workflow.parameters.forward-schema-matrix}}",
-              "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}"
+              "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
+              "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
+              "schema_evolution_forward_enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}"
             }
             EOF
             fi

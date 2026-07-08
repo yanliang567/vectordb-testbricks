@@ -57,6 +57,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "forward_workload_enabled": parse_bool(args.forward_workload_enabled),
         "forward_schema_matrix": args.forward_schema_matrix,
         "rollback_forward_validation_enabled": parse_bool(args.rollback_forward_validation_enabled),
+        "schema_evolution_existing_enabled": parse_bool(args.schema_evolution_existing_enabled),
+        "schema_evolution_forward_enabled": parse_bool(args.schema_evolution_forward_enabled),
     }
 
     status = "passed"
@@ -160,6 +162,8 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- forward workload: `{config_matrix.get('forward_workload_enabled')}`",
         f"- forward schema matrix: `{config_matrix.get('forward_schema_matrix')}`",
         f"- rollback forward validation: `{config_matrix.get('rollback_forward_validation_enabled')}`",
+        f"- schema evolution existing: `{config_matrix.get('schema_evolution_existing_enabled')}`",
+        f"- schema evolution forward: `{config_matrix.get('schema_evolution_forward_enabled')}`",
     ]
 
     lines = [
@@ -229,6 +233,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--forward-workload-enabled", default="false")
     parser.add_argument("--forward-schema-matrix", default="")
     parser.add_argument("--rollback-forward-validation-enabled", default="false")
+    parser.add_argument("--schema-evolution-existing-enabled", default="false")
+    parser.add_argument("--schema-evolution-forward-enabled", default="false")
     parser.add_argument("--soft-fail", action="store_true", help="Write failed report status but exit 0")
     return parser
 
