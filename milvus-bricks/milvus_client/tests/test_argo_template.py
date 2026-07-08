@@ -66,6 +66,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     main = next(item for item in template["spec"]["templates"] if item["name"] == "main")
     tasks = {task["name"]: task for task in main["dag"]["tasks"]}
     templates = {item["name"]: item for item in template["spec"]["templates"]}
+    resolve_inputs = templates["resolve-inputs"]
 
     expected_tasks = {
         "resolve-inputs",
@@ -105,6 +106,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert expected_tasks <= set(tasks)
 
     assert templates["pressure-daemon"]["daemon"] is True
+    assert resolve_inputs["container"]["volumeMounts"][0] == {
+        "name": "milvus-test-state",
+        "mountPath": "/tmp/milvus-bricks",
+    }
     assert "readinessProbe" in templates["pressure-daemon"]["container"]
     assert "validator-daemon" not in templates
     assert tasks["patch-upgrade"]["dependencies"] == ["pressure-daemon"]

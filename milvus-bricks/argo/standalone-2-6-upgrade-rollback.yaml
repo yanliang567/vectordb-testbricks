@@ -503,6 +503,9 @@ spec:
               "kept_resources": []
             }
             EOF
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks
 
     - name: deploy-milvus
       container:
@@ -1185,6 +1188,36 @@ spec:
             git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/reports
+            if [ ! -f /tmp/milvus-bricks/reports/env_snapshot.json ]; then
+              cat > /tmp/milvus-bricks/reports/env_snapshot.json <<EOF
+            {
+              "workflow_name": "{{workflow.name}}",
+              "workflow_uid": "{{workflow.uid}}",
+              "client_namespace": "{{workflow.parameters.client-namespace}}",
+              "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
+              "client_image": "{{workflow.parameters.client-image}}",
+              "repo_url": "{{workflow.parameters.repo-url}}",
+              "repo_revision": "{{workflow.parameters.repo-revision}}",
+              "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
+              "env_snapshot_fallback": true
+            }
+            EOF
+            fi
+            if [ ! -f /tmp/milvus-bricks/reports/flow_summary.json ]; then
+              cat > /tmp/milvus-bricks/reports/flow_summary.json <<EOF
+            {
+              "workflow_name": "{{workflow.name}}",
+              "workflow_uid": "{{workflow.uid}}",
+              "milvus_release_name": "{{workflow.name}}",
+              "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
+              "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
+              "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
+              "flow_summary_fallback": true
+            }
+            EOF
+            fi
             PYTHONPATH=. python3 -m milvus_client.requests.generate_workflow_report \
               --results-dir /tmp/milvus-bricks/results \
               --pressure-summary /tmp/milvus-bricks/pressure-summary.json \

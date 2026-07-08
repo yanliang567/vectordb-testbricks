@@ -62,7 +62,15 @@ workflows in `milvus-bricks/milvus_client`.
 
 ## Blocking Issues
 
-- None recorded yet.
+- Round 1 initial run
+  `milvus-standalone-2-6-upgrade-rollback-jxjmt` failed in
+  `generate-final-report` because `resolve-inputs` wrote
+  `env_snapshot.json` and `flow_summary.json` to its local filesystem without
+  mounting the shared `milvus-test-state` PVC. Foreground data validation,
+  upgrade, rollback, optional skipped forward bricks, and pressure result
+  collection had completed before the report artifact failure. Fix: mount the
+  shared PVC in `resolve-inputs` and add report-stage fallback env/flow snapshot
+  generation.
 
 ## Optimization Notes
 
