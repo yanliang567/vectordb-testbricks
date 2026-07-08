@@ -62,6 +62,14 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["forward-workload-enabled"] == "false"
     assert parameter_values["schema-evolution-existing-enabled"] == "false"
     assert parameter_values["schema-evolution-forward-enabled"] == "false"
+    assert parameter_values["standalone-cpu-request"] == "2"
+    assert parameter_values["standalone-memory-request"] == "4Gi"
+    assert parameter_values["standalone-cpu"] == "4"
+    assert parameter_values["standalone-memory"] == "8Gi"
+    assert parameter_values["observe-before-upgrade-sec"] == "300"
+    assert parameter_values["observe-after-upgrade-sec"] == "300"
+    assert parameter_values["observe-before-rollback-sec"] == "300"
+    assert parameter_values["observe-after-rollback-sec"] == "300"
     assert parameter_values["keep-milvus"] == "false"
 
 
@@ -82,6 +90,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "seed-compat-data",
         "validate-before-upgrade",
         "pressure-daemon",
+        "observe-before-upgrade",
         "patch-upgrade",
         "wait-upgrade-ready",
         "snapshot-after-upgrade-config",
@@ -96,6 +105,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "seed-forward-data",
         "validate-forward-after-upgrade",
         "schema-evolution-forward",
+        "observe-before-rollback",
         "patch-rollback",
         "wait-rollback-ready",
         "snapshot-after-rollback-config",
@@ -112,17 +122,23 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert expected_tasks <= set(tasks)
 
     assert templates["pressure-daemon"]["daemon"] is True
+    assert resolve_inputs["container"]["resources"] == {
+        "requests": {"cpu": "1", "memory": "2Gi"},
+        "limits": {"cpu": "2", "memory": "4Gi"},
+    }
     assert resolve_inputs["container"]["volumeMounts"][0] == {
         "name": "milvus-test-state",
         "mountPath": "/tmp/milvus-bricks",
     }
     assert "readinessProbe" in templates["pressure-daemon"]["container"]
     assert "validator-daemon" not in templates
-    assert tasks["patch-upgrade"]["dependencies"] == ["pressure-daemon"]
+    assert tasks["observe-before-upgrade"]["dependencies"] == ["pressure-daemon"]
+    assert tasks["patch-upgrade"]["dependencies"] == ["observe-before-upgrade", "pressure-daemon"]
     assert tasks["precheck-base"]["dependencies"] == ["snapshot-base-config"]
     assert tasks["snapshot-after-upgrade-config"]["dependencies"] == ["wait-upgrade-ready", "pressure-daemon"]
     assert tasks["snapshot-after-rollback-config"]["dependencies"] == ["wait-rollback-ready", "pressure-daemon"]
     pressure_covered_tasks = [
+        "observe-before-upgrade",
         "patch-upgrade",
         "wait-upgrade-ready",
         "snapshot-after-upgrade-config",
@@ -137,6 +153,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "seed-forward-data",
         "validate-forward-after-upgrade",
         "schema-evolution-forward",
+        "observe-before-rollback",
         "patch-rollback",
         "wait-rollback-ready",
         "snapshot-after-rollback-config",
@@ -156,7 +173,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert tasks["validate-forward-after-upgrade"]["template"] == "optional-run-brick"
     assert tasks["schema-evolution-forward"]["dependencies"] == ["validate-forward-after-upgrade", "pressure-daemon"]
     assert tasks["schema-evolution-forward"]["template"] == "optional-run-brick"
-    assert tasks["patch-rollback"]["dependencies"] == ["schema-evolution-forward", "pressure-daemon"]
+    assert tasks["observe-before-rollback"]["dependencies"] == ["schema-evolution-forward", "pressure-daemon"]
+    assert tasks["patch-rollback"]["dependencies"] == ["observe-before-rollback", "pressure-daemon"]
     schema_evolution_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["schema-evolution-existing"]["arguments"]["parameters"]
@@ -254,6 +272,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "--target-json-shredding-enabled" in final_command
     assert "--target-loon-ffi-enabled" in final_command
     assert "--forward-workload-enabled" in final_command
+    assert "--observe-before-upgrade-sec" in final_command
+    assert "--observe-before-rollback-sec" in final_command
     assert "--schema-evolution-existing-enabled" in final_command
     assert "--schema-evolution-forward-enabled" in final_command
 
@@ -265,12 +285,14 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert 'allow_warning and status == "warning"' in gate_command
 
 
-def test_standalone_2_6_upgrade_rollback_template_creates_4c16g_standalone():
+def test_standalone_2_6_upgrade_rollback_template_creates_configurable_standalone_resources():
     template = yaml.safe_load((ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml").read_text())
     deploy = next(item for item in template["spec"]["templates"] if item["name"] == "deploy-milvus")
     command = deploy["container"]["args"][0]
 
     assert "mode: standalone" in command
+    assert 'cpu: "{{workflow.parameters.standalone-cpu-request}}"' in command
+    assert 'memory: "{{workflow.parameters.standalone-memory-request}}"' in command
     assert 'cpu: "{{workflow.parameters.standalone-cpu}}"' in command
     assert 'memory: "{{workflow.parameters.standalone-memory}}"' in command
     assert "namespace: {{workflow.parameters.milvus-namespace}}" in command
@@ -327,6 +349,14 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     assert parameter_values["rollback-forward-validation-enabled"] == "true"
     assert parameter_values["schema-evolution-existing-enabled"] == "true"
     assert parameter_values["schema-evolution-forward-enabled"] == "false"
+    assert parameter_values["standalone-cpu-request"] == "2"
+    assert parameter_values["standalone-memory-request"] == "4Gi"
+    assert parameter_values["standalone-cpu"] == "4"
+    assert parameter_values["standalone-memory"] == "8Gi"
+    assert parameter_values["observe-before-upgrade-sec"] == "300"
+    assert parameter_values["observe-after-upgrade-sec"] == "300"
+    assert parameter_values["observe-before-rollback-sec"] == "300"
+    assert parameter_values["observe-after-rollback-sec"] == "300"
     assert parameter_values["pressure-fail-on-error"] == "true"
 
     templates = {item["name"]: item for item in template["spec"]["templates"]}

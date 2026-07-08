@@ -53,10 +53,14 @@ spec:
         value: "false"
       - name: schema-evolution-forward-enabled
         value: "false"
+      - name: standalone-cpu-request
+        value: "2"
+      - name: standalone-memory-request
+        value: 4Gi
       - name: standalone-cpu
         value: "4"
       - name: standalone-memory
-        value: 16Gi
+        value: 8Gi
       - name: etcd-pvc-size
         value: 10Gi
       - name: storage-pvc-size
@@ -85,10 +89,14 @@ spec:
         value: "true"
       - name: gate-allow-warning
         value: "false"
+      - name: observe-before-upgrade-sec
+        value: "300"
       - name: observe-after-upgrade-sec
-        value: "60"
+        value: "300"
+      - name: observe-before-rollback-sec
+        value: "300"
       - name: observe-after-rollback-sec
-        value: "60"
+        value: "300"
       - name: keep-milvus
         value: "false"
   volumeClaimTemplates:
@@ -193,8 +201,18 @@ spec:
             dependencies: [validate-before-upgrade]
             template: pressure-daemon
 
-          - name: patch-upgrade
+          - name: observe-before-upgrade
             dependencies: [pressure-daemon]
+            template: observe
+            arguments:
+              parameters:
+                - name: seconds
+                  value: "{{workflow.parameters.observe-before-upgrade-sec}}"
+                - name: phase
+                  value: before-upgrade
+
+          - name: patch-upgrade
+            dependencies: [observe-before-upgrade, pressure-daemon]
             template: patch-milvus-image
             arguments:
               parameters:
@@ -385,8 +403,18 @@ spec:
                     --rows-per-collection {{workflow.parameters.rows-per-collection}}
                     --batch-size {{workflow.parameters.batch-size}}
 
-          - name: patch-rollback
+          - name: observe-before-rollback
             dependencies: [schema-evolution-forward, pressure-daemon]
+            template: observe
+            arguments:
+              parameters:
+                - name: seconds
+                  value: "{{workflow.parameters.observe-before-rollback-sec}}"
+                - name: phase
+                  value: before-rollback
+
+          - name: patch-rollback
+            dependencies: [observe-before-rollback, pressure-daemon]
             template: patch-milvus-image
             arguments:
               parameters:
@@ -505,11 +533,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eu
@@ -542,6 +570,8 @@ spec:
               "collection_prefix": "{{workflow.parameters.collection-prefix}}",
               "forward_collection_prefix": "{{workflow.parameters.forward-collection-prefix}}",
               "schema_matrix": "{{workflow.parameters.schema-matrix}}",
+              "standalone_cpu_request": "{{workflow.parameters.standalone-cpu-request}}",
+              "standalone_memory_request": "{{workflow.parameters.standalone-memory-request}}",
               "standalone_cpu": "{{workflow.parameters.standalone-cpu}}",
               "standalone_memory": "{{workflow.parameters.standalone-memory}}",
               "etcd_pvc_size": "{{workflow.parameters.etcd-pvc-size}}",
@@ -550,6 +580,10 @@ spec:
               "batch_size": "{{workflow.parameters.batch-size}}",
               "pressure_modules": "{{workflow.parameters.pressure-modules}}",
               "pressure_fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}",
+              "observe_before_upgrade_sec": "{{workflow.parameters.observe-before-upgrade-sec}}",
+              "observe_after_upgrade_sec": "{{workflow.parameters.observe-after-upgrade-sec}}",
+              "observe_before_rollback_sec": "{{workflow.parameters.observe-before-rollback-sec}}",
+              "observe_after_rollback_sec": "{{workflow.parameters.observe-after-rollback-sec}}",
               "gate_allow_warning": "{{workflow.parameters.gate-allow-warning}}",
               "keep_milvus": "{{workflow.parameters.keep-milvus}}"
             }
@@ -596,11 +630,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eux
@@ -631,8 +665,8 @@ spec:
                 standalone:
                   resources:
                     requests:
-                      cpu: "{{workflow.parameters.standalone-cpu}}"
-                      memory: "{{workflow.parameters.standalone-memory}}"
+                      cpu: "{{workflow.parameters.standalone-cpu-request}}"
+                      memory: "{{workflow.parameters.standalone-memory-request}}"
                     limits:
                       cpu: "{{workflow.parameters.standalone-cpu}}"
                       memory: "{{workflow.parameters.standalone-memory}}"
@@ -665,11 +699,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eu
@@ -711,11 +745,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eux
@@ -762,11 +796,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eux
@@ -875,11 +909,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eux
@@ -930,11 +964,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eux
@@ -966,11 +1000,11 @@ spec:
           periodSeconds: 5
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eu
@@ -1096,11 +1130,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eu
@@ -1243,11 +1277,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eu
@@ -1280,11 +1314,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eux
@@ -1353,7 +1387,9 @@ spec:
               --batch-size "{{workflow.parameters.batch-size}}" \
               --pressure-modules "{{workflow.parameters.pressure-modules}}" \
               --pressure-fail-on-error "{{workflow.parameters.pressure-fail-on-error}}" \
+              --observe-before-upgrade-sec "{{workflow.parameters.observe-before-upgrade-sec}}" \
               --observe-after-upgrade-sec "{{workflow.parameters.observe-after-upgrade-sec}}" \
+              --observe-before-rollback-sec "{{workflow.parameters.observe-before-rollback-sec}}" \
               --observe-after-rollback-sec "{{workflow.parameters.observe-after-rollback-sec}}" \
               --base-json-shredding-enabled "{{workflow.parameters.base-json-shredding-enabled}}" \
               --target-json-shredding-enabled "{{workflow.parameters.target-json-shredding-enabled}}" \
@@ -1377,11 +1413,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eu
@@ -1441,11 +1477,11 @@ spec:
         command: [sh, -c]
         resources:
           requests:
-            cpu: "2"
-            memory: 8Gi
+            cpu: "1"
+            memory: 2Gi
           limits:
-            cpu: "4"
-            memory: 16Gi
+            cpu: "2"
+            memory: 4Gi
         args:
           - |
             set -eu

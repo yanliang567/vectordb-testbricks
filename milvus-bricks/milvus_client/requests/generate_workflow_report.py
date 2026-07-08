@@ -100,7 +100,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "batch_size": args.batch_size,
             "pressure_modules": args.pressure_modules.split(),
             "pressure_fail_on_error": pressure_fail_on_error,
+            "observe_before_upgrade_sec": args.observe_before_upgrade_sec,
             "observe_after_upgrade_sec": args.observe_after_upgrade_sec,
+            "observe_before_rollback_sec": args.observe_before_rollback_sec,
             "observe_after_rollback_sec": args.observe_after_rollback_sec,
             "config_matrix": config_matrix,
         },
@@ -225,7 +227,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--pressure-modules", required=True)
     parser.add_argument("--pressure-fail-on-error", required=True)
+    parser.add_argument("--observe-before-upgrade-sec", type=int, required=True)
     parser.add_argument("--observe-after-upgrade-sec", type=int, required=True)
+    parser.add_argument("--observe-before-rollback-sec", type=int, required=True)
     parser.add_argument("--observe-after-rollback-sec", type=int, required=True)
     parser.add_argument("--base-json-shredding-enabled", default="false")
     parser.add_argument("--target-json-shredding-enabled", default="false")

@@ -65,10 +65,14 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "search_pressure query_pressure",
         "--pressure-fail-on-error",
         pressure_fail_on_error,
+        "--observe-before-upgrade-sec",
+        "300",
         "--observe-after-upgrade-sec",
-        "60",
+        "300",
+        "--observe-before-rollback-sec",
+        "300",
         "--observe-after-rollback-sec",
-        "60",
+        "300",
         "--base-json-shredding-enabled",
         "true",
         "--target-json-shredding-enabled",
@@ -127,6 +131,8 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert report["validation"]["passed"] is True
     assert report["pressure"]["failed"] == 1
     assert report["parameters"]["pressure_fail_on_error"] is False
+    assert report["parameters"]["observe_before_upgrade_sec"] == 300
+    assert report["parameters"]["observe_before_rollback_sec"] == 300
     assert report["parameters"]["forward_collection_prefix"] == "qa_upgrade_forward"
     assert report["target"]["rollback_milvus_image"] == "harbor.milvus.io/milvusdb/milvus:2.6-latest"
     assert report["parameters"]["config_matrix"] == {

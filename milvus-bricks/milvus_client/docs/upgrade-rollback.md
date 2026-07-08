@@ -72,10 +72,10 @@ upgrade and rollback waits.
 the v2.6.18 rollback compatibility lane. Client pods run in `qa` with the
 `milvus-upgrade-rollback-runner` ServiceAccount, while the Milvus Operator CR is
 created in `qa-milvus`. The template creates a standalone CR with parameterized
-4 CPU and 16 GiB defaults, seeds only rollback-safe 2.6 schemas, upgrades to a
-configured 2.6 or master/3.0 target image, validates existing data, rolls back
-to v2.6.18, and validates the same checkpoint again. Client pods use the 4am
-default resources: 2 CPU / 8 GiB requests and 4 CPU / 16 GiB limits.
+2 CPU / 4 GiB requests and 4 CPU / 8 GiB limits, seeds only rollback-safe 2.6
+schemas, upgrades to a configured 2.6 or master/3.0 target image, validates
+existing data, rolls back to v2.6.18, and validates the same checkpoint again.
+Client pods default to 1 CPU / 2 GiB requests and 2 CPU / 4 GiB limits.
 
 By default this template does not create `schema_matrix_3_0.yaml` data. New 3.0
 schema/data is upgrade-only when rolling back to 2.6 and is not expected to
@@ -101,6 +101,10 @@ Both templates expose the same configuration matrix parameters:
 - `forward-schema-matrix`
 - `forward-collection-prefix`
 - `rollback-forward-validation-enabled`
+- `observe-before-upgrade-sec`
+- `observe-after-upgrade-sec`
+- `observe-before-rollback-sec`
+- `observe-after-rollback-sec`
 
 The workflow writes `spec.config.common.storage.jsonShreddingEnabled` during
 base deploy and image patch phases. It writes
@@ -108,6 +112,10 @@ base deploy and image patch phases. It writes
 forces it back to false for 2.6 rollback. The workflow snapshots Milvus CR
 config after base deploy, target upgrade, optional post-upgrade config toggle,
 and rollback.
+
+The standalone templates run pressure during fixed observe windows before and
+after both upgrade and rollback. These observe windows default to 300 seconds so
+client request traffic covers at least five minutes in each steady phase.
 
 Submit example:
 
