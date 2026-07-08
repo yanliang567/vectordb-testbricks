@@ -1618,3 +1618,6 @@ spec:
                 printf '%s\n' '- forward collection prefix: `{{workflow.parameters.forward-collection-prefix}}`'
               } > /tmp/milvus-bricks/reports/final_report.md
             fi
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks

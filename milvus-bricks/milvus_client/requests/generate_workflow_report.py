@@ -21,6 +21,17 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True))
 
 
+def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
+    required = ["validate_before_upgrade", "validate_after_upgrade"]
+    if config_matrix["forward_workload_enabled"]:
+        required.append("validate_forward_after_upgrade")
+    if config_matrix["rollback_enabled"]:
+        required.append("validate_after_rollback")
+    if config_matrix["rollback_forward_validation_enabled"]:
+        required.append("validate_forward_after_rollback")
+    return required
+
+
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     results_dir = Path(args.results_dir)
     k8s_dir = Path(args.k8s_dir)
@@ -32,21 +43,6 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     for path in sorted(results_dir.glob("*.json")):
         results[path.stem] = _load_json(path, {"status": "unreadable", "file": path.name})
 
-    validation = {
-        name: payload
-        for name, payload in results.items()
-        if name.startswith("validate_")
-    }
-    failed_results = {
-        name: payload
-        for name, payload in results.items()
-        if payload.get("status") not in {"passed", "skipped"}
-    }
-    validation_passed = bool(validation) and all(
-        payload.get("status") in {"passed", "skipped"} for payload in validation.values()
-    )
-    pressure_failed = int(pressure.get("failed", 0) or 0)
-    pressure_fail_on_error = parse_bool(args.pressure_fail_on_error)
     config_matrix = {
         "base_json_shredding_enabled": parse_bool(args.base_json_shredding_enabled),
         "target_json_shredding_enabled": parse_bool(args.target_json_shredding_enabled),
@@ -61,6 +57,35 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "schema_evolution_existing_enabled": parse_bool(args.schema_evolution_existing_enabled),
         "schema_evolution_forward_enabled": parse_bool(args.schema_evolution_forward_enabled),
     }
+    validation = {
+        name: payload
+        for name, payload in results.items()
+        if name.startswith("validate_")
+    }
+    missing_validations = [
+        name for name in _required_validation_names(config_matrix) if name not in validation
+    ]
+    for name in missing_validations:
+        validation[name] = {
+            "status": "missing",
+            "failures": [
+                {
+                    "type": "VALIDATION_RESULT_MISSING",
+                    "message": "required validation result json is missing",
+                    "validation": name,
+                }
+            ],
+        }
+    failed_results = {
+        name: payload
+        for name, payload in {**results, **validation}.items()
+        if payload.get("status") not in {"passed", "skipped"}
+    }
+    validation_passed = bool(validation) and all(
+        payload.get("status") in {"passed", "skipped"} for payload in validation.values()
+    )
+    pressure_failed = int(pressure.get("failed", 0) or 0)
+    pressure_fail_on_error = parse_bool(args.pressure_fail_on_error)
 
     status = "passed"
     if failed_results or not validation_passed or (pressure_fail_on_error and pressure_failed):

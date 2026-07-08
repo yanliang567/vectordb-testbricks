@@ -261,6 +261,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     cleanup = templates["maybe-cleanup"]
     cleanup_artifacts = {artifact["name"] for artifact in cleanup["outputs"]["artifacts"]}
     assert {"orchestrator-report", "final-report-md", "flow-summary", "env-snapshot", "k8s-snapshot"} <= cleanup_artifacts
+    assert cleanup["container"]["volumeMounts"][0] == {
+        "name": "milvus-test-state",
+        "mountPath": "/tmp/milvus-bricks",
+    }
 
     check_pressure = templates["check-pressure-results"]
     check_artifacts = {artifact["name"] for artifact in check_pressure["outputs"]["artifacts"]}
@@ -381,6 +385,10 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     templates = {item["name"]: item for item in template["spec"]["templates"]}
     assert templates["pressure-daemon"]["daemon"] is True
     assert "volumeMounts" not in templates["pressure-daemon"]["container"]
+    assert templates["maybe-cleanup"]["container"]["volumeMounts"][0] == {
+        "name": "milvus-test-state",
+        "mountPath": "/tmp/milvus-bricks",
+    }
     assert "patch-milvus-config" in templates
     assert "optional-run-brick" in templates
     main = next(item for item in template["spec"]["templates"] if item["name"] == "main")

@@ -115,6 +115,11 @@ def _write_successful_upgrade_only_validation(tmp_path: Path) -> None:
     _write_json(tmp_path / "results" / "validate_forward_after_upgrade.json", {"status": "passed"})
 
 
+def _write_successful_upgrade_validation(tmp_path: Path) -> None:
+    _write_json(tmp_path / "results" / "validate_before_upgrade.json", {"status": "passed"})
+    _write_json(tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"})
+
+
 def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_strict(tmp_path):
     _write_successful_validation(tmp_path)
     _write_json(
@@ -193,6 +198,69 @@ def test_generate_workflow_report_fails_pressure_failures_in_strict_mode(tmp_pat
     assert report["status"] == "failed"
     assert report["validation"]["passed"] is True
     assert report["parameters"]["pressure_fail_on_error"] is True
+
+
+def test_generate_workflow_report_fails_when_required_rollback_validation_is_missing(tmp_path):
+    _write_successful_upgrade_validation(tmp_path)
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(_base_args(tmp_path, pressure_fail_on_error="true"))
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 1
+    assert report["status"] == "failed"
+    assert report["validation"]["passed"] is False
+    assert report["validation"]["results"]["validate_after_rollback"]["status"] == "missing"
+    assert report["failed_results"]["validate_after_rollback"]["failures"][0]["type"] == "VALIDATION_RESULT_MISSING"
+
+
+def test_generate_workflow_report_fails_when_required_forward_validation_is_missing(tmp_path):
+    _write_successful_upgrade_validation(tmp_path)
+    _write_json(tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"})
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        [
+            *_base_args(tmp_path, pressure_fail_on_error="true"),
+            "--forward-workload-enabled",
+            "true",
+        ]
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 1
+    assert report["status"] == "failed"
+    assert report["validation"]["results"]["validate_forward_after_upgrade"]["status"] == "missing"
+
+
+def test_generate_workflow_report_fails_when_required_forward_rollback_validation_is_missing(tmp_path):
+    _write_successful_validation(tmp_path)
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        [
+            *_base_args(tmp_path, pressure_fail_on_error="true"),
+            "--rollback-forward-validation-enabled",
+            "true",
+        ]
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 1
+    assert report["status"] == "failed"
+    assert report["validation"]["results"]["validate_forward_after_rollback"]["status"] == "missing"
 
 
 def test_generate_workflow_report_allows_strict_upgrade_only_gate_without_rollback_validation(tmp_path):
