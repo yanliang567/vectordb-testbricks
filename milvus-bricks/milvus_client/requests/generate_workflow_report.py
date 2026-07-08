@@ -56,6 +56,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "post_upgrade_json_shredding_enabled": parse_bool(args.post_upgrade_json_shredding_enabled),
         "forward_workload_enabled": parse_bool(args.forward_workload_enabled),
         "forward_schema_matrix": args.forward_schema_matrix,
+        "rollback_enabled": parse_bool(args.rollback_enabled),
         "rollback_forward_validation_enabled": parse_bool(args.rollback_forward_validation_enabled),
         "schema_evolution_existing_enabled": parse_bool(args.schema_evolution_existing_enabled),
         "schema_evolution_forward_enabled": parse_bool(args.schema_evolution_forward_enabled),
@@ -88,6 +89,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "rollback_milvus_image": args.rollback_milvus_image,
             "target_milvus_image": args.target_milvus_image,
             "base_version": args.base_version,
+            "rollback_version": args.rollback_version,
             "target_version": args.target_version,
         },
         "parameters": {
@@ -164,6 +166,7 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- post-upgrade jsonShredding: `{config_matrix.get('post_upgrade_json_shredding_enabled')}`",
         f"- forward workload: `{config_matrix.get('forward_workload_enabled')}`",
         f"- forward schema matrix: `{config_matrix.get('forward_schema_matrix')}`",
+        f"- rollback enabled: `{config_matrix.get('rollback_enabled')}`",
         f"- rollback forward validation: `{config_matrix.get('rollback_forward_validation_enabled')}`",
         f"- schema evolution existing: `{config_matrix.get('schema_evolution_existing_enabled')}`",
         f"- schema evolution forward: `{config_matrix.get('schema_evolution_forward_enabled')}`",
@@ -178,8 +181,11 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- forward collection prefix: `{params['forward_collection_prefix']}`",
         f"- rows per collection: `{params['rows_per_collection']}`",
         f"- base image: `{target['base_milvus_image']}`",
+        f"- base version: `{target['base_version']}`",
         f"- target image: `{target['target_milvus_image']}`",
+        f"- target version: `{target['target_version']}`",
         f"- rollback image: `{target['rollback_milvus_image']}`",
+        f"- rollback version: `{target['rollback_version']}`",
         "",
         "## Config Matrix",
         *config_lines,
@@ -217,6 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rollback-milvus-image", required=True)
     parser.add_argument("--target-milvus-image", required=True)
     parser.add_argument("--base-version", required=True)
+    parser.add_argument("--rollback-version", required=True)
     parser.add_argument("--target-version", required=True)
     parser.add_argument("--repo-url", required=True)
     parser.add_argument("--repo-revision", required=True)
@@ -239,6 +246,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--post-upgrade-json-shredding-enabled", default="false")
     parser.add_argument("--forward-workload-enabled", default="false")
     parser.add_argument("--forward-schema-matrix", default="")
+    parser.add_argument("--rollback-enabled", default="true")
     parser.add_argument("--rollback-forward-validation-enabled", default="false")
     parser.add_argument("--schema-evolution-existing-enabled", default="false")
     parser.add_argument("--schema-evolution-forward-enabled", default="false")

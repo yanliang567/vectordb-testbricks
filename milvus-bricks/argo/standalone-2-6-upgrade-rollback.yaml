@@ -25,6 +25,8 @@ spec:
         value: harbor.milvus.io/milvusdb/milvus:v2.6.18
       - name: rollback-milvus-image
         value: harbor.milvus.io/milvusdb/milvus:v2.6.18
+      - name: rollback-version
+        value: "2.6.18"
       - name: base-version
         value: "2.6.18"
       - name: target-milvus-image
@@ -47,6 +49,8 @@ spec:
         value: "false"
       - name: forward-schema-matrix
         value: milvus_client/manifests/schema_matrix_3_0.yaml
+      - name: rollback-enabled
+        value: "true"
       - name: rollback-forward-validation-enabled
         value: "false"
       - name: schema-evolution-existing-enabled
@@ -405,6 +409,7 @@ spec:
 
           - name: observe-before-rollback
             dependencies: [schema-evolution-forward, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
             template: observe
             arguments:
               parameters:
@@ -415,13 +420,14 @@ spec:
 
           - name: patch-rollback
             dependencies: [observe-before-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
             template: patch-milvus-image
             arguments:
               parameters:
                 - name: image
                   value: "{{workflow.parameters.rollback-milvus-image}}"
                 - name: version
-                  value: "{{workflow.parameters.base-version}}"
+                  value: "{{workflow.parameters.rollback-version}}"
                 - name: image-update-mode
                   value: rollingDowngrade
                 - name: json-shredding-enabled
@@ -431,6 +437,7 @@ spec:
 
           - name: wait-rollback-ready
             dependencies: [patch-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
             template: wait-milvus-ready
             arguments:
               parameters:
@@ -439,6 +446,7 @@ spec:
 
           - name: snapshot-after-rollback-config
             dependencies: [wait-rollback-ready, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
             template: snapshot-milvus-config
             arguments:
               parameters:
@@ -447,6 +455,7 @@ spec:
 
           - name: observe-after-rollback
             dependencies: [snapshot-after-rollback-config, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
             template: observe
             arguments:
               parameters:
@@ -457,6 +466,7 @@ spec:
 
           - name: precheck-after-rollback
             dependencies: [observe-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
             template: run-brick
             arguments:
               parameters:
@@ -471,6 +481,7 @@ spec:
 
           - name: validate-after-rollback
             dependencies: [precheck-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
             template: run-brick
             arguments:
               parameters:
@@ -486,6 +497,7 @@ spec:
 
           - name: validate-forward-after-rollback
             dependencies: [validate-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
             template: optional-run-brick
             arguments:
               parameters:
@@ -555,6 +567,7 @@ spec:
               "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
               "base_version": "{{workflow.parameters.base-version}}",
+              "rollback_version": "{{workflow.parameters.rollback-version}}",
               "target_version": "{{workflow.parameters.target-version}}",
               "base_json_shredding_enabled": "{{workflow.parameters.base-json-shredding-enabled}}",
               "target_json_shredding_enabled": "{{workflow.parameters.target-json-shredding-enabled}}",
@@ -564,6 +577,7 @@ spec:
               "post_upgrade_json_shredding_enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",
               "forward_schema_matrix": "{{workflow.parameters.forward-schema-matrix}}",
+              "rollback_enabled": "{{workflow.parameters.rollback-enabled}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
               "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
               "schema_evolution_forward_enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}",
@@ -598,6 +612,7 @@ spec:
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
               "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
+              "rollback_version": "{{workflow.parameters.rollback-version}}",
               "base_json_shredding_enabled": "{{workflow.parameters.base-json-shredding-enabled}}",
               "target_json_shredding_enabled": "{{workflow.parameters.target-json-shredding-enabled}}",
               "rollback_json_shredding_enabled": "{{workflow.parameters.rollback-json-shredding-enabled}}",
@@ -606,6 +621,7 @@ spec:
               "post_upgrade_json_shredding_enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",
               "forward_schema_matrix": "{{workflow.parameters.forward-schema-matrix}}",
+              "rollback_enabled": "{{workflow.parameters.rollback-enabled}}",
               "collection_prefix": "{{workflow.parameters.collection-prefix}}",
               "forward_collection_prefix": "{{workflow.parameters.forward-collection-prefix}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
@@ -1377,6 +1393,7 @@ spec:
               --rollback-milvus-image "{{workflow.parameters.rollback-milvus-image}}" \
               --target-milvus-image "{{workflow.parameters.target-milvus-image}}" \
               --base-version "{{workflow.parameters.base-version}}" \
+              --rollback-version "{{workflow.parameters.rollback-version}}" \
               --target-version "{{workflow.parameters.target-version}}" \
               --repo-url "{{workflow.parameters.repo-url}}" \
               --repo-revision "{{workflow.parameters.repo-revision}}" \
@@ -1399,6 +1416,7 @@ spec:
               --post-upgrade-json-shredding-enabled "{{workflow.parameters.post-upgrade-json-shredding-enabled}}" \
               --forward-workload-enabled "{{workflow.parameters.forward-workload-enabled}}" \
               --forward-schema-matrix "{{workflow.parameters.forward-schema-matrix}}" \
+              --rollback-enabled "{{workflow.parameters.rollback-enabled}}" \
               --rollback-forward-validation-enabled "{{workflow.parameters.rollback-forward-validation-enabled}}" \
               --schema-evolution-existing-enabled "{{workflow.parameters.schema-evolution-existing-enabled}}" \
               --schema-evolution-forward-enabled "{{workflow.parameters.schema-evolution-forward-enabled}}" \
@@ -1533,6 +1551,7 @@ spec:
               "post_upgrade_json_shredding_enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",
               "forward_schema_matrix": "{{workflow.parameters.forward-schema-matrix}}",
+              "rollback_enabled": "{{workflow.parameters.rollback-enabled}}",
               "collection_prefix": "{{workflow.parameters.collection-prefix}}",
               "forward_collection_prefix": "{{workflow.parameters.forward-collection-prefix}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",

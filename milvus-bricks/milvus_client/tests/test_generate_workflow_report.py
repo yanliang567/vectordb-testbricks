@@ -45,6 +45,8 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "harbor.milvus.io/milvusdb/milvus:2.6-latest",
         "--base-version",
         "2.6.18",
+        "--rollback-version",
+        "2.6.0",
         "--target-version",
         "2.6.99",
         "--repo-url",
@@ -89,6 +91,8 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "false",
         "--forward-schema-matrix",
         "milvus_client/manifests/schema_matrix_3_0.yaml",
+        "--rollback-enabled",
+        "true",
         "--rollback-forward-validation-enabled",
         "false",
         "--schema-evolution-existing-enabled",
@@ -103,6 +107,12 @@ def _write_successful_validation(tmp_path: Path) -> None:
     _write_json(tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"})
     _write_json(tmp_path / "results" / "validate_forward_after_upgrade.json", {"status": "skipped"})
     _write_json(tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"})
+
+
+def _write_successful_upgrade_only_validation(tmp_path: Path) -> None:
+    _write_json(tmp_path / "results" / "validate_before_upgrade.json", {"status": "passed"})
+    _write_json(tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"})
+    _write_json(tmp_path / "results" / "validate_forward_after_upgrade.json", {"status": "passed"})
 
 
 def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_strict(tmp_path):
@@ -135,6 +145,7 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert report["parameters"]["observe_before_rollback_sec"] == 300
     assert report["parameters"]["forward_collection_prefix"] == "qa_upgrade_forward"
     assert report["target"]["rollback_milvus_image"] == "harbor.milvus.io/milvusdb/milvus:2.6-latest"
+    assert report["target"]["rollback_version"] == "2.6.0"
     assert report["parameters"]["config_matrix"] == {
         "base_json_shredding_enabled": True,
         "target_json_shredding_enabled": True,
@@ -144,14 +155,17 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
         "post_upgrade_json_shredding_enabled": True,
         "forward_workload_enabled": False,
         "forward_schema_matrix": "milvus_client/manifests/schema_matrix_3_0.yaml",
+        "rollback_enabled": True,
         "rollback_forward_validation_enabled": False,
         "schema_evolution_existing_enabled": True,
         "schema_evolution_forward_enabled": False,
     }
     assert report["k8s_snapshot"]["pods.txt"] == str(tmp_path / "k8s" / "pods.txt")
     assert "## Config Matrix" in markdown
+    assert "- rollback version: `2.6.0`" in markdown
     assert "- rollback image: `harbor.milvus.io/milvusdb/milvus:2.6-latest`" in markdown
     assert "- forward collection prefix: `qa_upgrade_forward`" in markdown
+    assert "- rollback enabled: `True`" in markdown
     assert "- base jsonShredding: `True`" in markdown
     assert "## Validation" in markdown
     assert "## Pressure" in markdown
@@ -179,6 +193,33 @@ def test_generate_workflow_report_fails_pressure_failures_in_strict_mode(tmp_pat
     assert report["status"] == "failed"
     assert report["validation"]["passed"] is True
     assert report["parameters"]["pressure_fail_on_error"] is True
+
+
+def test_generate_workflow_report_allows_strict_upgrade_only_gate_without_rollback_validation(tmp_path):
+    _write_successful_upgrade_only_validation(tmp_path)
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        [
+            *_base_args(tmp_path, pressure_fail_on_error="true"),
+            "--rollback-enabled",
+            "false",
+            "--forward-workload-enabled",
+            "true",
+        ]
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 0
+    assert report["status"] == "passed"
+    assert report["validation"]["passed"] is True
+    assert report["parameters"]["config_matrix"]["rollback_enabled"] is False
+    assert report["parameters"]["config_matrix"]["forward_workload_enabled"] is True
+    assert "validate_after_rollback" not in report["validation"]["results"]
 
 
 def test_generate_workflow_report_can_soft_fail_after_writing_failed_report(tmp_path):

@@ -76,6 +76,9 @@ created in `qa-milvus`. The template creates a standalone CR with parameterized
 schemas, upgrades to a configured 2.6 or master/3.0 target image, validates
 existing data, rolls back to v2.6.18, and validates the same checkpoint again.
 Client pods default to 1 CPU / 2 GiB requests and 2 CPU / 4 GiB limits.
+Set `rollback-milvus-image` and `rollback-version` explicitly when a scenario
+rolls back to a different 2.6 branch image, such as latest 2.6 instead of the
+original v2.6.18 image.
 
 By default this template does not create `schema_matrix_3_0.yaml` data. New 3.0
 schema/data is upgrade-only when rolling back to 2.6 and is not expected to
@@ -100,6 +103,8 @@ Both templates expose the same configuration matrix parameters:
 - `forward-workload-enabled`
 - `forward-schema-matrix`
 - `forward-collection-prefix`
+- `rollback-enabled`
+- `rollback-version`
 - `rollback-forward-validation-enabled`
 - `observe-before-upgrade-sec`
 - `observe-after-upgrade-sec`
@@ -116,6 +121,11 @@ and rollback.
 The standalone templates run pressure during fixed observe windows before and
 after both upgrade and rollback. These observe windows default to 300 seconds so
 client request traffic covers at least five minutes in each steady phase.
+`observe-after-upgrade-sec` and `observe-before-rollback-sec` are sequential,
+not overlapping. The workflow runs the after-upgrade observation first, then
+upgrade-phase precheck/validation, existing schema evolution, optional
+post-upgrade config patch, optional forward workload, and only then the
+before-rollback observation.
 
 Submit example:
 
@@ -125,6 +135,8 @@ argo submit -n qa --from workflowtemplate/milvus-standalone-2-6-upgrade-rollback
   -p repo-revision=main \
   -p base-milvus-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
   -p target-milvus-image=harbor.milvus.io/milvusdb/milvus:2.6-20260707-e9ee9a47 \
+  -p rollback-milvus-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
+  -p rollback-version=2.6.18 \
   -p base-json-shredding-enabled=true \
   -p target-json-shredding-enabled=true \
   -p rollback-json-shredding-enabled=true \
@@ -151,6 +163,14 @@ For `v2.6.18 -> master -> v2.6.18` runs, keep the 2.6 template and pass the
 master image as `target-milvus-image`. The schema matrix remains
 `schema_matrix_2_6.yaml` unless `forward-workload-enabled=true` is explicitly
 set for target-only 3.0 coverage.
+
+For upgrade-only target compatibility runs, such as `v2.6.18 -> master` with
+LoonFFI/vortex and a post-upgrade jsonShredding toggle, set
+`rollback-enabled=false`. The workflow still keeps strict pressure and
+validation gates for the base and upgraded target phases, but it does not patch
+back to a 2.6 image or run rollback validations. Keep
+`rollback-forward-validation-enabled=false` on these runs because there is no
+rollback phase.
 
 The 4am template runs these strict foreground bricks:
 
@@ -241,8 +261,8 @@ capability catalog treats `NullableVector` as a 3.0+ forward-only capability.
 
 | Scenario | Workflow | Hard gate | Notes |
 | --- | --- | --- | --- |
-| 2.6.18 jsonShredding -> 2.6 latest jsonShredding -> 2.6.18 | `standalone-2-6-upgrade-rollback` | 2.6 schema/data and pressure | Fully supported. |
-| 2.6.18 jsonShredding -> master jsonShredding -> 2.6.18 | `standalone-2-6-upgrade-rollback` | 2.6 schema/data and pressure | Fully supported for rollback-safe data. |
-| 2.6.18 jsonShredding disabled -> master LoonFFI -> jsonShredding enabled | `standalone-2-6-upgrade-rollback` | 2.6 schema/data and pressure | Optional 3.0 forward workload can run in target phase only. |
+| 2.6.18 jsonShredding -> 2.6 latest jsonShredding -> 2.6.18 | `standalone-2-6-upgrade-rollback` | 2.6 schema/data and pressure | Strict rollback gate with default `rollback-enabled=true`. |
+| 2.6.18 jsonShredding -> master jsonShredding -> latest 2.6 | `standalone-2-6-upgrade-rollback` | 2.6 schema/data and pressure | Strict rollback gate. Set `rollback-milvus-image` to latest 2.6 and `rollback-version` to the matching 2.6 operator version. |
+| 2.6.18 jsonShredding disabled -> master LoonFFI/vortex -> jsonShredding enabled | `standalone-2-6-upgrade-rollback` | 2.6 schema/data, optional 3.0 target-only schema/data, and pressure | Strict upgrade-only gate. Set `rollback-enabled=false`; this scenario is not a 2.6 rollback gate. |
 | 3.0 baseline -> master -> 3.0 baseline | `standalone-3-0-upgrade-rollback` | 3.0 schema/data and pressure | Fully supported. |
-| 3.0 baseline jsonShredding -> master jsonShredding + LoonFFI -> 3.0 baseline | `standalone-3-0-upgrade-rollback` | 3.0 baseline data; optional forward data | Treat LoonFFI-created data rollback as risk until product guarantee is explicit. |
+| 3.0 baseline jsonShredding -> master jsonShredding + LoonFFI/vortex -> 3.0 baseline | `standalone-3-0-upgrade-rollback` | 3.0 schema/data and pressure | Strict 3.0 rollback gate. |

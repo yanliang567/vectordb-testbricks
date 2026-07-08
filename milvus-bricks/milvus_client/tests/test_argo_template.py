@@ -50,6 +50,7 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["repo-revision"] == "main"
     assert parameter_values["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
     assert parameter_values["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
+    assert parameter_values["rollback-version"] == "2.6.18"
     assert parameter_values["target-milvus-image"].startswith("harbor.milvus.io/milvusdb/milvus:2.6-")
     assert parameter_values["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
     assert parameter_values["forward-schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
@@ -60,6 +61,7 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["target-loon-ffi-enabled"] == "false"
     assert parameter_values["post-upgrade-config-toggle-enabled"] == "false"
     assert parameter_values["forward-workload-enabled"] == "false"
+    assert parameter_values["rollback-enabled"] == "true"
     assert parameter_values["schema-evolution-existing-enabled"] == "false"
     assert parameter_values["schema-evolution-forward-enabled"] == "false"
     assert parameter_values["standalone-cpu-request"] == "2"
@@ -175,6 +177,18 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert tasks["schema-evolution-forward"]["template"] == "optional-run-brick"
     assert tasks["observe-before-rollback"]["dependencies"] == ["schema-evolution-forward", "pressure-daemon"]
     assert tasks["patch-rollback"]["dependencies"] == ["observe-before-rollback", "pressure-daemon"]
+    rollback_gated_tasks = [
+        "observe-before-rollback",
+        "patch-rollback",
+        "wait-rollback-ready",
+        "snapshot-after-rollback-config",
+        "observe-after-rollback",
+        "precheck-after-rollback",
+        "validate-after-rollback",
+        "validate-forward-after-rollback",
+    ]
+    for task_name in rollback_gated_tasks:
+        assert tasks[task_name]["when"] == "{{workflow.parameters.rollback-enabled}} == true"
     schema_evolution_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["schema-evolution-existing"]["arguments"]["parameters"]
@@ -198,6 +212,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         for parameter in tasks["patch-rollback"]["arguments"]["parameters"]
     }
     assert patch_rollback_args["image"] == "{{workflow.parameters.rollback-milvus-image}}"
+    assert patch_rollback_args["version"] == "{{workflow.parameters.rollback-version}}"
     wait_rollback_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["wait-rollback-ready"]["arguments"]["parameters"]
@@ -269,9 +284,11 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "--soft-fail" in final_command
     assert "--base-json-shredding-enabled" in final_command
     assert "--rollback-milvus-image" in final_command
+    assert "--rollback-version" in final_command
     assert "--target-json-shredding-enabled" in final_command
     assert "--target-loon-ffi-enabled" in final_command
     assert "--forward-workload-enabled" in final_command
+    assert "--rollback-enabled" in final_command
     assert "--observe-before-upgrade-sec" in final_command
     assert "--observe-before-rollback-sec" in final_command
     assert "--schema-evolution-existing-enabled" in final_command
@@ -341,11 +358,13 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     assert parameter_values["rollback-milvus-image"] == (
         "harbor.milvus.io/milvusdb/milvus:3.0-20260701-d19d8484-47f6c14"
     )
+    assert parameter_values["rollback-version"] == "3.0.0"
     assert parameter_values["target-milvus-image"].startswith("harbor.milvus.io/milvusdb/milvus:master-")
     assert parameter_values["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
     assert parameter_values["forward-schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
     assert parameter_values["collection-prefix"] == "qa_upgrade_30"
     assert parameter_values["forward-collection-prefix"] == "qa_upgrade_30_forward"
+    assert parameter_values["rollback-enabled"] == "true"
     assert parameter_values["rollback-forward-validation-enabled"] == "true"
     assert parameter_values["schema-evolution-existing-enabled"] == "true"
     assert parameter_values["schema-evolution-forward-enabled"] == "false"
