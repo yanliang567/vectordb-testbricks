@@ -39,6 +39,8 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "wf-123-milvus.qa-milvus.svc",
         "--base-milvus-image",
         "harbor.milvus.io/milvusdb/milvus:v2.6.18",
+        "--rollback-milvus-image",
+        "harbor.milvus.io/milvusdb/milvus:2.6-latest",
         "--target-milvus-image",
         "harbor.milvus.io/milvusdb/milvus:2.6-latest",
         "--base-version",
@@ -119,6 +121,7 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert report["validation"]["passed"] is True
     assert report["pressure"]["failed"] == 1
     assert report["parameters"]["pressure_fail_on_error"] is False
+    assert report["target"]["rollback_milvus_image"] == "harbor.milvus.io/milvusdb/milvus:2.6-latest"
     assert report["parameters"]["config_matrix"] == {
         "base_json_shredding_enabled": True,
         "target_json_shredding_enabled": True,
@@ -132,6 +135,7 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     }
     assert report["k8s_snapshot"]["pods.txt"] == str(tmp_path / "k8s" / "pods.txt")
     assert "## Config Matrix" in markdown
+    assert "- rollback image: `harbor.milvus.io/milvusdb/milvus:2.6-latest`" in markdown
     assert "- base jsonShredding: `True`" in markdown
     assert "## Validation" in markdown
     assert "## Pressure" in markdown

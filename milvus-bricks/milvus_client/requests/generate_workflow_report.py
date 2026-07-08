@@ -83,6 +83,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "milvus_namespace": args.milvus_namespace,
             "milvus_host": args.milvus_host,
             "base_milvus_image": args.base_milvus_image,
+            "rollback_milvus_image": args.rollback_milvus_image,
             "target_milvus_image": args.target_milvus_image,
             "base_version": args.base_version,
             "target_version": args.target_version,
@@ -170,6 +171,7 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- rows per collection: `{params['rows_per_collection']}`",
         f"- base image: `{target['base_milvus_image']}`",
         f"- target image: `{target['target_milvus_image']}`",
+        f"- rollback image: `{target['rollback_milvus_image']}`",
         "",
         "## Config Matrix",
         *config_lines,
@@ -204,6 +206,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--milvus-namespace", required=True)
     parser.add_argument("--milvus-host", required=True)
     parser.add_argument("--base-milvus-image", required=True)
+    parser.add_argument("--rollback-milvus-image", required=True)
     parser.add_argument("--target-milvus-image", required=True)
     parser.add_argument("--base-version", required=True)
     parser.add_argument("--target-version", required=True)

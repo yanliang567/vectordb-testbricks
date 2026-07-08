@@ -49,6 +49,7 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["client-image"] == "harbor.milvus.io/qa/fouram:2.1"
     assert parameter_values["repo-revision"] == "main"
     assert parameter_values["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
+    assert parameter_values["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
     assert parameter_values["target-milvus-image"].startswith("harbor.milvus.io/milvusdb/milvus:2.6-")
     assert parameter_values["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
     assert parameter_values["forward-schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
@@ -145,6 +146,16 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert tasks["create-forward-schema"]["template"] == "optional-run-brick"
     assert tasks["validate-forward-after-upgrade"]["template"] == "optional-run-brick"
     assert tasks["patch-rollback"]["dependencies"] == ["validate-forward-after-upgrade", "pressure-daemon"]
+    patch_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["patch-rollback"]["arguments"]["parameters"]
+    }
+    assert patch_rollback_args["image"] == "{{workflow.parameters.rollback-milvus-image}}"
+    wait_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["wait-rollback-ready"]["arguments"]["parameters"]
+    }
+    assert wait_rollback_args["expected-image"] == "{{workflow.parameters.rollback-milvus-image}}"
     assert tasks["deploy-base"]["dependencies"] == ["resolve-inputs"]
     assert tasks["validate-forward-after-rollback"]["dependencies"] == ["validate-after-rollback", "pressure-daemon"]
     assert tasks["stop-pressure"]["dependencies"] == ["validate-forward-after-rollback", "pressure-daemon"]
@@ -210,6 +221,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "orchestrator_report.json" in final_command
     assert "--soft-fail" in final_command
     assert "--base-json-shredding-enabled" in final_command
+    assert "--rollback-milvus-image" in final_command
     assert "--target-json-shredding-enabled" in final_command
     assert "--target-loon-ffi-enabled" in final_command
     assert "--forward-workload-enabled" in final_command
@@ -267,6 +279,9 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
 
     assert parameter_values["client-image"] == "harbor.milvus.io/qa/fouram:2.1"
     assert parameter_values["base-milvus-image"] == (
+        "harbor.milvus.io/milvusdb/milvus:3.0-20260701-d19d8484-47f6c14"
+    )
+    assert parameter_values["rollback-milvus-image"] == (
         "harbor.milvus.io/milvusdb/milvus:3.0-20260701-d19d8484-47f6c14"
     )
     assert parameter_values["target-milvus-image"].startswith("harbor.milvus.io/milvusdb/milvus:master-")

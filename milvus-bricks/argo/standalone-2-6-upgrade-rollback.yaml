@@ -23,6 +23,8 @@ spec:
         value: pymilvus==3.0.0 pyyaml numpy
       - name: base-milvus-image
         value: harbor.milvus.io/milvusdb/milvus:v2.6.18
+      - name: rollback-milvus-image
+        value: harbor.milvus.io/milvusdb/milvus:v2.6.18
       - name: base-version
         value: "2.6.18"
       - name: target-milvus-image
@@ -327,7 +329,7 @@ spec:
             arguments:
               parameters:
                 - name: image
-                  value: "{{workflow.parameters.base-milvus-image}}"
+                  value: "{{workflow.parameters.rollback-milvus-image}}"
                 - name: version
                   value: "{{workflow.parameters.base-version}}"
                 - name: image-update-mode
@@ -343,7 +345,7 @@ spec:
             arguments:
               parameters:
                 - name: expected-image
-                  value: "{{workflow.parameters.base-milvus-image}}"
+                  value: "{{workflow.parameters.rollback-milvus-image}}"
 
           - name: snapshot-after-rollback-config
             dependencies: [wait-rollback-ready, pressure-daemon]
@@ -454,6 +456,7 @@ spec:
               "repo_url": "{{workflow.parameters.repo-url}}",
               "repo_revision": "{{workflow.parameters.repo-revision}}",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
               "base_version": "{{workflow.parameters.base-version}}",
               "target_version": "{{workflow.parameters.target-version}}",
@@ -488,6 +491,7 @@ spec:
               "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
               "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
               "base_json_shredding_enabled": "{{workflow.parameters.base-json-shredding-enabled}}",
               "target_json_shredding_enabled": "{{workflow.parameters.target-json-shredding-enabled}}",
@@ -1203,6 +1207,7 @@ spec:
               "repo_url": "{{workflow.parameters.repo-url}}",
               "repo_revision": "{{workflow.parameters.repo-revision}}",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
               "env_snapshot_fallback": true
             }
@@ -1217,6 +1222,7 @@ spec:
               "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
               "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
               "flow_summary_fallback": true
             }
@@ -1237,6 +1243,7 @@ spec:
               --milvus-namespace "{{workflow.parameters.milvus-namespace}}" \
               --milvus-host "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc" \
               --base-milvus-image "{{workflow.parameters.base-milvus-image}}" \
+              --rollback-milvus-image "{{workflow.parameters.rollback-milvus-image}}" \
               --target-milvus-image "{{workflow.parameters.target-milvus-image}}" \
               --base-version "{{workflow.parameters.base-version}}" \
               --target-version "{{workflow.parameters.target-version}}" \
@@ -1380,6 +1387,7 @@ spec:
               "repo_url": "{{workflow.parameters.repo-url}}",
               "repo_revision": "{{workflow.parameters.repo-revision}}",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
               "base_json_shredding_enabled": "{{workflow.parameters.base-json-shredding-enabled}}",
               "target_json_shredding_enabled": "{{workflow.parameters.target-json-shredding-enabled}}",
@@ -1408,6 +1416,7 @@ spec:
                     "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
                     "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
                     "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+                    "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
                     "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
                 }
             payload.update(
@@ -1429,6 +1438,7 @@ spec:
               "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
               "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
+              "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
               "status": "{{workflow.status}}",
               "schema_matrix": "{{workflow.parameters.schema-matrix}}",
