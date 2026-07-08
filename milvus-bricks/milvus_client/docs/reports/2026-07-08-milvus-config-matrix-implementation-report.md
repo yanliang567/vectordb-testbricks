@@ -30,7 +30,7 @@ workflows in `milvus-bricks/milvus_client`.
 | --- | --- | --- |
 | `v2.6.18 + jsonShredding -> 2.6-latest + jsonShredding -> rollback v2.6.18` | Implemented and tested | Round 1c passed data validation before upgrade, after upgrade, and after rollback. |
 | `v2.6.18 + jsonShredding -> master + jsonShredding -> rollback latest 2.6` | Implemented and tested | Rerun with rollback image `2.6-20260707-e9ee9a47` passed readiness and data validation. |
-| `v2.6.18 jsonShredding disabled -> master LoonFFI enabled -> post-upgrade jsonShredding enabled` | Implemented as unsupported negative rollback scenario | Upgrade and forward workload passed; rollback to latest 2.6 became ready, but 2.6 baseline validation failed after rollback. This path is not a supported 2.6 rollback gate because 2.6 does not support LoonFFI. |
+| `v2.6.18 jsonShredding disabled -> master LoonFFI + vortex -> post-upgrade jsonShredding enabled` | Implemented for upgrade/forward validation; rollback documented as unsupported negative coverage | Upgrade, post-upgrade config toggle, and forward workload passed. The 2.6 rollback leg is intentionally not a supported gate because 2.6 does not support LoonFFI data. |
 | `3.0 baseline -> master -> rollback 3.0 baseline` | Implemented and tested | Round 3 passed data validation before upgrade, after upgrade, and after rollback. |
 | `3.0 baseline + jsonShredding -> master + jsonShredding + LoonFFI -> rollback 3.0 baseline` | Implemented and tested | Data validation passed before upgrade, after upgrade, after rollback, and rollback-forward validation. |
 
