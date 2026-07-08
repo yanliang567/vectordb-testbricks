@@ -162,7 +162,10 @@ Milvus process restarts. The daemon loops default to
 `pressure-fail-on-error=true`, so pressure failures fail the workflow after the
 final report is generated. Override this only for exploratory standalone runs
 where restart-window request failures should be recorded as warnings instead of
-used as a regression gate.
+used as a regression gate. The final gate defaults to
+`gate-allow-warning=false`; if an exploratory standalone run intentionally sets
+`pressure-fail-on-error=false`, also set `gate-allow-warning=true` to let Argo
+finish as succeeded while keeping the final report status as `warning`.
 
 The pressure daemon does not mount the workflow state PVC while foreground
 `run-brick` steps are running. It stores pressure attempts/results and the stop
@@ -181,7 +184,8 @@ metadata, config matrix parameters, and snapshot paths into one comparable
 artifact. Strict pressure gating runs after final report generation, so
 `pressure-fail-on-error` does not prevent report artifacts from being produced.
 The final gate accepts only `passed`; pressure warnings do not pass the
-regression workflow by default.
+regression workflow by default unless `gate-allow-warning=true` is explicitly
+set.
 `keep-milvus=false` is the default cleanup policy; set `keep-milvus=true` only
 when preserving the generated Milvus CR for debugging.
 

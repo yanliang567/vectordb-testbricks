@@ -75,6 +75,8 @@ spec:
         value: "1"
       - name: pressure-fail-on-error
         value: "true"
+      - name: gate-allow-warning
+        value: "false"
       - name: observe-after-upgrade-sec
         value: "60"
       - name: observe-after-rollback-sec
@@ -474,6 +476,7 @@ spec:
               "batch_size": "{{workflow.parameters.batch-size}}",
               "pressure_modules": "{{workflow.parameters.pressure-modules}}",
               "pressure_fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}",
+              "gate_allow_warning": "{{workflow.parameters.gate-allow-warning}}",
               "keep_milvus": "{{workflow.parameters.keep-milvus}}"
             }
             EOF
@@ -497,6 +500,7 @@ spec:
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
               "rows_per_collection": "{{workflow.parameters.rows-per-collection}}",
               "pressure_fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}",
+              "gate_allow_warning": "{{workflow.parameters.gate-allow-warning}}",
               "cleanup_attempted": false,
               "cleanup_status": "pending",
               "cleanup_error": "",
@@ -1283,8 +1287,9 @@ spec:
                 raise SystemExit("missing orchestrator_report.json")
             report = json.loads(report_path.read_text())
             status = report.get("status")
-            print(json.dumps({"status": status}, indent=2, sort_keys=True))
-            if status != "passed":
+            allow_warning = "{{workflow.parameters.gate-allow-warning}}" == "true"
+            print(json.dumps({"status": status, "allow_warning": allow_warning}, indent=2, sort_keys=True))
+            if status != "passed" and not (allow_warning and status == "warning"):
                 raise SystemExit(1)
             PY
         volumeMounts:

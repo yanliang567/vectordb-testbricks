@@ -79,3 +79,7 @@ workflows in `milvus-bricks/milvus_client`.
   behavior in Argo and keeps report artifacts explicit.
 - Pressure daemon remains PVC-free and communicates through workflow-owned
   ConfigMaps, preserving the previous RWO fix.
+- Added explicit `gate-allow-warning=false` workflow parameter. The default
+  remains strict. Standalone restart-window exploratory runs can set
+  `pressure-fail-on-error=false` and `gate-allow-warning=true` so Argo succeeds
+  while the report still records pressure status as `warning`.

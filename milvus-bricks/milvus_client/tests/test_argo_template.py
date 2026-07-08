@@ -156,6 +156,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
     pressure_modules = parameter_values["pressure-modules"]
     assert parameter_values["pressure-fail-on-error"] == "true"
+    assert parameter_values["gate-allow-warning"] == "false"
     assert "search_pressure" in pressure_modules
     assert "query_pressure" in pressure_modules
     assert "query_iterator_scan" in pressure_modules
@@ -216,7 +217,9 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     gate = templates["gate-final-status"]
     gate_command = gate["container"]["args"][0]
     assert "orchestrator_report.json" in gate_command
+    assert "allow_warning" in gate_command
     assert 'status != "passed"' in gate_command
+    assert 'allow_warning and status == "warning"' in gate_command
 
 
 def test_standalone_2_6_upgrade_rollback_template_creates_4c16g_standalone():
