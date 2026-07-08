@@ -183,6 +183,7 @@ spec:
                 - name: args
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
                     --rows-per-collection {{workflow.parameters.rows-per-collection}}
                     --batch-size {{workflow.parameters.batch-size}}
 
@@ -200,6 +201,7 @@ spec:
                 - name: args
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
 
           - name: pressure-daemon
             dependencies: [validate-before-upgrade]
@@ -285,6 +287,7 @@ spec:
                 - name: args
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
 
           - name: schema-evolution-existing
             dependencies: [validate-after-upgrade, pressure-daemon]
@@ -368,6 +371,7 @@ spec:
                 - name: args
                   value: >-
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
                     --rows-per-collection {{workflow.parameters.rows-per-collection}}
                     --batch-size {{workflow.parameters.batch-size}}
 
@@ -387,6 +391,7 @@ spec:
                 - name: args
                   value: >-
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
 
           - name: schema-evolution-forward
             dependencies: [validate-forward-after-upgrade, pressure-daemon]
@@ -494,10 +499,11 @@ spec:
                 - name: args
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
 
           - name: validate-forward-after-rollback
             dependencies: [validate-after-rollback, pressure-daemon]
-            when: "{{workflow.parameters.rollback-enabled}} == true"
+            when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
             template: optional-run-brick
             arguments:
               parameters:
@@ -512,6 +518,7 @@ spec:
                 - name: args
                   value: >-
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
 
           - name: stop-pressure
             dependencies: [validate-forward-after-rollback, pressure-daemon]

@@ -252,6 +252,8 @@ def test_generate_workflow_report_fails_when_required_forward_rollback_validatio
     rc = generate_workflow_report.main(
         [
             *_base_args(tmp_path, pressure_fail_on_error="true"),
+            "--forward-workload-enabled",
+            "true",
             "--rollback-forward-validation-enabled",
             "true",
         ]
@@ -261,6 +263,28 @@ def test_generate_workflow_report_fails_when_required_forward_rollback_validatio
     assert rc == 1
     assert report["status"] == "failed"
     assert report["validation"]["results"]["validate_forward_after_rollback"]["status"] == "missing"
+
+
+def test_generate_workflow_report_does_not_require_forward_rollback_without_forward_workload(tmp_path):
+    _write_successful_validation(tmp_path)
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        [
+            *_base_args(tmp_path, pressure_fail_on_error="true"),
+            "--rollback-forward-validation-enabled",
+            "true",
+        ]
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 0
+    assert report["status"] == "passed"
+    assert "validate_forward_after_rollback" not in report["validation"]["results"]
 
 
 def test_generate_workflow_report_allows_strict_upgrade_only_gate_without_rollback_validation(tmp_path):
@@ -288,6 +312,32 @@ def test_generate_workflow_report_allows_strict_upgrade_only_gate_without_rollba
     assert report["parameters"]["config_matrix"]["rollback_enabled"] is False
     assert report["parameters"]["config_matrix"]["forward_workload_enabled"] is True
     assert "validate_after_rollback" not in report["validation"]["results"]
+
+
+def test_generate_workflow_report_ignores_forward_rollback_when_rollback_disabled(tmp_path):
+    _write_successful_upgrade_only_validation(tmp_path)
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        [
+            *_base_args(tmp_path, pressure_fail_on_error="true"),
+            "--rollback-enabled",
+            "false",
+            "--forward-workload-enabled",
+            "true",
+            "--rollback-forward-validation-enabled",
+            "true",
+        ]
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 0
+    assert report["status"] == "passed"
+    assert "validate_forward_after_rollback" not in report["validation"]["results"]
 
 
 def test_generate_workflow_report_can_soft_fail_after_writing_failed_report(tmp_path):

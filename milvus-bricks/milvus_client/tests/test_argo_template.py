@@ -185,10 +185,44 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "observe-after-rollback",
         "precheck-after-rollback",
         "validate-after-rollback",
-        "validate-forward-after-rollback",
     ]
     for task_name in rollback_gated_tasks:
         assert tasks[task_name]["when"] == "{{workflow.parameters.rollback-enabled}} == true"
+    assert tasks["validate-forward-after-rollback"]["when"] == (
+        "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
+    )
+    seed_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["seed-compat-data"]["arguments"]["parameters"]
+    }
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json" in seed_args["args"]
+    validate_before_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-before-upgrade"]["arguments"]["parameters"]
+    }
+    validate_after_upgrade_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-after-upgrade"]["arguments"]["parameters"]
+    }
+    validate_after_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-after-rollback"]["arguments"]["parameters"]
+    }
+    for validate_args in [validate_before_args, validate_after_upgrade_args, validate_after_rollback_args]:
+        assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json" in validate_args["args"]
+    seed_forward_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["seed-forward-data"]["arguments"]["parameters"]
+    }
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json" in seed_forward_args["args"]
+    validate_forward_after_upgrade_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-forward-after-upgrade"]["arguments"]["parameters"]
+    }
+    assert (
+        "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json"
+        in validate_forward_after_upgrade_args["args"]
+    )
     schema_evolution_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["schema-evolution-existing"]["arguments"]["parameters"]
@@ -207,6 +241,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         for parameter in tasks["validate-forward-after-rollback"]["arguments"]["parameters"]
     }
     assert forward_validate_args["collection-prefix"] == "{{workflow.parameters.forward-collection-prefix}}"
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json" in forward_validate_args["args"]
     patch_rollback_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["patch-rollback"]["arguments"]["parameters"]
@@ -395,6 +430,19 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     tasks = {task["name"]: task for task in main["dag"]["tasks"]}
     assert tasks["schema-evolution-existing"]["template"] == "optional-run-brick"
     assert tasks["schema-evolution-existing"]["dependencies"] == ["validate-after-upgrade", "pressure-daemon"]
+    assert tasks["validate-forward-after-rollback"]["when"] == (
+        "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
+    )
+    seed_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["seed-compat-data"]["arguments"]["parameters"]
+    }
+    forward_seed_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["seed-forward-data"]["arguments"]["parameters"]
+    }
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json" in seed_args["args"]
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json" in forward_seed_args["args"]
 
 
 def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():

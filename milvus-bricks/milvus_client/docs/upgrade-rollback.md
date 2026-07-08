@@ -158,6 +158,11 @@ When enabling target-only forward workload, set `forward-collection-prefix` to a
 different value from `collection-prefix`. Forward create/seed/validate/schema
 evolution steps use the forward prefix, while baseline compatibility and
 pressure steps continue using `collection-prefix`.
+Baseline seed/validate steps use
+`/tmp/milvus-bricks/checkpoints/baseline/seed_data.json`; forward-only
+seed/validate steps use `/tmp/milvus-bricks/checkpoints/forward/seed_data.json`.
+This keeps forward-only checkpoints from overwriting the baseline checkpoint
+used by rollback validation.
 
 For `v2.6.18 -> master -> v2.6.18` runs, keep the 2.6 template and pass the
 master image as `target-milvus-image`. The schema matrix remains
@@ -171,6 +176,11 @@ validation gates for the base and upgraded target phases, but it does not patch
 back to a 2.6 image or run rollback validations. Keep
 `rollback-forward-validation-enabled=false` on these runs because there is no
 rollback phase.
+
+`validate_forward_after_rollback` runs only when both `rollback-enabled=true`
+and `forward-workload-enabled=true`; it is then controlled by
+`rollback-forward-validation-enabled`. The final report requires this result
+only for that same rollback-plus-forward combination.
 
 The 4am template runs these strict foreground bricks:
 

@@ -27,7 +27,11 @@ def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
         required.append("validate_forward_after_upgrade")
     if config_matrix["rollback_enabled"]:
         required.append("validate_after_rollback")
-    if config_matrix["rollback_forward_validation_enabled"]:
+    if (
+        config_matrix["rollback_enabled"]
+        and config_matrix["forward_workload_enabled"]
+        and config_matrix["rollback_forward_validation_enabled"]
+    ):
         required.append("validate_forward_after_rollback")
     return required
 
