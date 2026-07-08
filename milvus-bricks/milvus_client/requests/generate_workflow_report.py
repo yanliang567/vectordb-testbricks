@@ -42,9 +42,22 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         for name, payload in results.items()
         if payload.get("status") not in {"passed", "skipped"}
     }
-    validation_passed = bool(validation) and all(payload.get("status") == "passed" for payload in validation.values())
+    validation_passed = bool(validation) and all(
+        payload.get("status") in {"passed", "skipped"} for payload in validation.values()
+    )
     pressure_failed = int(pressure.get("failed", 0) or 0)
     pressure_fail_on_error = parse_bool(args.pressure_fail_on_error)
+    config_matrix = {
+        "base_json_shredding_enabled": parse_bool(args.base_json_shredding_enabled),
+        "target_json_shredding_enabled": parse_bool(args.target_json_shredding_enabled),
+        "rollback_json_shredding_enabled": parse_bool(args.rollback_json_shredding_enabled),
+        "target_loon_ffi_enabled": parse_bool(args.target_loon_ffi_enabled),
+        "post_upgrade_config_toggle_enabled": parse_bool(args.post_upgrade_config_toggle_enabled),
+        "post_upgrade_json_shredding_enabled": parse_bool(args.post_upgrade_json_shredding_enabled),
+        "forward_workload_enabled": parse_bool(args.forward_workload_enabled),
+        "forward_schema_matrix": args.forward_schema_matrix,
+        "rollback_forward_validation_enabled": parse_bool(args.rollback_forward_validation_enabled),
+    }
 
     status = "passed"
     if failed_results or not validation_passed or (pressure_fail_on_error and pressure_failed):
@@ -85,6 +98,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "pressure_fail_on_error": pressure_fail_on_error,
             "observe_after_upgrade_sec": args.observe_after_upgrade_sec,
             "observe_after_rollback_sec": args.observe_after_rollback_sec,
+            "config_matrix": config_matrix,
         },
         "validation": {
             "passed": validation_passed,
@@ -118,6 +132,7 @@ def build_markdown(report: dict[str, Any]) -> str:
     workflow = report["workflow"]
     validation = report["validation"]["results"]
     pressure = report.get("pressure", {})
+    config_matrix = params.get("config_matrix", {})
 
     validation_lines = [
         f"- `{name}`: {payload.get('status')}"
@@ -134,9 +149,20 @@ def build_markdown(report: dict[str, Any]) -> str:
         pressure_lines.append(
             f"- warning `{failed.get('file')}` `{failed.get('brick')}`: {failed.get('status')}"
         )
+    config_lines = [
+        f"- base jsonShredding: `{config_matrix.get('base_json_shredding_enabled')}`",
+        f"- target jsonShredding: `{config_matrix.get('target_json_shredding_enabled')}`",
+        f"- rollback jsonShredding: `{config_matrix.get('rollback_json_shredding_enabled')}`",
+        f"- target LoonFFI: `{config_matrix.get('target_loon_ffi_enabled')}`",
+        f"- post-upgrade config toggle: `{config_matrix.get('post_upgrade_config_toggle_enabled')}`",
+        f"- post-upgrade jsonShredding: `{config_matrix.get('post_upgrade_json_shredding_enabled')}`",
+        f"- forward workload: `{config_matrix.get('forward_workload_enabled')}`",
+        f"- forward schema matrix: `{config_matrix.get('forward_schema_matrix')}`",
+        f"- rollback forward validation: `{config_matrix.get('rollback_forward_validation_enabled')}`",
+    ]
 
     lines = [
-        "# Milvus Standalone 2.6 Upgrade/Rollback Report",
+        "# Milvus Standalone Upgrade/Rollback Report",
         "",
         f"- workflow: `{workflow['name']}`",
         f"- status: `{report['status']}`",
@@ -144,6 +170,9 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- rows per collection: `{params['rows_per_collection']}`",
         f"- base image: `{target['base_milvus_image']}`",
         f"- target image: `{target['target_milvus_image']}`",
+        "",
+        "## Config Matrix",
+        *config_lines,
         "",
         "## Validation",
         *validation_lines,
@@ -188,6 +217,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pressure-fail-on-error", required=True)
     parser.add_argument("--observe-after-upgrade-sec", type=int, required=True)
     parser.add_argument("--observe-after-rollback-sec", type=int, required=True)
+    parser.add_argument("--base-json-shredding-enabled", default="false")
+    parser.add_argument("--target-json-shredding-enabled", default="false")
+    parser.add_argument("--rollback-json-shredding-enabled", default="false")
+    parser.add_argument("--target-loon-ffi-enabled", default="false")
+    parser.add_argument("--post-upgrade-config-toggle-enabled", default="false")
+    parser.add_argument("--post-upgrade-json-shredding-enabled", default="false")
+    parser.add_argument("--forward-workload-enabled", default="false")
+    parser.add_argument("--forward-schema-matrix", default="")
+    parser.add_argument("--rollback-forward-validation-enabled", default="false")
     parser.add_argument("--soft-fail", action="store_true", help="Write failed report status but exit 0")
     return parser
 

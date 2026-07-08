@@ -65,12 +65,31 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "60",
         "--observe-after-rollback-sec",
         "60",
+        "--base-json-shredding-enabled",
+        "true",
+        "--target-json-shredding-enabled",
+        "true",
+        "--rollback-json-shredding-enabled",
+        "true",
+        "--target-loon-ffi-enabled",
+        "false",
+        "--post-upgrade-config-toggle-enabled",
+        "false",
+        "--post-upgrade-json-shredding-enabled",
+        "true",
+        "--forward-workload-enabled",
+        "false",
+        "--forward-schema-matrix",
+        "milvus_client/manifests/schema_matrix_3_0.yaml",
+        "--rollback-forward-validation-enabled",
+        "false",
     ]
 
 
 def _write_successful_validation(tmp_path: Path) -> None:
     _write_json(tmp_path / "results" / "validate_before_upgrade.json", {"status": "passed"})
     _write_json(tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"})
+    _write_json(tmp_path / "results" / "validate_forward_after_upgrade.json", {"status": "skipped"})
     _write_json(tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"})
 
 
@@ -100,7 +119,20 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert report["validation"]["passed"] is True
     assert report["pressure"]["failed"] == 1
     assert report["parameters"]["pressure_fail_on_error"] is False
+    assert report["parameters"]["config_matrix"] == {
+        "base_json_shredding_enabled": True,
+        "target_json_shredding_enabled": True,
+        "rollback_json_shredding_enabled": True,
+        "target_loon_ffi_enabled": False,
+        "post_upgrade_config_toggle_enabled": False,
+        "post_upgrade_json_shredding_enabled": True,
+        "forward_workload_enabled": False,
+        "forward_schema_matrix": "milvus_client/manifests/schema_matrix_3_0.yaml",
+        "rollback_forward_validation_enabled": False,
+    }
     assert report["k8s_snapshot"]["pods.txt"] == str(tmp_path / "k8s" / "pods.txt")
+    assert "## Config Matrix" in markdown
+    assert "- base jsonShredding: `True`" in markdown
     assert "## Validation" in markdown
     assert "## Pressure" in markdown
     assert "warning `search_pressure_2.json` `search_pressure`: failed" in markdown

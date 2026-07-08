@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
-  name: milvus-standalone-2-6-upgrade-rollback
+  name: milvus-standalone-3-0-upgrade-rollback
   namespace: qa
 spec:
   serviceAccountName: milvus-upgrade-rollback-runner
@@ -22,13 +22,13 @@ spec:
       - name: python-deps
         value: pymilvus==3.0.0 pyyaml numpy
       - name: base-milvus-image
-        value: harbor.milvus.io/milvusdb/milvus:v2.6.18
+        value: harbor.milvus.io/milvusdb/milvus:3.0-20260701-d19d8484-47f6c14
       - name: base-version
-        value: "2.6.18"
+        value: "3.0.0"
       - name: target-milvus-image
-        value: harbor.milvus.io/milvusdb/milvus:2.6-20260707-e9ee9a47
+        value: harbor.milvus.io/milvusdb/milvus:master-20260707-5617a46a
       - name: target-version
-        value: "2.6.0"
+        value: "3.0.0"
       - name: base-json-shredding-enabled
         value: "false"
       - name: target-json-shredding-enabled
@@ -46,7 +46,7 @@ spec:
       - name: forward-schema-matrix
         value: milvus_client/manifests/schema_matrix_3_0.yaml
       - name: rollback-forward-validation-enabled
-        value: "false"
+        value: "true"
       - name: standalone-cpu
         value: "4"
       - name: standalone-memory
@@ -56,9 +56,9 @@ spec:
       - name: storage-pvc-size
         value: 20Gi
       - name: collection-prefix
-        value: qa_upgrade_2618
+        value: qa_upgrade_30
       - name: schema-matrix
-        value: milvus_client/manifests/schema_matrix_2_6.yaml
+        value: milvus_client/manifests/schema_matrix_3_0.yaml
       - name: rows-per-collection
         value: "1000"
       - name: batch-size
@@ -526,7 +526,7 @@ spec:
               namespace: {{workflow.parameters.milvus-namespace}}
               labels:
                 app.kubernetes.io/managed-by: argo-workflow
-                app.kubernetes.io/name: milvus-standalone-2-6-upgrade-rollback
+                app.kubernetes.io/name: milvus-standalone-3-0-upgrade-rollback
                 zilliz.com/workflow-run-id: "{{workflow.uid}}"
               annotations:
                 zilliz.com/workflow-name: "{{workflow.name}}"
@@ -893,7 +893,7 @@ spec:
                   --dry-run=client -o yaml > /tmp/pressure-attempt.yaml
                 kubectl label --local -f /tmp/pressure-attempt.yaml \
                   app.kubernetes.io/managed-by=argo-workflow \
-                  app.kubernetes.io/name=milvus-standalone-2-6-upgrade-rollback \
+                  app.kubernetes.io/name=milvus-standalone-3-0-upgrade-rollback \
                   zilliz.com/workflow-run-id="{{workflow.uid}}" \
                   zilliz.com/pressure-result=true \
                   -o yaml | kubectl apply -f -
@@ -945,7 +945,7 @@ spec:
                   --dry-run=client -o yaml > /tmp/pressure-result.yaml
                 kubectl label --local -f /tmp/pressure-result.yaml \
                   app.kubernetes.io/managed-by=argo-workflow \
-                  app.kubernetes.io/name=milvus-standalone-2-6-upgrade-rollback \
+                  app.kubernetes.io/name=milvus-standalone-3-0-upgrade-rollback \
                   zilliz.com/workflow-run-id="{{workflow.uid}}" \
                   zilliz.com/pressure-result=true \
                   -o yaml | kubectl apply -f -
@@ -972,7 +972,7 @@ spec:
               --dry-run=client -o yaml > /tmp/pressure-stop.yaml
             kubectl label --local -f /tmp/pressure-stop.yaml \
               app.kubernetes.io/managed-by=argo-workflow \
-              app.kubernetes.io/name=milvus-standalone-2-6-upgrade-rollback \
+              app.kubernetes.io/name=milvus-standalone-3-0-upgrade-rollback \
               zilliz.com/workflow-run-id="{{workflow.uid}}" \
               zilliz.com/pressure-stop=true \
               -o yaml | kubectl apply -f -
