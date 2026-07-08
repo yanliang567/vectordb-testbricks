@@ -710,6 +710,8 @@ spec:
             }
             if loon_ffi_enabled:
                 patch["spec"]["config"]["dataNode"] = {"storage": {"format": "vortex"}}
+            else:
+                patch["spec"]["config"]["dataNode"] = {"storage": {"format": None}}
             Path("/tmp/milvus-patch.json").write_text(json.dumps(patch, indent=2, sort_keys=True))
             print(json.dumps(patch, indent=2, sort_keys=True))
             PY
@@ -758,6 +760,8 @@ spec:
             }
             if loon_ffi_enabled:
                 patch["spec"]["config"]["dataNode"] = {"storage": {"format": "vortex"}}
+            else:
+                patch["spec"]["config"]["dataNode"] = {"storage": {"format": None}}
             Path("/tmp/milvus-config-patch.json").write_text(json.dumps(patch, indent=2, sort_keys=True))
             print(json.dumps(patch, indent=2, sort_keys=True))
             PY
