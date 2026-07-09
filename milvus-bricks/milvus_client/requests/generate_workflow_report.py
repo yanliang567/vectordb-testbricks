@@ -36,6 +36,18 @@ def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
     return required
 
 
+def _required_serviceability_names(config_matrix: dict[str, Any]) -> list[str]:
+    if not config_matrix["rollback_enabled"]:
+        return []
+    required = ["wait_rollback_serviceability"]
+    if (
+        config_matrix["forward_workload_enabled"]
+        and config_matrix["rollback_forward_validation_enabled"]
+    ):
+        required.append("wait_forward_rollback_serviceability")
+    return required
+
+
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     results_dir = Path(args.results_dir)
     k8s_dir = Path(args.k8s_dir)
@@ -80,9 +92,28 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
                 }
             ],
         }
+    serviceability = {
+        name: payload
+        for name, payload in results.items()
+        if payload.get("brick") == "wait_data_serviceability" or name.endswith("_serviceability")
+    }
+    missing_serviceability = [
+        name for name in _required_serviceability_names(config_matrix) if name not in serviceability
+    ]
+    for name in missing_serviceability:
+        serviceability[name] = {
+            "status": "missing",
+            "failures": [
+                {
+                    "type": "SERVICEABILITY_RESULT_MISSING",
+                    "message": "required serviceability wait result json is missing",
+                    "serviceability": name,
+                }
+            ],
+        }
     failed_results = {
         name: payload
-        for name, payload in {**results, **validation}.items()
+        for name, payload in {**results, **validation, **serviceability}.items()
         if payload.get("status") not in {"passed", "skipped"}
     }
     validation_passed = bool(validation) and all(
@@ -135,6 +166,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "observe_after_upgrade_sec": args.observe_after_upgrade_sec,
             "observe_before_rollback_sec": args.observe_before_rollback_sec,
             "observe_after_rollback_sec": args.observe_after_rollback_sec,
+            "rollback_serviceability_timeout_sec": args.rollback_serviceability_timeout_sec,
+            "rollback_serviceability_interval_sec": args.rollback_serviceability_interval_sec,
             "config_matrix": config_matrix,
         },
         "validation": {
@@ -146,6 +179,16 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
                     "metrics": payload.get("metrics", {}),
                 }
                 for name, payload in validation.items()
+            },
+        },
+        "serviceability": {
+            "results": {
+                name: {
+                    "status": payload.get("status"),
+                    "failures": payload.get("failures", []),
+                    "metrics": payload.get("metrics", {}),
+                }
+                for name, payload in serviceability.items()
             },
         },
         "pressure": pressure,
@@ -169,6 +212,7 @@ def build_markdown(report: dict[str, Any]) -> str:
     workflow = report["workflow"]
     validation = report["validation"]["results"]
     pressure = report.get("pressure", {})
+    serviceability = report.get("serviceability", {}).get("results", {})
     config_matrix = params.get("config_matrix", {})
 
     validation_lines = [
@@ -186,6 +230,15 @@ def build_markdown(report: dict[str, Any]) -> str:
         pressure_lines.append(
             f"- warning `{failed.get('file')}` `{failed.get('brick')}`: {failed.get('status')}"
         )
+    serviceability_lines = []
+    for name, payload in sorted(serviceability.items()):
+        metrics = payload.get("metrics", {})
+        serviceability_lines.append(
+            f"- `{name}`: {payload.get('status')}, recovered=`{metrics.get('recovered')}`, "
+            f"recovery_duration_sec=`{metrics.get('recovery_duration_sec')}`, attempts=`{metrics.get('attempts')}`"
+        )
+    if not serviceability_lines:
+        serviceability_lines = ["- no serviceability wait results found"]
     config_lines = [
         f"- base jsonShredding: `{config_matrix.get('base_json_shredding_enabled')}`",
         f"- target jsonShredding: `{config_matrix.get('target_json_shredding_enabled')}`",
@@ -199,6 +252,8 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- rollback forward validation: `{config_matrix.get('rollback_forward_validation_enabled')}`",
         f"- schema evolution existing: `{config_matrix.get('schema_evolution_existing_enabled')}`",
         f"- schema evolution forward: `{config_matrix.get('schema_evolution_forward_enabled')}`",
+        f"- rollback serviceability timeout sec: `{params.get('rollback_serviceability_timeout_sec')}`",
+        f"- rollback serviceability interval sec: `{params.get('rollback_serviceability_interval_sec')}`",
     ]
 
     lines = [
@@ -221,6 +276,9 @@ def build_markdown(report: dict[str, Any]) -> str:
         "",
         "## Validation",
         *validation_lines,
+        "",
+        "## Serviceability Recovery",
+        *serviceability_lines,
         "",
         "## Pressure",
         *pressure_lines,
@@ -267,6 +325,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--observe-after-upgrade-sec", type=int, required=True)
     parser.add_argument("--observe-before-rollback-sec", type=int, required=True)
     parser.add_argument("--observe-after-rollback-sec", type=int, required=True)
+    parser.add_argument("--rollback-serviceability-timeout-sec", type=int, required=True)
+    parser.add_argument("--rollback-serviceability-interval-sec", type=int, required=True)
     parser.add_argument("--base-json-shredding-enabled", default="false")
     parser.add_argument("--target-json-shredding-enabled", default="false")
     parser.add_argument("--rollback-json-shredding-enabled", default="false")

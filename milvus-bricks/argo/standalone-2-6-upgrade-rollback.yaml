@@ -101,6 +101,10 @@ spec:
         value: "300"
       - name: observe-after-rollback-sec
         value: "300"
+      - name: rollback-serviceability-timeout-sec
+        value: "900"
+      - name: rollback-serviceability-interval-sec
+        value: "10"
       - name: keep-milvus
         value: "false"
   volumeClaimTemplates:
@@ -496,7 +500,7 @@ spec:
                   value: after-rollback
 
           - name: observe-after-rollback
-            dependencies: [snapshot-after-rollback-config, pressure-daemon]
+            dependencies: [wait-forward-rollback-serviceability, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: observe
             arguments:
@@ -507,7 +511,7 @@ spec:
                   value: after-rollback
 
           - name: precheck-after-rollback
-            dependencies: [observe-after-rollback, pressure-daemon]
+            dependencies: [snapshot-after-rollback-config, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: run-brick
             arguments:
@@ -522,7 +526,7 @@ spec:
                   value: ""
 
           - name: validate-after-rollback
-            dependencies: [precheck-after-rollback, pressure-daemon]
+            dependencies: [observe-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: run-brick
             arguments:
@@ -537,6 +541,25 @@ spec:
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+
+          - name: wait-rollback-serviceability
+            dependencies: [precheck-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
+            template: run-brick
+            arguments:
+              parameters:
+                - name: brick-name
+                  value: wait_rollback_serviceability
+                - name: module
+                  value: milvus_client.requests.wait_data_serviceability
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+                    --interval-sec {{workflow.parameters.rollback-serviceability-interval-sec}}
 
           - name: validate-forward-after-rollback
             dependencies: [validate-after-rollback, pressure-daemon]
@@ -556,6 +579,27 @@ spec:
                   value: >-
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
+
+          - name: wait-forward-rollback-serviceability
+            dependencies: [wait-rollback-serviceability, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.rollback-forward-validation-enabled}}"
+                - name: brick-name
+                  value: wait_forward_rollback_serviceability
+                - name: module
+                  value: milvus_client.requests.wait_data_serviceability
+                - name: collection-prefix
+                  value: "{{workflow.parameters.forward-collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
+                    --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+                    --interval-sec {{workflow.parameters.rollback-serviceability-interval-sec}}
 
           - name: strict-pressure-after-rollback
             dependencies: [validate-forward-after-rollback, pressure-daemon]
@@ -610,6 +654,20 @@ spec:
         args:
           - |
             set -eu
+            python3 - <<'PY'
+            import re
+            import sys
+
+            prefixes = {
+                "collection-prefix": "{{workflow.parameters.collection-prefix}}",
+                "forward-collection-prefix": "{{workflow.parameters.forward-collection-prefix}}",
+            }
+            pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+            invalid = {name: value for name, value in prefixes.items() if not pattern.fullmatch(value)}
+            if invalid:
+                print(f"invalid Milvus collection prefix parameters: {invalid}", file=sys.stderr)
+                raise SystemExit(2)
+            PY
             mkdir -p /tmp/milvus-bricks/reports
             cat > /tmp/milvus-bricks/reports/env_snapshot.json <<EOF
             {
@@ -655,6 +713,8 @@ spec:
               "observe_after_upgrade_sec": "{{workflow.parameters.observe-after-upgrade-sec}}",
               "observe_before_rollback_sec": "{{workflow.parameters.observe-before-rollback-sec}}",
               "observe_after_rollback_sec": "{{workflow.parameters.observe-after-rollback-sec}}",
+              "rollback_serviceability_timeout_sec": "{{workflow.parameters.rollback-serviceability-timeout-sec}}",
+              "rollback_serviceability_interval_sec": "{{workflow.parameters.rollback-serviceability-interval-sec}}",
               "gate_allow_warning": "{{workflow.parameters.gate-allow-warning}}",
               "keep_milvus": "{{workflow.parameters.keep-milvus}}"
             }
@@ -686,6 +746,8 @@ spec:
               "schema_evolution_forward_enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}",
               "rows_per_collection": "{{workflow.parameters.rows-per-collection}}",
               "pressure_fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}",
+              "rollback_serviceability_timeout_sec": "{{workflow.parameters.rollback-serviceability-timeout-sec}}",
+              "rollback_serviceability_interval_sec": "{{workflow.parameters.rollback-serviceability-interval-sec}}",
               "gate_allow_warning": "{{workflow.parameters.gate-allow-warning}}",
               "cleanup_attempted": false,
               "cleanup_status": "pending",
@@ -1516,6 +1578,8 @@ spec:
               --observe-after-upgrade-sec "{{workflow.parameters.observe-after-upgrade-sec}}" \
               --observe-before-rollback-sec "{{workflow.parameters.observe-before-rollback-sec}}" \
               --observe-after-rollback-sec "{{workflow.parameters.observe-after-rollback-sec}}" \
+              --rollback-serviceability-timeout-sec "{{workflow.parameters.rollback-serviceability-timeout-sec}}" \
+              --rollback-serviceability-interval-sec "{{workflow.parameters.rollback-serviceability-interval-sec}}" \
               --base-json-shredding-enabled "{{workflow.parameters.base-json-shredding-enabled}}" \
               --target-json-shredding-enabled "{{workflow.parameters.target-json-shredding-enabled}}" \
               --rollback-json-shredding-enabled "{{workflow.parameters.rollback-json-shredding-enabled}}" \

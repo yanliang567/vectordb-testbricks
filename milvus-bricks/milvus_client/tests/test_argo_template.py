@@ -72,6 +72,8 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["observe-after-upgrade-sec"] == "300"
     assert parameter_values["observe-before-rollback-sec"] == "300"
     assert parameter_values["observe-after-rollback-sec"] == "300"
+    assert parameter_values["rollback-serviceability-timeout-sec"] == "900"
+    assert parameter_values["rollback-serviceability-interval-sec"] == "10"
     assert parameter_values["pressure-fail-on-error"] == "false"
     assert parameter_values["gate-allow-warning"] == "true"
     assert parameter_values["keep-milvus"] == "false"
@@ -118,7 +120,9 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "snapshot-after-rollback-config",
         "observe-after-rollback",
         "precheck-after-rollback",
+        "wait-rollback-serviceability",
         "validate-after-rollback",
+        "wait-forward-rollback-serviceability",
         "validate-forward-after-rollback",
         "strict-pressure-after-rollback",
         "stop-pressure",
@@ -170,7 +174,9 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "snapshot-after-rollback-config",
         "observe-after-rollback",
         "precheck-after-rollback",
+        "wait-rollback-serviceability",
         "validate-after-rollback",
+        "wait-forward-rollback-serviceability",
         "validate-forward-after-rollback",
         "strict-pressure-after-rollback",
         "stop-pressure",
@@ -189,6 +195,21 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert tasks["observe-before-rollback"]["dependencies"] == ["schema-evolution-forward", "pressure-daemon"]
     assert tasks["strict-pressure-before-rollback"]["dependencies"] == ["observe-before-rollback", "pressure-daemon"]
     assert tasks["patch-rollback"]["dependencies"] == ["strict-pressure-before-rollback", "pressure-daemon"]
+    assert tasks["wait-rollback-serviceability"]["dependencies"] == ["precheck-after-rollback", "pressure-daemon"]
+    assert tasks["wait-forward-rollback-serviceability"]["dependencies"] == [
+        "wait-rollback-serviceability",
+        "pressure-daemon",
+    ]
+    assert tasks["observe-after-rollback"]["dependencies"] == [
+        "wait-forward-rollback-serviceability",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-after-rollback"]["dependencies"] == ["observe-after-rollback", "pressure-daemon"]
+    assert tasks["wait-forward-rollback-serviceability"]["template"] == "optional-run-brick"
+    assert tasks["validate-forward-after-rollback"]["dependencies"] == [
+        "validate-after-rollback",
+        "pressure-daemon",
+    ]
     assert tasks["strict-pressure-after-rollback"]["dependencies"] == ["validate-forward-after-rollback", "pressure-daemon"]
     assert tasks["stop-pressure"]["dependencies"] == ["strict-pressure-after-rollback", "pressure-daemon"]
     rollback_gated_tasks = [
@@ -199,12 +220,16 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "snapshot-after-rollback-config",
         "observe-after-rollback",
         "precheck-after-rollback",
+        "wait-rollback-serviceability",
         "validate-after-rollback",
         "strict-pressure-after-rollback",
     ]
     for task_name in rollback_gated_tasks:
         assert tasks[task_name]["when"] == "{{workflow.parameters.rollback-enabled}} == true"
     assert tasks["validate-forward-after-rollback"]["when"] == (
+        "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
+    )
+    assert tasks["wait-forward-rollback-serviceability"]["when"] == (
         "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
     )
     seed_args = {
@@ -268,6 +293,23 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     }
     assert forward_validate_args["collection-prefix"] == "{{workflow.parameters.forward-collection-prefix}}"
     assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json" in forward_validate_args["args"]
+    serviceability_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["wait-rollback-serviceability"]["arguments"]["parameters"]
+    }
+    assert serviceability_args["module"] == "milvus_client.requests.wait_data_serviceability"
+    assert serviceability_args["collection-prefix"] == "{{workflow.parameters.collection-prefix}}"
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json" in serviceability_args["args"]
+    assert "--timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}" in serviceability_args["args"]
+    assert "--interval-sec {{workflow.parameters.rollback-serviceability-interval-sec}}" in serviceability_args["args"]
+    forward_serviceability_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["wait-forward-rollback-serviceability"]["arguments"]["parameters"]
+    }
+    assert forward_serviceability_args["enabled"] == "{{workflow.parameters.rollback-forward-validation-enabled}}"
+    assert forward_serviceability_args["module"] == "milvus_client.requests.wait_data_serviceability"
+    assert forward_serviceability_args["collection-prefix"] == "{{workflow.parameters.forward-collection-prefix}}"
+    assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json" in forward_serviceability_args["args"]
     patch_rollback_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["patch-rollback"]["arguments"]["parameters"]
@@ -280,7 +322,6 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     }
     assert wait_rollback_args["expected-image"] == "{{workflow.parameters.rollback-milvus-image}}"
     assert tasks["deploy-base"]["dependencies"] == ["resolve-inputs"]
-    assert tasks["validate-forward-after-rollback"]["dependencies"] == ["validate-after-rollback", "pressure-daemon"]
     assert tasks["check-pressure-results"]["dependencies"] == ["stop-pressure"]
     assert tasks["collect-artifacts"]["dependencies"] == ["check-pressure-results"]
     assert tasks["generate-final-report"]["dependencies"] == ["collect-artifacts"]
@@ -355,8 +396,13 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "--rollback-enabled" in final_command
     assert "--observe-before-upgrade-sec" in final_command
     assert "--observe-before-rollback-sec" in final_command
+    assert "--rollback-serviceability-timeout-sec" in final_command
+    assert "--rollback-serviceability-interval-sec" in final_command
     assert "--schema-evolution-existing-enabled" in final_command
     assert "--schema-evolution-forward-enabled" in final_command
+    resolve_command = resolve_inputs["container"]["args"][0]
+    assert "invalid Milvus collection prefix parameters" in resolve_command
+    assert "forward-collection-prefix" in resolve_command
 
     gate = templates["gate-final-status"]
     gate_command = gate["container"]["args"][0]
@@ -440,6 +486,8 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     assert parameter_values["observe-after-upgrade-sec"] == "300"
     assert parameter_values["observe-before-rollback-sec"] == "300"
     assert parameter_values["observe-after-rollback-sec"] == "300"
+    assert parameter_values["rollback-serviceability-timeout-sec"] == "900"
+    assert parameter_values["rollback-serviceability-interval-sec"] == "10"
     assert parameter_values["pressure-fail-on-error"] == "false"
     assert parameter_values["gate-allow-warning"] == "true"
 
@@ -465,6 +513,20 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     )
     assert tasks["strict-pressure-before-rollback"]["dependencies"] == ["observe-before-rollback", "pressure-daemon"]
     assert tasks["patch-rollback"]["dependencies"] == ["strict-pressure-before-rollback", "pressure-daemon"]
+    assert tasks["wait-rollback-serviceability"]["dependencies"] == ["precheck-after-rollback", "pressure-daemon"]
+    assert tasks["wait-forward-rollback-serviceability"]["dependencies"] == [
+        "wait-rollback-serviceability",
+        "pressure-daemon",
+    ]
+    assert tasks["observe-after-rollback"]["dependencies"] == [
+        "wait-forward-rollback-serviceability",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-after-rollback"]["dependencies"] == ["observe-after-rollback", "pressure-daemon"]
+    assert tasks["validate-forward-after-rollback"]["dependencies"] == [
+        "validate-after-rollback",
+        "pressure-daemon",
+    ]
     assert tasks["strict-pressure-after-rollback"]["dependencies"] == ["validate-forward-after-rollback", "pressure-daemon"]
     assert tasks["stop-pressure"]["dependencies"] == ["strict-pressure-after-rollback", "pressure-daemon"]
     seed_args = {

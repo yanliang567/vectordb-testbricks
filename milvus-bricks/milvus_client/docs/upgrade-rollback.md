@@ -110,6 +110,8 @@ Both templates expose the same configuration matrix parameters:
 - `observe-after-upgrade-sec`
 - `observe-before-rollback-sec`
 - `observe-after-rollback-sec`
+- `rollback-serviceability-timeout-sec`
+- `rollback-serviceability-interval-sec`
 
 The workflow writes `spec.config.common.storage.jsonShreddingEnabled` during
 base deploy and image patch phases. It writes
@@ -126,6 +128,16 @@ not overlapping. The workflow runs the after-upgrade observation first, then
 upgrade-phase precheck/validation, existing schema evolution, optional
 post-upgrade config patch, optional forward workload, and only then the
 before-rollback observation.
+
+After rollback, the templates run a data serviceability wait gate before strict
+integrity validation. This gate repeatedly runs lightweight checkpoint count and
+PK sample queries while pressure continues. It retries only known transient
+query serviceability errors such as channel-not-available and no-shard-leader
+responses. If the data becomes queryable again, the brick records
+`recovered=true`, `recovery_duration_sec`, `attempts`, and
+`transient_failure_attempts`; if the timeout expires, the workflow fails before
+checksum validation. The default timeout is 900 seconds with a 10 second
+interval.
 
 Submit example:
 
@@ -189,6 +201,7 @@ The 4am template runs these strict foreground bricks:
 - `seed_data`
 - `validate_data_integrity` before upgrade
 - `validate_data_integrity` after upgrade
+- `wait_data_serviceability` after rollback
 - `validate_data_integrity` after rollback
 - `run-pressure-suite` before upgrade
 - `run-pressure-suite` after upgrade
@@ -228,10 +241,10 @@ The workflow emits `env_snapshot.json`, `flow_summary.json`,
 `orchestrator_report.json`, `final_report.md`, foreground brick results,
 checkpoints, pressure results, `pressure-summary.json`, and Kubernetes
 snapshots. The final report merges validation results, pressure summary, target
-metadata, config matrix parameters, and snapshot paths into one comparable
-artifact. Background daemon pressure warnings do not hide failed foreground
-validations or foreground pressure suites; those steps fail before the final
-gate.
+metadata, rollback serviceability recovery metrics, config matrix parameters,
+and snapshot paths into one comparable artifact. Background daemon pressure
+warnings do not hide failed foreground validations or foreground pressure
+suites; those steps fail before the final gate.
 `keep-milvus=false` is the default cleanup policy; set `keep-milvus=true` only
 when preserving the generated Milvus CR for debugging.
 
