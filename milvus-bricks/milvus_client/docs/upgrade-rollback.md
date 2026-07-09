@@ -190,8 +190,13 @@ The 4am template runs these strict foreground bricks:
 - `validate_data_integrity` before upgrade
 - `validate_data_integrity` after upgrade
 - `validate_data_integrity` after rollback
+- `run-pressure-suite` before upgrade
+- `run-pressure-suite` after upgrade
+- `run-pressure-suite` before rollback
+- `run-pressure-suite` after rollback
 
-It also starts a daemon workload loop after the baseline validation:
+It also starts a daemon workload loop after the strict pre-upgrade pressure
+suite:
 
 - `search_pressure`
 - `query_pressure`
@@ -202,14 +207,13 @@ It also starts a daemon workload loop after the baseline validation:
 - `mixed_rw_pressure`
 
 For standalone upgrades, transient request failures can happen while the only
-Milvus process restarts. The daemon loops default to
-`pressure-fail-on-error=true`, so pressure failures fail the workflow after the
-final report is generated. Override this only for exploratory standalone runs
-where restart-window request failures should be recorded as warnings instead of
-used as a regression gate. The final gate defaults to
-`gate-allow-warning=false`; if an exploratory standalone run intentionally sets
-`pressure-fail-on-error=false`, also set `gate-allow-warning=true` to let Argo
-finish as succeeded while keeping the final report status as `warning`.
+Milvus process restarts. The daemon loop defaults to
+`pressure-fail-on-error=false` and `gate-allow-warning=true`, so individual
+daemon failures are preserved in the final report as warnings. Steady-state
+traffic is still strict: the foreground `run-pressure-suite` runs every pressure
+module against the baseline collections before upgrade, after the upgraded
+target has passed its observe window and validation, before rollback, and after
+rollback validation. Any foreground pressure failure fails the workflow.
 
 The pressure daemon does not mount the workflow state PVC while foreground
 `run-brick` steps are running. It stores pressure attempts/results and the stop
@@ -225,11 +229,9 @@ The workflow emits `env_snapshot.json`, `flow_summary.json`,
 checkpoints, pressure results, `pressure-summary.json`, and Kubernetes
 snapshots. The final report merges validation results, pressure summary, target
 metadata, config matrix parameters, and snapshot paths into one comparable
-artifact. Strict pressure gating runs after final report generation, so
-`pressure-fail-on-error` does not prevent report artifacts from being produced.
-The final gate accepts only `passed`; pressure warnings do not pass the
-regression workflow by default unless `gate-allow-warning=true` is explicitly
-set.
+artifact. Background daemon pressure warnings do not hide failed foreground
+validations or foreground pressure suites; those steps fail before the final
+gate.
 `keep-milvus=false` is the default cleanup policy; set `keep-milvus=true` only
 when preserving the generated Milvus CR for debugging.
 

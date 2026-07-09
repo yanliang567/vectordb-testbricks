@@ -90,9 +90,9 @@ spec:
       - name: pressure-interval-sec
         value: "1"
       - name: pressure-fail-on-error
-        value: "true"
-      - name: gate-allow-warning
         value: "false"
+      - name: gate-allow-warning
+        value: "true"
       - name: observe-before-upgrade-sec
         value: "300"
       - name: observe-after-upgrade-sec
@@ -203,8 +203,20 @@ spec:
                     --schema-matrix {{workflow.parameters.schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
 
-          - name: pressure-daemon
+          - name: strict-pressure-before-upgrade
             dependencies: [validate-before-upgrade]
+            template: run-pressure-suite
+            arguments:
+              parameters:
+                - name: phase
+                  value: before-upgrade
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: schema-matrix
+                  value: "{{workflow.parameters.schema-matrix}}"
+
+          - name: pressure-daemon
+            dependencies: [strict-pressure-before-upgrade]
             template: pressure-daemon
 
           - name: observe-before-upgrade
@@ -289,8 +301,20 @@ spec:
                     --schema-matrix {{workflow.parameters.schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
 
-          - name: schema-evolution-existing
+          - name: strict-pressure-after-upgrade
             dependencies: [validate-after-upgrade, pressure-daemon]
+            template: run-pressure-suite
+            arguments:
+              parameters:
+                - name: phase
+                  value: after-upgrade
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: schema-matrix
+                  value: "{{workflow.parameters.schema-matrix}}"
+
+          - name: schema-evolution-existing
+            dependencies: [strict-pressure-after-upgrade, pressure-daemon]
             template: optional-run-brick
             arguments:
               parameters:
@@ -423,8 +447,21 @@ spec:
                 - name: phase
                   value: before-rollback
 
-          - name: patch-rollback
+          - name: strict-pressure-before-rollback
             dependencies: [observe-before-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
+            template: run-pressure-suite
+            arguments:
+              parameters:
+                - name: phase
+                  value: before-rollback
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: schema-matrix
+                  value: "{{workflow.parameters.schema-matrix}}"
+
+          - name: patch-rollback
+            dependencies: [strict-pressure-before-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: patch-milvus-image
             arguments:
@@ -520,8 +557,21 @@ spec:
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
 
-          - name: stop-pressure
+          - name: strict-pressure-after-rollback
             dependencies: [validate-forward-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
+            template: run-pressure-suite
+            arguments:
+              parameters:
+                - name: phase
+                  value: after-rollback
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: schema-matrix
+                  value: "{{workflow.parameters.schema-matrix}}"
+
+          - name: stop-pressure
+            dependencies: [strict-pressure-after-rollback, pressure-daemon]
             template: stop-pressure
 
           - name: check-pressure-results
@@ -1117,6 +1167,57 @@ spec:
                 sleep "{{workflow.parameters.pressure-interval-sec}}"
               done
             done
+
+    - name: run-pressure-suite
+      inputs:
+        parameters:
+          - name: phase
+          - name: collection-prefix
+          - name: schema-matrix
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: "1"
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+        args:
+          - |
+            set -eu
+            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            rm -rf /tmp/repo
+            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            cd /tmp/repo/milvus-bricks
+            mkdir -p /tmp/strict-pressure-results /tmp/strict-pressure-checkpoints
+            phase="{{inputs.parameters.phase}}"
+            failed=0
+            for module in {{workflow.parameters.pressure-modules}}; do
+              result="/tmp/strict-pressure-results/${phase}_${module}.json"
+              echo "strict pressure phase=${phase} module=${module}"
+              set +e
+              PYTHONPATH=. python3 -m "milvus_client.requests.${module}" \
+                --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
+                --collection-prefix "{{inputs.parameters.collection-prefix}}" \
+                --checkpoint-dir /tmp/strict-pressure-checkpoints \
+                --output-json "$result" \
+                --schema-matrix "{{inputs.parameters.schema-matrix}}" \
+                --duration-sec "{{workflow.parameters.pressure-slice-duration-sec}}" \
+                --max-workers "{{workflow.parameters.pressure-max-workers}}" \
+                --batch-size "{{workflow.parameters.pressure-batch-size}}" \
+                --baseline-start-id "0" \
+                --baseline-rows-per-collection "{{workflow.parameters.rows-per-collection}}"
+              rc=$?
+              set -e
+              echo "strict pressure phase=${phase} module=${module} rc=${rc}"
+              python3 -m json.tool "$result" || cat "$result" || true
+              if [ "$rc" != "0" ]; then
+                failed=1
+              fi
+            done
+            exit "$failed"
 
     - name: stop-pressure
       container:
