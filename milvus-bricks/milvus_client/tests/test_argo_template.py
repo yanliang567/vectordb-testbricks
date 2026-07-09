@@ -278,6 +278,9 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     strict_pressure_command = templates["run-pressure-suite"]["container"]["args"][0]
     assert "for module in {{workflow.parameters.pressure-modules}}" in strict_pressure_command
     assert "--checkpoint-dir /tmp/strict-pressure-checkpoints" in strict_pressure_command
+    assert 'if [ -f "$result" ]; then' in strict_pressure_command
+    assert 'python3 -m json.tool "$result" || cat "$result" || true' in strict_pressure_command
+    assert "strict pressure result file not found: $result" in strict_pressure_command
     assert 'exit "$failed"' in strict_pressure_command
     assert schema_evolution_args["collection-prefix"] == "{{workflow.parameters.collection-prefix}}"
     assert "--schema-matrix {{workflow.parameters.schema-matrix}}" in schema_evolution_args["args"]
