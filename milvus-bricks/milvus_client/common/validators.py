@@ -12,6 +12,13 @@ MISSING_PK = "MISSING_PK"
 QUERY_FAILED = "QUERY_FAILED"
 SEARCH_FAILED = "SEARCH_FAILED"
 CHECKSUM_MISMATCH = "CHECKSUM_MISMATCH"
+SERVICEABILITY_TIMEOUT = "SERVICEABILITY_TIMEOUT"
+
+TRANSIENT_SERVICEABILITY_PATTERNS = (
+    "channel not available",
+    "channel distribution is not serviceable",
+    "no available shard leaders",
+)
 
 
 @dataclass
@@ -32,6 +39,18 @@ def format_filter_value(value: Any) -> str:
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
     return str(value)
+
+
+def is_transient_serviceability_error(error: str) -> bool:
+    normalized = error.lower()
+    return any(pattern in normalized for pattern in TRANSIENT_SERVICEABILITY_PATTERNS)
+
+
+def is_transient_serviceability_failure(failure: dict[str, Any]) -> bool:
+    return (
+        failure.get("type") == QUERY_FAILED
+        and is_transient_serviceability_error(str(failure.get("error", "")))
+    )
 
 
 def pk_range_filter(primary_field: str, min_pk: Any, max_pk: Any) -> str:

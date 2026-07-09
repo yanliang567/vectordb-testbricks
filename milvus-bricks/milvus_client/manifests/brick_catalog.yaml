@@ -39,6 +39,16 @@ bricks:
     lifecycle_phases: ["before_upgrade", "after_upgrade", "before_rollback", "after_rollback", "steady_state"]
     destructive: false
 
+  - name: wait_data_serviceability
+    module: milvus_client.requests.wait_data_serviceability
+    category: validation
+    milvus_versions: ["2.6", "3.0"]
+    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array"]
+    required_capabilities: []
+    compat_mode: rollback_safe
+    lifecycle_phases: ["after_rollback", "steady_state"]
+    destructive: false
+
   - name: schema_evolution_workload
     module: milvus_client.requests.schema_evolution_workload
     category: schema

@@ -75,6 +75,10 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "300",
         "--observe-after-rollback-sec",
         "300",
+        "--rollback-serviceability-timeout-sec",
+        "900",
+        "--rollback-serviceability-interval-sec",
+        "10",
         "--base-json-shredding-enabled",
         "true",
         "--target-json-shredding-enabled",
@@ -107,6 +111,14 @@ def _write_successful_validation(tmp_path: Path) -> None:
     _write_json(tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"})
     _write_json(tmp_path / "results" / "validate_forward_after_upgrade.json", {"status": "skipped"})
     _write_json(tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"})
+    _write_json(
+        tmp_path / "results" / "wait_rollback_serviceability.json",
+        {
+            "brick": "wait_data_serviceability",
+            "status": "passed",
+            "metrics": {"recovered": True, "recovery_duration_sec": 37.5, "attempts": 5},
+        },
+    )
 
 
 def _write_successful_upgrade_only_validation(tmp_path: Path) -> None:
@@ -148,6 +160,8 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert report["parameters"]["pressure_fail_on_error"] is False
     assert report["parameters"]["observe_before_upgrade_sec"] == 300
     assert report["parameters"]["observe_before_rollback_sec"] == 300
+    assert report["parameters"]["rollback_serviceability_timeout_sec"] == 900
+    assert report["parameters"]["rollback_serviceability_interval_sec"] == 10
     assert report["parameters"]["forward_collection_prefix"] == "qa_upgrade_forward"
     assert report["target"]["rollback_milvus_image"] == "harbor.milvus.io/milvusdb/milvus:2.6-latest"
     assert report["target"]["rollback_version"] == "2.6.0"
@@ -173,6 +187,8 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert "- rollback enabled: `True`" in markdown
     assert "- base jsonShredding: `True`" in markdown
     assert "## Validation" in markdown
+    assert "## Serviceability Recovery" in markdown
+    assert "`wait_rollback_serviceability`: passed, recovered=`True`, recovery_duration_sec=`37.5`, attempts=`5`" in markdown
     assert "## Pressure" in markdown
     assert "warning `search_pressure_2.json` `search_pressure`: failed" in markdown
 
@@ -203,6 +219,10 @@ def test_generate_workflow_report_fails_pressure_failures_in_strict_mode(tmp_pat
 def test_generate_workflow_report_fails_when_required_rollback_validation_is_missing(tmp_path):
     _write_successful_upgrade_validation(tmp_path)
     _write_json(
+        tmp_path / "results" / "wait_rollback_serviceability.json",
+        {"brick": "wait_data_serviceability", "status": "passed"},
+    )
+    _write_json(
         tmp_path / "pressure-summary.json",
         {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
     )
@@ -218,9 +238,34 @@ def test_generate_workflow_report_fails_when_required_rollback_validation_is_mis
     assert report["failed_results"]["validate_after_rollback"]["failures"][0]["type"] == "VALIDATION_RESULT_MISSING"
 
 
+def test_generate_workflow_report_fails_when_required_serviceability_result_is_missing(tmp_path):
+    _write_successful_upgrade_validation(tmp_path)
+    _write_json(tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"})
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(_base_args(tmp_path, pressure_fail_on_error="true"))
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 1
+    assert report["status"] == "failed"
+    assert report["serviceability"]["results"]["wait_rollback_serviceability"]["status"] == "missing"
+    assert (
+        report["failed_results"]["wait_rollback_serviceability"]["failures"][0]["type"]
+        == "SERVICEABILITY_RESULT_MISSING"
+    )
+
+
 def test_generate_workflow_report_fails_when_required_forward_validation_is_missing(tmp_path):
     _write_successful_upgrade_validation(tmp_path)
     _write_json(tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"})
+    _write_json(
+        tmp_path / "results" / "wait_rollback_serviceability.json",
+        {"brick": "wait_data_serviceability", "status": "passed"},
+    )
     _write_json(
         tmp_path / "pressure-summary.json",
         {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},

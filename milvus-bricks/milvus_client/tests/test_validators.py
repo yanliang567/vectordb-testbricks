@@ -4,7 +4,9 @@ from milvus_client.common.data import stable_checksum
 from milvus_client.common.validators import (
     CHECKSUM_MISMATCH,
     COUNT_DRIFT,
+    QUERY_FAILED,
     ValidationReport,
+    is_transient_serviceability_failure,
     pk_range_filter,
     query_rows_by_pk_range,
     validate_collection_count,
@@ -172,3 +174,13 @@ def test_query_rows_by_pk_range_formats_generated_string_primary_keys():
 
     assert rows == [{"pk": "pk_00000000000000000007"}]
     assert client.query_calls[0]["filter"] == 'pk >= "pk_00000000000000000007" && pk <= "pk_00000000000000000008"'
+
+
+def test_transient_serviceability_failure_classifies_channel_unavailable_errors():
+    assert is_transient_serviceability_failure(
+        {
+            "type": QUERY_FAILED,
+            "error": "no available shard leaders: channel not available",
+        }
+    )
+    assert not is_transient_serviceability_failure({"type": COUNT_DRIFT, "error": "channel not available"})
