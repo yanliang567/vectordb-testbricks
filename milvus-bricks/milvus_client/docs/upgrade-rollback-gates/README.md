@@ -19,14 +19,22 @@
 
 | Scenario ID | Topology | Path | Gate 数据 | 备注 |
 | --- | --- | --- | --- | --- |
-| `standalone-2-6-18-to-3-0-latest-rollback-2-6-18` | standalone | `2.6.18 -> latest 3.0 -> 2.6.18` | 2.6 rollback-safe schema/data | 产品支持路径；3.0 阶段必须禁用 storage v3/vortex。 |
-| `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest` | standalone | `2.6.18 -> latest 3.0 -> latest 2.6` | 2.6 rollback-safe schema/data | 产品支持路径；3.0 阶段必须禁用 storage v3/vortex。 |
+| `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest` | standalone | `2.6.18 -> latest 3.0 -> latest 2.6` | 2.6 rollback-safe schema/data | 正式 gate；latest 2.6 必须包含 #50792。3.0 阶段必须禁用 storage v3/vortex。 |
 | `standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | standalone | `3.0 baseline -> latest 3.0 -> 3.0 baseline` | 3.0 schema/data | 3.0 branch 内回滚 gate。 |
-| `cluster-2-6-18-to-3-0-latest-rollback-2-6-18` | cluster | `2.6.18 -> latest 3.0 -> 2.6.18` | 2.6 rollback-safe schema/data | cluster 模式覆盖；3.0 阶段必须禁用 storage v3/vortex。 |
-| `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest` | cluster | `2.6.18 -> latest 3.0 -> latest 2.6` | 2.6 rollback-safe schema/data | cluster 模式覆盖；3.0 阶段必须禁用 storage v3/vortex。 |
+| `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest` | cluster | `2.6.18 -> latest 3.0 -> latest 2.6` | 2.6 rollback-safe schema/data | cluster 正式 gate；latest 2.6 必须包含 #50792。3.0 阶段必须禁用 storage v3/vortex。 |
 | `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | `3.0 baseline -> latest 3.0 -> 3.0 baseline` | 3.0 schema/data | cluster 模式下的 3.0 branch gate。 |
 
-另外保留一个 negative 场景：
+另外保留以下非正式 gate 场景：
+
+- `standalone-2-6-18-to-3-0-latest-rollback-2-6-18`
+- `cluster-2-6-18-to-3-0-latest-rollback-2-6-18`
+
+它们用于诊断 pre-#50792 的 rollback boundary。`v2.6.18` 有 coordinator
+session version guard，但不包含 #50792 的 `3.0.x -> 2.6.x` rollback 例外逻辑；
+recent 3.0 image 写入 `meta/session/version=3.0.0-beta` 后，回滚到 `v2.6.18`
+会命中 #50694 并在 coordinator session 注册时 panic。因此它们不作为发布 gate。
+
+另外保留一个 unsafe negative 场景：
 
 - `standalone-3-0-loon-vortex-to-2-6-negative`
 
@@ -34,7 +42,7 @@
 
 ## 必须遵守的安全约束
 
-`2.6.18 -> 3.0 latest -> rollback 2.6.18/latest 2.6` 是产品正式支持路径，但前提是升级到 3.0 后不能开启 storage v3 或 vortex。
+`2.6.18 -> 3.0 latest -> rollback latest 2.6` 是产品正式支持路径，但前提是升级到 3.0 后不能开启 storage v3 或 vortex。rollback target 必须使用包含 #50792 的 2.6 构建；不要把 `v2.6.18` 作为正向 gate rollback target。
 
 因此 2.6 rollback gate 必须保持：
 
@@ -83,9 +91,9 @@ milvus-bricks/
 
 - Argo YAML 负责编排流程。
 - `upgrade_rollback_gates.yaml` 负责维护场景、版本路径、schema/profile/workflow 引用。
-- deploy profile 负责维护 Milvus Operator CR topology。
+- deploy profile 负责维护部署 topology：standalone 渲染 Milvus Operator CR，cluster Woodpecker 渲染 Helm chart values。
 - schema matrix 负责维护字段、索引和 workload 数据覆盖。
-- renderer 负责把 manifest/profile 转成 Argo 参数和 Milvus CR。
+- renderer 负责把 manifest/profile 转成 Argo 参数、Milvus CR 或 Helm values。
 
 ## 执行前准备
 
@@ -106,7 +114,7 @@ python3 --version
 确认 namespace：
 
 - Argo workflow namespace：`qa`
-- Milvus CR namespace：`qa-milvus`
+- Milvus namespace：`qa-milvus`
 
 应用 RBAC：
 
@@ -156,7 +164,7 @@ milvus-3-0-latest:
 
 ```bash
 PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
-  --scenario-id standalone-2-6-18-to-3-0-latest-rollback-2-6-18 \
+  --scenario-id standalone-2-6-18-to-3-0-latest-rollback-2-6-latest \
   --format argo-args
 ```
 
@@ -165,7 +173,7 @@ PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
 
 ```bash
 PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
-  --scenario-id standalone-2-6-18-to-3-0-latest-rollback-2-6-18 \
+  --scenario-id standalone-2-6-18-to-3-0-latest-rollback-2-6-latest \
   --format argo-args \
   --allow-placeholder
 ```
@@ -194,19 +202,19 @@ PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
 
 不要把 `--format argo-args` 的输出放进 shell substitution，因为 `pressure-modules` 参数包含空格。推荐先生成并检查参数，再复制执行。
 
-示例：standalone `2.6.18 -> 3.0 latest -> 2.6.18`
+示例：standalone `2.6.18 -> 3.0 latest -> latest 2.6`
 
 ```bash
 argo submit -n qa \
   --from workflowtemplate/milvus-standalone-2-6-upgrade-rollback \
-  -p scenario-id=standalone-2-6-18-to-3-0-latest-rollback-2-6-18 \
+  -p scenario-id=standalone-2-6-18-to-3-0-latest-rollback-2-6-latest \
   -p deploy-profile=milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml \
   -p base-milvus-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
   -p base-version=2.6.18 \
   -p target-milvus-image=harbor.milvus.io/milvusdb/milvus:3.0-YYYYMMDD-<sha> \
   -p target-version=3.0.0 \
-  -p rollback-milvus-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
-  -p rollback-version=2.6.18 \
+  -p rollback-milvus-image=harbor.milvus.io/milvusdb/milvus:2.6-YYYYMMDD-<sha> \
+  -p rollback-version=2.6.0 \
   -p base-loon-ffi-enabled=false \
   -p target-loon-ffi-enabled=false \
   -p rollback-loon-ffi-enabled=false \
@@ -240,7 +248,7 @@ argo submit -n qa \
 
 每个 promoted gate 的主流程：
 
-1. 部署 base Milvus CR。
+1. 部署 base Milvus。standalone 使用 Milvus Operator CR；cluster Woodpecker 使用 Milvus Helm chart。
 2. 等待 Milvus ready。
 3. 创建 schema matrix 中的集合。
 4. 写入 deterministic seed data，并保存 checkpoint。
@@ -253,7 +261,7 @@ argo submit -n qa \
 11. 回滚后等待数据 serviceability 恢复。
 12. 回滚后做数据完整性校验和 foreground pressure。
 13. 收集 K8s snapshot、pressure result、checkpoint、最终报告。
-14. 按 `keep-milvus` 决定是否清理 Milvus CR 和依赖资源。
+14. 按 `keep-milvus` 决定是否清理 Milvus CR/Helm release 和依赖资源。
 
 ## 报告和 artifacts
 
@@ -358,7 +366,7 @@ image_aliases:
 
 - 需要新增 DAG 阶段。
 - 需要新增 runtime 参数。
-- Milvus Operator CR 结构变化，deploy renderer 需要新字段。
+- Milvus Operator CR 或 Helm chart values 结构变化，deploy renderer 需要新字段。
 - 回滚安全边界变化，需要新增静态校验。
 
 ### 新增 deployment topology
@@ -417,4 +425,4 @@ python3 -m pytest \
 
 ### 什么时候设置 `keep-milvus=true`？
 
-只在调试失败现场时设置。默认 `keep-milvus=false`，workflow 会清理自己创建的 Milvus CR、PVC 和依赖资源。
+只在调试失败现场时设置。默认 `keep-milvus=false`，workflow 会清理自己创建的 Milvus CR 或 Helm release、PVC 和依赖资源。

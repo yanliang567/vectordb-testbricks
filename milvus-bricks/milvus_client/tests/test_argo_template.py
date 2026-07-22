@@ -48,12 +48,13 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["milvus-namespace"] == "qa-milvus"
     assert parameter_values["client-image"] == "harbor.milvus.io/qa/fouram:2.1"
     assert parameter_values["repo-revision"] == "main"
-    assert parameter_values["scenario-id"] == "standalone-2-6-upgrade-rollback"
+    assert parameter_values["scenario-id"] == "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest"
     assert parameter_values["deploy-profile"] == "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
     assert parameter_values["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
-    assert parameter_values["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
-    assert parameter_values["rollback-version"] == "2.6.18"
-    assert parameter_values["target-milvus-image"].startswith("harbor.milvus.io/milvusdb/milvus:2.6-")
+    assert parameter_values["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder"
+    assert parameter_values["rollback-version"] == "2.6.0"
+    assert parameter_values["target-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
+    assert parameter_values["target-version"] == "3.0.0"
     assert parameter_values["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
     assert parameter_values["forward-schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
     assert parameter_values["forward-collection-prefix"] == "qa_upgrade_2618_forward"
@@ -574,10 +575,19 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         "gate-final-status",
     } <= set(tasks)
     deploy_command = templates["deploy-milvus"]["container"]["args"][0]
-    assert "milvus_client.requests.render_milvus_cr" in deploy_command
+    assert "milvus_client.requests.render_milvus_helm_values" in deploy_command
+    assert "helm upgrade --install" in deploy_command
     assert '--deploy-profile "{{workflow.parameters.deploy-profile}}"' in deploy_command
     assert "--app-name milvus-cluster-upgrade-rollback" in deploy_command
-    assert "mode: standalone" not in deploy_command
+    wait_command = templates["wait-milvus-ready"]["container"]["args"][0]
+    assert "helm status" in wait_command
+    assert 'get svc "$name"' in wait_command
+    patch_command = templates["patch-milvus-image"]["container"]["args"][0]
+    assert "helm upgrade" in patch_command
+    assert "--reuse-values" in patch_command
+    snapshot_command = templates["snapshot-milvus-config"]["container"]["args"][0]
+    assert "helm get values" in snapshot_command
+    assert "workloads-${phase}.json" in snapshot_command
     final_command = templates["generate-final-report"]["container"]["args"][0]
     assert "--scenario-id" in final_command
     assert "--deploy-profile" in final_command

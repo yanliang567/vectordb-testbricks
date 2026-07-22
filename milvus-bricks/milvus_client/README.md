@@ -170,14 +170,17 @@ WorkflowTemplate for the rollback-safe 2.6 path:
 - create and seed `schema_matrix_2_6.yaml` data only;
 - run baseline integrity validation;
 - keep a pressure daemon loop alive during upgrade and rollback;
-- upgrade to a configured 2.6 target image;
+- upgrade to a configured 3.0 target image with legacy storage format;
 - validate existing data after upgrade;
-- roll back to `v2.6.18`;
+- roll back to a latest 2.6 image that contains #50792;
 - validate existing data after rollback.
 
 It intentionally skips 3.0 schema and workload creation because new 3.0 data is
 not rollback compatible with 2.6. The default cleanup policy is
 `keep-milvus=false`; use `keep-milvus=true` only for debug retention.
+Do not use `v2.6.18` as the positive rollback target for recent 3.0 images:
+it can hit #50694 because `v2.6.18` lacks the #50792 session-version rollback
+exception.
 
 ## Tests
 

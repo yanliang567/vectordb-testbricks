@@ -1,6 +1,39 @@
 name: cluster-woodpecker-1cu
 mode: cluster
+deployer: helm
 description: "1CU Milvus cluster with Woodpecker and in-cluster dependencies for QA upgrade/rollback compatibility tests."
+helm:
+  repo_name: zilliztech
+  repo_url: https://zilliztech.github.io/milvus-helm/
+  chart: zilliztech/milvus
+helm_values:
+  cluster:
+    enabled: true
+  woodpecker:
+    enabled: true
+    image:
+      repository: harbor.milvus.io/milvusdb/woodpecker
+      tag: master-e80f1ea-91-amd64
+      pullPolicy: Always
+    nodeSelector:
+      kubernetes.io/arch: amd64
+  streaming:
+    enabled: true
+    woodpecker:
+      embedded: false
+  indexNode:
+    enabled: false
+  kafka:
+    enabled: false
+  pulsar:
+    enabled: false
+  pulsarv3:
+    enabled: false
+  service:
+    type: ClusterIP
+  metrics:
+    serviceMonitor:
+      enabled: false
 components:
   mixCoord:
     replicas: 1
@@ -55,6 +88,8 @@ dependencies:
       pvcDeletion: true
       values:
         replicaCount: 1
+        metrics:
+          enabled: false
         persistence:
           size: 10Gi
   storage:

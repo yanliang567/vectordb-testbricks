@@ -27,10 +27,8 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
     } <= set(scenarios)
     for scenario_id in [
-        "standalone-2-6-18-to-3-0-latest-rollback-2-6-18",
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
-        "cluster-2-6-18-to-3-0-latest-rollback-2-6-18",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
     ]:
@@ -48,6 +46,15 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         assert scenario["validation_policy"]["pressure_fail_on_error"] is True
         assert scenario["validation_policy"]["gate_allow_warning"] is False
 
+    for scenario_id in [
+        "standalone-2-6-18-to-3-0-latest-rollback-2-6-18",
+        "cluster-2-6-18-to-3-0-latest-rollback-2-6-18",
+    ]:
+        scenario = scenarios[scenario_id]
+        assert scenario["classification"] == "diagnostic"
+        assert scenario["support_status"] == "unsupported_known_issue"
+        assert scenario["rollback"]["image_ref"] == "milvus-2-6-18"
+
 
 def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
     manifest = _manifest()
@@ -57,7 +64,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 3
+    assert len(cluster_scenarios) == 2
     for scenario in cluster_scenarios:
         assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
         assert scenario["deploy_profile"] == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
@@ -68,8 +75,8 @@ def test_2_6_to_3_0_rollback_gate_scenarios_forbid_storage_v3_and_vortex():
     scenarios = [
         resolve_gate_scenario(manifest, scenario["id"])
         for scenario in manifest["scenarios"]
-        if scenario["id"].endswith("to-3-0-latest-rollback-2-6-18")
-        or scenario["id"].endswith("to-3-0-latest-rollback-2-6-latest")
+        if scenario["classification"] == "gate"
+        and scenario["id"].endswith("to-3-0-latest-rollback-2-6-latest")
     ]
 
     assert scenarios
@@ -102,7 +109,7 @@ def test_2_6_to_3_0_rollback_gate_rejects_effective_storage_v3_or_vortex_in_any_
     scenario = next(
         item
         for item in unsafe["scenarios"]
-        if item["id"] == "standalone-2-6-18-to-3-0-latest-rollback-2-6-18"
+        if item["id"] == "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest"
     )
     scenario[phase][field] = True
 

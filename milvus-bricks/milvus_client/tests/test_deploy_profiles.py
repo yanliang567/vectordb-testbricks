@@ -22,6 +22,7 @@ def test_deploy_profiles_are_valid_yaml():
         profile = _load_profile(name)
         assert profile["name"]
         assert profile["mode"] in {"standalone", "cluster"}
+        assert profile.get("deployer", "operator") in {"operator", "helm"}
         assert profile["components"]
         assert profile["dependencies"]["msgStreamType"]
 
@@ -47,6 +48,18 @@ def test_cluster_profiles_declare_required_components_resources_and_woodpecker()
     for name in ["cluster-woodpecker-1cu.yaml", "cluster-woodpecker-2cu.yaml"]:
         profile = _load_profile(name)
         assert profile["mode"] == "cluster"
+        assert profile["deployer"] == "helm"
+        assert profile["helm"]["repo_url"] == "https://zilliztech.github.io/milvus-helm/"
+        assert profile["helm"]["chart"] == "zilliztech/milvus"
+        assert profile["helm_values"]["cluster"]["enabled"] is True
+        assert profile["helm_values"]["woodpecker"]["enabled"] is True
+        assert profile["helm_values"]["woodpecker"]["image"]["repository"] == "harbor.milvus.io/milvusdb/woodpecker"
+        assert (
+            profile["helm_values"]["woodpecker"]["image"]["tag"]
+            == "master-e80f1ea-91-amd64"
+        )
+        assert profile["helm_values"]["woodpecker"]["nodeSelector"]["kubernetes.io/arch"] == "amd64"
+        assert profile["helm_values"]["streaming"]["woodpecker"]["embedded"] is False
         assert profile["dependencies"]["msgStreamType"] == "woodpecker"
         assert required_components <= set(profile["components"])
         for component in required_components:
