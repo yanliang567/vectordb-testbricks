@@ -48,6 +48,8 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["milvus-namespace"] == "qa-milvus"
     assert parameter_values["client-image"] == "harbor.milvus.io/qa/fouram:2.1"
     assert parameter_values["repo-revision"] == "main"
+    assert parameter_values["scenario-id"] == "standalone-2-6-upgrade-rollback"
+    assert parameter_values["deploy-profile"] == "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
     assert parameter_values["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
     assert parameter_values["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
     assert parameter_values["rollback-version"] == "2.6.18"
@@ -58,7 +60,12 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["base-json-shredding-enabled"] == "false"
     assert parameter_values["target-json-shredding-enabled"] == "false"
     assert parameter_values["rollback-json-shredding-enabled"] == "false"
+    assert parameter_values["base-loon-ffi-enabled"] == "false"
     assert parameter_values["target-loon-ffi-enabled"] == "false"
+    assert parameter_values["rollback-loon-ffi-enabled"] == "false"
+    assert parameter_values["base-vortex-enabled"] == "false"
+    assert parameter_values["target-vortex-enabled"] == "false"
+    assert parameter_values["rollback-vortex-enabled"] == "false"
     assert parameter_values["post-upgrade-config-toggle-enabled"] == "false"
     assert parameter_values["forward-workload-enabled"] == "false"
     assert parameter_values["rollback-enabled"] == "true"
@@ -76,6 +83,7 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["rollback-serviceability-interval-sec"] == "10"
     assert parameter_values["pressure-fail-on-error"] == "false"
     assert parameter_values["gate-allow-warning"] == "true"
+    assert parameter_values["allow-unsafe-negative-coverage"] == "false"
     assert parameter_values["keep-milvus"] == "false"
 
 
@@ -391,21 +399,36 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "orchestrator_report.json" in final_command
     assert "--soft-fail" in final_command
     assert "--base-json-shredding-enabled" in final_command
+    assert "--base-loon-ffi-enabled" in final_command
+    assert "--target-loon-ffi-enabled" in final_command
+    assert "--rollback-loon-ffi-enabled" in final_command
+    assert "--base-vortex-enabled" in final_command
+    assert "--target-vortex-enabled" in final_command
+    assert "--rollback-vortex-enabled" in final_command
     assert "--rollback-milvus-image" in final_command
     assert "--rollback-version" in final_command
     assert "--target-json-shredding-enabled" in final_command
-    assert "--target-loon-ffi-enabled" in final_command
     assert "--forward-workload-enabled" in final_command
     assert "--rollback-enabled" in final_command
     assert "--observe-before-upgrade-sec" in final_command
     assert "--observe-before-rollback-sec" in final_command
     assert "--rollback-serviceability-timeout-sec" in final_command
     assert "--rollback-serviceability-interval-sec" in final_command
+    assert "--scenario-id" in final_command
+    assert "--deploy-profile" in final_command
+    assert "--deploy-topology /tmp/milvus-bricks/reports/deploy_topology.json" in final_command
     assert "--schema-evolution-existing-enabled" in final_command
     assert "--schema-evolution-forward-enabled" in final_command
     resolve_command = resolve_inputs["container"]["args"][0]
     assert "invalid Milvus collection prefix parameters" in resolve_command
     assert "forward-collection-prefix" in resolve_command
+    assert "invalid 2.6 -> 3.0 -> 2.6 rollback gate" in resolve_command
+    assert "enabled phase flags" in resolve_command
+    assert "allow_unsafe_negative_coverage" in resolve_command
+    assert "and not allow_unsafe_negative_coverage" in resolve_command
+    assert "approved_unsafe_negative_scenarios" in resolve_command
+    assert "standalone-3-0-loon-vortex-to-2-6-negative" in resolve_command
+    assert "invalid unsafe negative coverage bypass" in resolve_command
 
     gate = templates["gate-final-status"]
     gate_command = gate["container"]["args"][0]
@@ -415,21 +438,23 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert 'allow_warning and status == "warning"' in gate_command
 
 
-def test_standalone_2_6_upgrade_rollback_template_creates_configurable_standalone_resources():
+def test_standalone_2_6_upgrade_rollback_template_renders_milvus_cr_from_deploy_profile():
     template = yaml.safe_load((ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml").read_text())
     deploy = next(item for item in template["spec"]["templates"] if item["name"] == "deploy-milvus")
     command = deploy["container"]["args"][0]
 
-    assert "mode: standalone" in command
-    assert 'cpu: "{{workflow.parameters.standalone-cpu-request}}"' in command
-    assert 'memory: "{{workflow.parameters.standalone-memory-request}}"' in command
-    assert 'cpu: "{{workflow.parameters.standalone-cpu}}"' in command
-    assert 'memory: "{{workflow.parameters.standalone-memory}}"' in command
-    assert "namespace: {{workflow.parameters.milvus-namespace}}" in command
-    assert "jsonShreddingEnabled: {{workflow.parameters.base-json-shredding-enabled}}" in command
-    assert "zilliz.com/workflow-run-id" in command
-    assert "msgStreamType: rocksmq" in command
-    assert "pvcDeletion: true" in command
+    assert "milvus_client.requests.render_milvus_cr" in command
+    assert '--deploy-profile "{{workflow.parameters.deploy-profile}}"' in command
+    assert '--namespace "{{workflow.parameters.milvus-namespace}}"' in command
+    assert '--image "{{workflow.parameters.base-milvus-image}}"' in command
+    assert '--version "{{workflow.parameters.base-version}}"' in command
+    assert '--json-shredding-enabled "{{workflow.parameters.base-json-shredding-enabled}}"' in command
+    assert '--loon-ffi-enabled "{{workflow.parameters.base-loon-ffi-enabled}}"' in command
+    assert '--vortex-enabled "{{workflow.parameters.base-vortex-enabled}}"' in command
+    assert "--output-yaml /tmp/milvus-cr.yaml" in command
+    assert "--summary-json /tmp/milvus-bricks/reports/deploy_topology.json" in command
+    assert "kubectl apply -f /tmp/milvus-cr.yaml" in command
+    assert "cat <<EOF | kubectl apply -f -" not in command
 
 
 def test_standalone_2_6_upgrade_rollback_template_patches_config_matrix():
@@ -440,6 +465,11 @@ def test_standalone_2_6_upgrade_rollback_template_patches_config_matrix():
 
     assert "json.loads(\"\"\"{{inputs.parameters.json-shredding-enabled}}\"\"\")" in patch_command
     assert "json.loads(\"\"\"{{inputs.parameters.loon-ffi-enabled}}\"\"\")" in patch_command
+    assert "json.loads(\"\"\"{{inputs.parameters.vortex-enabled}}\"\"\")" in patch_command
+    assert '"useLoonFFI": loon_ffi_enabled' in patch_command
+    assert "storageV3Enabled" not in patch_command
+    assert "clear_storage_v3_enabled" not in patch_command
+    assert "clear_vortex_enabled" not in patch_command
     assert '"dataNode"] = {"storage": {"format": "vortex"}}' in patch_command
     assert '"dataNode"] = {"storage": {"format": None}}' in patch_command
     assert "--patch-file /tmp/milvus-patch.json" in patch_command
@@ -465,6 +495,8 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
 
     assert parameter_values["client-image"] == "harbor.milvus.io/qa/fouram:2.1"
+    assert parameter_values["scenario-id"] == "standalone-3-0-upgrade-rollback"
+    assert parameter_values["deploy-profile"] == "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
     assert parameter_values["base-milvus-image"] == (
         "harbor.milvus.io/milvusdb/milvus:3.0-20260701-d19d8484-47f6c14"
     )
@@ -503,6 +535,53 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
         "mountPath": "/tmp/milvus-bricks",
     }
     assert "patch-milvus-config" in templates
+    resolve_command = templates["resolve-inputs"]["container"]["args"][0]
+    assert "approved_unsafe_negative_scenarios = set()" in resolve_command
+    assert "invalid unsafe negative coverage bypass" in resolve_command
+
+
+def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_shared_dag():
+    template = yaml.safe_load((ROOT / "argo" / "cluster-upgrade-rollback.yaml").read_text())
+
+    assert template["kind"] == "WorkflowTemplate"
+    assert template["metadata"]["name"] == "milvus-cluster-upgrade-rollback"
+    assert template["metadata"]["namespace"] == "qa"
+    assert template["spec"]["serviceAccountName"] == "milvus-upgrade-rollback-runner"
+    parameter_values = {parameter["name"]: parameter["value"] for parameter in template["spec"]["arguments"]["parameters"]}
+    assert parameter_values["scenario-id"] == "cluster-upgrade-rollback"
+    assert parameter_values["deploy-profile"] == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+    assert parameter_values["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
+    assert parameter_values["rollback-enabled"] == "true"
+    assert parameter_values["schema-evolution-existing-enabled"] == "true"
+
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    main = templates["main"]
+    tasks = {task["name"]: task for task in main["dag"]["tasks"]}
+    assert {
+        "deploy-base",
+        "wait-base-ready",
+        "create-compat-schema",
+        "seed-compat-data",
+        "validate-before-upgrade",
+        "pressure-daemon",
+        "patch-upgrade",
+        "wait-upgrade-ready",
+        "patch-rollback",
+        "wait-rollback-ready",
+        "wait-rollback-serviceability",
+        "validate-after-rollback",
+        "generate-final-report",
+        "gate-final-status",
+    } <= set(tasks)
+    deploy_command = templates["deploy-milvus"]["container"]["args"][0]
+    assert "milvus_client.requests.render_milvus_cr" in deploy_command
+    assert '--deploy-profile "{{workflow.parameters.deploy-profile}}"' in deploy_command
+    assert "--app-name milvus-cluster-upgrade-rollback" in deploy_command
+    assert "mode: standalone" not in deploy_command
+    final_command = templates["generate-final-report"]["container"]["args"][0]
+    assert "--scenario-id" in final_command
+    assert "--deploy-profile" in final_command
+    assert "--deploy-topology /tmp/milvus-bricks/reports/deploy_topology.json" in final_command
     assert "optional-run-brick" in templates
     main = next(item for item in template["spec"]["templates"] if item["name"] == "main")
     tasks = {task["name"]: task for task in main["dag"]["tasks"]}
@@ -542,6 +621,9 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     }
     assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json" in seed_args["args"]
     assert "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json" in forward_seed_args["args"]
+    resolve_command = templates["resolve-inputs"]["container"]["args"][0]
+    assert "approved_unsafe_negative_scenarios = set()" in resolve_command
+    assert "invalid unsafe negative coverage bypass" in resolve_command
 
 
 def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():

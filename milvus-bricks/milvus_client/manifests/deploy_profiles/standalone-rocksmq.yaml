@@ -1,0 +1,30 @@
+name: standalone-rocksmq
+mode: standalone
+description: "Standalone Milvus with RocksMQ and in-cluster dependencies for upgrade/rollback compatibility tests."
+components:
+  standalone:
+    resources:
+      requests:
+        cpu: "2"
+        memory: 4Gi
+      limits:
+        cpu: "4"
+        memory: 8Gi
+dependencies:
+  msgStreamType: rocksmq
+  etcd:
+    inCluster:
+      deletionPolicy: Delete
+      pvcDeletion: true
+      values:
+        replicaCount: 1
+        persistence:
+          size: 10Gi
+  storage:
+    inCluster:
+      deletionPolicy: Delete
+      pvcDeletion: true
+      values:
+        mode: standalone
+        persistence:
+          size: 20Gi
