@@ -53,6 +53,12 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "https://github.com/yanliang567/vectordb-testbricks.git",
         "--repo-revision",
         "main",
+        "--scenario-id",
+        "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+        "--deploy-profile",
+        "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml",
+        "--deploy-topology",
+        str(tmp_path / "reports" / "deploy_topology.json"),
         "--schema-matrix",
         "milvus_client/manifests/schema_matrix_2_6.yaml",
         "--collection-prefix",
@@ -85,7 +91,17 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "true",
         "--rollback-json-shredding-enabled",
         "true",
+        "--base-loon-ffi-enabled",
+        "false",
         "--target-loon-ffi-enabled",
+        "false",
+        "--rollback-loon-ffi-enabled",
+        "false",
+        "--base-vortex-enabled",
+        "false",
+        "--target-vortex-enabled",
+        "false",
+        "--rollback-vortex-enabled",
         "false",
         "--post-upgrade-config-toggle-enabled",
         "false",
@@ -146,6 +162,10 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     )
     _write_json(tmp_path / "reports" / "env_snapshot.json", {"client_namespace": "qa"})
     _write_json(tmp_path / "reports" / "flow_summary.json", {"cleanup_status": "pending"})
+    _write_json(
+        tmp_path / "reports" / "deploy_topology.json",
+        {"profile": "standalone-rocksmq", "mode": "standalone", "components": {"standalone": {"replicas": 1}}},
+    )
     (tmp_path / "k8s").mkdir()
     (tmp_path / "k8s" / "pods.txt").write_text("pods")
 
@@ -158,6 +178,10 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert report["validation"]["passed"] is True
     assert report["pressure"]["failed"] == 1
     assert report["parameters"]["pressure_fail_on_error"] is False
+    assert report["parameters"]["scenario_id"] == "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest"
+    assert report["parameters"]["deploy_profile"] == "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
+    assert report["deploy_topology"]["profile"] == "standalone-rocksmq"
+    assert report["deploy_topology"]["mode"] == "standalone"
     assert report["parameters"]["observe_before_upgrade_sec"] == 300
     assert report["parameters"]["observe_before_rollback_sec"] == 300
     assert report["parameters"]["rollback_serviceability_timeout_sec"] == 900
@@ -169,7 +193,12 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
         "base_json_shredding_enabled": True,
         "target_json_shredding_enabled": True,
         "rollback_json_shredding_enabled": True,
+        "base_loon_ffi_enabled": False,
         "target_loon_ffi_enabled": False,
+        "rollback_loon_ffi_enabled": False,
+        "base_vortex_enabled": False,
+        "target_vortex_enabled": False,
+        "rollback_vortex_enabled": False,
         "post_upgrade_config_toggle_enabled": False,
         "post_upgrade_json_shredding_enabled": True,
         "forward_workload_enabled": False,
@@ -182,10 +211,14 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert report["k8s_snapshot"]["pods.txt"] == str(tmp_path / "k8s" / "pods.txt")
     assert "## Config Matrix" in markdown
     assert "- rollback version: `2.6.0`" in markdown
+    assert "- scenario: `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest`" in markdown
+    assert "- deploy profile: `milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml`" in markdown
     assert "- rollback image: `harbor.milvus.io/milvusdb/milvus:2.6-latest`" in markdown
     assert "- forward collection prefix: `qa_upgrade_forward`" in markdown
     assert "- rollback enabled: `True`" in markdown
     assert "- base jsonShredding: `True`" in markdown
+    assert "- target LoonFFI/storage v3: `False`" in markdown
+    assert "- target vortex: `False`" in markdown
     assert "## Validation" in markdown
     assert "## Serviceability Recovery" in markdown
     assert "`wait_rollback_serviceability`: passed, recovered=`True`, recovery_duration_sec=`37.5`, attempts=`5`" in markdown

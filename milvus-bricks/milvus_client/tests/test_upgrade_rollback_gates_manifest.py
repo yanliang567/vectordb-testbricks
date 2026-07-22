@@ -1,0 +1,163 @@
+from copy import deepcopy
+from pathlib import Path
+
+import pytest
+
+from milvus_client.common.gates import load_gate_manifest, resolve_gate_scenario, validate_gate_manifest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+GATES = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
+
+
+def _manifest() -> dict:
+    return load_gate_manifest(GATES)
+
+
+def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
+    manifest = _manifest()
+    scenarios = {scenario["id"]: resolve_gate_scenario(manifest, scenario["id"]) for scenario in manifest["scenarios"]}
+
+    assert {
+        "standalone-2-6-18-to-3-0-latest-rollback-2-6-18",
+        "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        "cluster-2-6-18-to-3-0-latest-rollback-2-6-18",
+        "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
+        "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+    } <= set(scenarios)
+    for scenario_id in [
+        "standalone-2-6-18-to-3-0-latest-rollback-2-6-18",
+        "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        "cluster-2-6-18-to-3-0-latest-rollback-2-6-18",
+        "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
+        "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+    ]:
+        scenario = scenarios[scenario_id]
+        assert scenario["classification"] == "gate"
+        assert scenario["workflow_template"].startswith("milvus-")
+        assert scenario["deploy_profile"].endswith(".yaml")
+        assert scenario["schema_matrix"].endswith(".yaml")
+        for phase in ["base", "target", "rollback"]:
+            assert scenario[phase]["image"].startswith("harbor.milvus.io/milvusdb/milvus:")
+            assert scenario[phase]["version"]
+            assert "image_ref" in scenario[phase]
+        assert scenario["validation_policy"]["data_integrity"] == "strict"
+        assert scenario["validation_policy"]["serviceability"] == "strict"
+        assert scenario["validation_policy"]["pressure_fail_on_error"] is True
+        assert scenario["validation_policy"]["gate_allow_warning"] is False
+
+
+def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
+    manifest = _manifest()
+    cluster_scenarios = [
+        resolve_gate_scenario(manifest, scenario["id"])
+        for scenario in manifest["scenarios"]
+        if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
+    ]
+
+    assert len(cluster_scenarios) == 3
+    for scenario in cluster_scenarios:
+        assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
+        assert scenario["deploy_profile"] == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+
+
+def test_2_6_to_3_0_rollback_gate_scenarios_forbid_storage_v3_and_vortex():
+    manifest = _manifest()
+    scenarios = [
+        resolve_gate_scenario(manifest, scenario["id"])
+        for scenario in manifest["scenarios"]
+        if scenario["id"].endswith("to-3-0-latest-rollback-2-6-18")
+        or scenario["id"].endswith("to-3-0-latest-rollback-2-6-latest")
+    ]
+
+    assert scenarios
+    for scenario in scenarios:
+        assert scenario["support_status"] == "supported_with_config_constraints"
+        assert {"storage_v3", "vortex"} <= set(scenario["forbidden_after_upgrade"])
+        for phase in ["base", "target", "rollback"]:
+            assert scenario[phase].get("loon_ffi_enabled", False) is False
+            assert scenario[phase]["vortex_enabled"] is False
+
+
+@pytest.mark.parametrize(
+    ("phase", "field", "match"),
+    [
+        ("base", "loon_ffi_enabled", "base.storage_v3"),
+        ("base", "vortex_enabled", "base.vortex"),
+        ("target", "loon_ffi_enabled", "target.storage_v3"),
+        ("target", "vortex_enabled", "target.vortex"),
+        ("rollback", "loon_ffi_enabled", "rollback.storage_v3"),
+        ("rollback", "vortex_enabled", "rollback.vortex"),
+    ],
+)
+def test_2_6_to_3_0_rollback_gate_rejects_effective_storage_v3_or_vortex_in_any_phase(
+    phase: str,
+    field: str,
+    match: str,
+):
+    manifest = _manifest()
+    unsafe = deepcopy(manifest)
+    scenario = next(
+        item
+        for item in unsafe["scenarios"]
+        if item["id"] == "standalone-2-6-18-to-3-0-latest-rollback-2-6-18"
+    )
+    scenario[phase][field] = True
+
+    with pytest.raises(ValueError, match=match):
+        resolve_gate_scenario(unsafe, scenario["id"])
+
+
+def test_manifest_references_are_centralized():
+    manifest = _manifest()
+    assert set(manifest["image_aliases"]) == {
+        "milvus-2-6-18",
+        "milvus-2-6-latest",
+        "milvus-3-0-baseline",
+        "milvus-3-0-latest",
+    }
+    for scenario in manifest["scenarios"]:
+        for phase in ["base", "target", "rollback"]:
+            assert "image_ref" in scenario[phase]
+            assert "image" not in scenario[phase]
+            assert "version" not in scenario[phase]
+
+
+def test_negative_vortex_to_2_6_scenario_is_not_a_gate():
+    manifest = _manifest()
+    negative = resolve_gate_scenario(manifest, "standalone-3-0-loon-vortex-to-2-6-negative")
+
+    assert negative["classification"] == "negative"
+    assert negative["support_status"] == "unsupported"
+    assert negative["allow_unsafe_negative_coverage"] is True
+    assert negative["target"]["vortex_enabled"] is True
+    assert negative["validation_policy"]["gate_allow_warning"] is True
+
+
+def test_manifest_validator_rejects_string_bool_values():
+    manifest = _manifest()
+    broken = deepcopy(manifest)
+    broken["scenarios"][0]["target"]["loon_ffi_enabled"] = "false"
+
+    with pytest.raises(ValueError, match="target.loon_ffi_enabled must be a YAML boolean"):
+        validate_gate_manifest(broken)
+
+
+def test_manifest_validator_rejects_unsafe_negative_escape_hatch_on_gate():
+    manifest = _manifest()
+    broken = deepcopy(manifest)
+    broken["scenarios"][0]["allow_unsafe_negative_coverage"] = True
+
+    with pytest.raises(ValueError, match="only when classification is negative"):
+        validate_gate_manifest(broken)
+
+
+def test_manifest_validator_rejects_unknown_refs():
+    manifest = _manifest()
+    broken = deepcopy(manifest)
+    broken["scenarios"][0]["target"]["image_ref"] = "missing-image-alias"
+
+    with pytest.raises(ValueError, match="missing-image-alias"):
+        validate_gate_manifest(broken)

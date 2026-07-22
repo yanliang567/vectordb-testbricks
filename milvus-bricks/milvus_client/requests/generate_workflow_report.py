@@ -54,6 +54,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     pressure = _load_json(Path(args.pressure_summary), {})
     env = _load_json(Path(args.env_snapshot), {})
     flow = _load_json(Path(args.flow_summary), {})
+    deploy_topology = _load_json(Path(args.deploy_topology), {}) if args.deploy_topology else {}
 
     results = {}
     for path in sorted(results_dir.glob("*.json")):
@@ -63,7 +64,12 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "base_json_shredding_enabled": parse_bool(args.base_json_shredding_enabled),
         "target_json_shredding_enabled": parse_bool(args.target_json_shredding_enabled),
         "rollback_json_shredding_enabled": parse_bool(args.rollback_json_shredding_enabled),
+        "base_loon_ffi_enabled": parse_bool(args.base_loon_ffi_enabled),
         "target_loon_ffi_enabled": parse_bool(args.target_loon_ffi_enabled),
+        "rollback_loon_ffi_enabled": parse_bool(args.rollback_loon_ffi_enabled),
+        "base_vortex_enabled": parse_bool(args.base_vortex_enabled),
+        "target_vortex_enabled": parse_bool(args.target_vortex_enabled),
+        "rollback_vortex_enabled": parse_bool(args.rollback_vortex_enabled),
         "post_upgrade_config_toggle_enabled": parse_bool(args.post_upgrade_config_toggle_enabled),
         "post_upgrade_json_shredding_enabled": parse_bool(args.post_upgrade_json_shredding_enabled),
         "forward_workload_enabled": parse_bool(args.forward_workload_enabled),
@@ -153,8 +159,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "target_version": args.target_version,
         },
         "parameters": {
+            "scenario_id": args.scenario_id,
             "repo_url": args.repo_url,
             "repo_revision": args.repo_revision,
+            "deploy_profile": args.deploy_profile,
             "schema_matrix": args.schema_matrix,
             "collection_prefix": args.collection_prefix,
             "forward_collection_prefix": args.forward_collection_prefix,
@@ -192,6 +200,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             },
         },
         "pressure": pressure,
+        "deploy_topology": deploy_topology,
         "failed_results": {
             name: {
                 "status": payload.get("status"),
@@ -243,7 +252,12 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- base jsonShredding: `{config_matrix.get('base_json_shredding_enabled')}`",
         f"- target jsonShredding: `{config_matrix.get('target_json_shredding_enabled')}`",
         f"- rollback jsonShredding: `{config_matrix.get('rollback_json_shredding_enabled')}`",
-        f"- target LoonFFI: `{config_matrix.get('target_loon_ffi_enabled')}`",
+        f"- base LoonFFI/storage v3: `{config_matrix.get('base_loon_ffi_enabled')}`",
+        f"- target LoonFFI/storage v3: `{config_matrix.get('target_loon_ffi_enabled')}`",
+        f"- rollback LoonFFI/storage v3: `{config_matrix.get('rollback_loon_ffi_enabled')}`",
+        f"- base vortex: `{config_matrix.get('base_vortex_enabled')}`",
+        f"- target vortex: `{config_matrix.get('target_vortex_enabled')}`",
+        f"- rollback vortex: `{config_matrix.get('rollback_vortex_enabled')}`",
         f"- post-upgrade config toggle: `{config_matrix.get('post_upgrade_config_toggle_enabled')}`",
         f"- post-upgrade jsonShredding: `{config_matrix.get('post_upgrade_json_shredding_enabled')}`",
         f"- forward workload: `{config_matrix.get('forward_workload_enabled')}`",
@@ -261,6 +275,8 @@ def build_markdown(report: dict[str, Any]) -> str:
         "",
         f"- workflow: `{workflow['name']}`",
         f"- status: `{report['status']}`",
+        f"- scenario: `{params.get('scenario_id')}`",
+        f"- deploy profile: `{params.get('deploy_profile')}`",
         f"- collection prefix: `{params['collection_prefix']}`",
         f"- forward collection prefix: `{params['forward_collection_prefix']}`",
         f"- rows per collection: `{params['rows_per_collection']}`",
@@ -314,6 +330,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-version", required=True)
     parser.add_argument("--repo-url", required=True)
     parser.add_argument("--repo-revision", required=True)
+    parser.add_argument("--scenario-id", default="")
+    parser.add_argument("--deploy-profile", default="")
+    parser.add_argument("--deploy-topology", default="")
     parser.add_argument("--schema-matrix", required=True)
     parser.add_argument("--collection-prefix", required=True)
     parser.add_argument("--forward-collection-prefix", required=True)
@@ -330,7 +349,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-json-shredding-enabled", default="false")
     parser.add_argument("--target-json-shredding-enabled", default="false")
     parser.add_argument("--rollback-json-shredding-enabled", default="false")
+    parser.add_argument("--base-loon-ffi-enabled", default="false")
     parser.add_argument("--target-loon-ffi-enabled", default="false")
+    parser.add_argument("--rollback-loon-ffi-enabled", default="false")
+    parser.add_argument("--base-vortex-enabled", default="false")
+    parser.add_argument("--target-vortex-enabled", default="false")
+    parser.add_argument("--rollback-vortex-enabled", default="false")
     parser.add_argument("--post-upgrade-config-toggle-enabled", default="false")
     parser.add_argument("--post-upgrade-json-shredding-enabled", default="false")
     parser.add_argument("--forward-workload-enabled", default="false")

@@ -17,6 +17,10 @@ spec:
         value: https://github.com/yanliang567/vectordb-testbricks.git
       - name: repo-revision
         value: main
+      - name: scenario-id
+        value: standalone-2-6-upgrade-rollback
+      - name: deploy-profile
+        value: milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml
       - name: client-image
         value: harbor.milvus.io/qa/fouram:2.1
       - name: python-deps
@@ -39,7 +43,17 @@ spec:
         value: "false"
       - name: rollback-json-shredding-enabled
         value: "false"
+      - name: base-loon-ffi-enabled
+        value: "false"
       - name: target-loon-ffi-enabled
+        value: "false"
+      - name: rollback-loon-ffi-enabled
+        value: "false"
+      - name: base-vortex-enabled
+        value: "false"
+      - name: target-vortex-enabled
+        value: "false"
+      - name: rollback-vortex-enabled
         value: "false"
       - name: post-upgrade-config-toggle-enabled
         value: "false"
@@ -93,6 +107,8 @@ spec:
         value: "false"
       - name: gate-allow-warning
         value: "true"
+      - name: allow-unsafe-negative-coverage
+        value: "false"
       - name: observe-before-upgrade-sec
         value: "300"
       - name: observe-after-upgrade-sec
@@ -248,6 +264,8 @@ spec:
                   value: "{{workflow.parameters.target-json-shredding-enabled}}"
                 - name: loon-ffi-enabled
                   value: "{{workflow.parameters.target-loon-ffi-enabled}}"
+                - name: vortex-enabled
+                  value: "{{workflow.parameters.target-vortex-enabled}}"
 
           - name: wait-upgrade-ready
             dependencies: [patch-upgrade, pressure-daemon]
@@ -347,6 +365,8 @@ spec:
                   value: "{{workflow.parameters.post-upgrade-json-shredding-enabled}}"
                 - name: loon-ffi-enabled
                   value: "{{workflow.parameters.target-loon-ffi-enabled}}"
+                - name: vortex-enabled
+                  value: "{{workflow.parameters.target-vortex-enabled}}"
 
           - name: wait-post-upgrade-config-ready
             dependencies: [patch-post-upgrade-config, pressure-daemon]
@@ -479,7 +499,9 @@ spec:
                 - name: json-shredding-enabled
                   value: "{{workflow.parameters.rollback-json-shredding-enabled}}"
                 - name: loon-ffi-enabled
-                  value: "false"
+                  value: "{{workflow.parameters.rollback-loon-ffi-enabled}}"
+                - name: vortex-enabled
+                  value: "{{workflow.parameters.rollback-vortex-enabled}}"
 
           - name: wait-rollback-ready
             dependencies: [patch-rollback, pressure-daemon]
@@ -667,6 +689,45 @@ spec:
             if invalid:
                 print(f"invalid Milvus collection prefix parameters: {invalid}", file=sys.stderr)
                 raise SystemExit(2)
+            schema_matrix = "{{workflow.parameters.schema-matrix}}"
+            target_version = "{{workflow.parameters.target-version}}"
+            rollback_version = "{{workflow.parameters.rollback-version}}"
+            rollback_enabled = "{{workflow.parameters.rollback-enabled}}" == "true"
+            allow_unsafe_negative_coverage = "{{workflow.parameters.allow-unsafe-negative-coverage}}" == "true"
+            scenario_id = "{{workflow.parameters.scenario-id}}"
+            approved_unsafe_negative_scenarios = {
+                "standalone-3-0-loon-vortex-to-2-6-negative",
+            }
+            if allow_unsafe_negative_coverage and scenario_id not in approved_unsafe_negative_scenarios:
+                print(
+                    "invalid unsafe negative coverage bypass: allow-unsafe-negative-coverage=true "
+                    f"is only allowed for approved negative scenarios; scenario-id={scenario_id!r}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(2)
+            unsafe_phase_flags = {
+                "base-loon-ffi-enabled(storage_v3)": "{{workflow.parameters.base-loon-ffi-enabled}}" == "true",
+                "base-vortex-enabled": "{{workflow.parameters.base-vortex-enabled}}" == "true",
+                "target-loon-ffi-enabled(storage_v3)": "{{workflow.parameters.target-loon-ffi-enabled}}" == "true",
+                "target-vortex-enabled": "{{workflow.parameters.target-vortex-enabled}}" == "true",
+                "rollback-loon-ffi-enabled(storage_v3)": "{{workflow.parameters.rollback-loon-ffi-enabled}}" == "true",
+                "rollback-vortex-enabled": "{{workflow.parameters.rollback-vortex-enabled}}" == "true",
+            }
+            if (
+                rollback_enabled
+                and schema_matrix.endswith("schema_matrix_2_6.yaml")
+                and target_version.startswith("3.0")
+                and rollback_version.startswith("2.6")
+                and not allow_unsafe_negative_coverage
+                and any(unsafe_phase_flags.values())
+            ):
+                enabled = sorted(name for name, value in unsafe_phase_flags.items() if value)
+                print(
+                    "invalid 2.6 -> 3.0 -> 2.6 rollback gate: storage v3/vortex must remain disabled; "
+                    f"enabled phase flags: {enabled}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(2)
             PY
             mkdir -p /tmp/milvus-bricks/reports
             cat > /tmp/milvus-bricks/reports/env_snapshot.json <<EOF
@@ -687,7 +748,12 @@ spec:
               "base_json_shredding_enabled": "{{workflow.parameters.base-json-shredding-enabled}}",
               "target_json_shredding_enabled": "{{workflow.parameters.target-json-shredding-enabled}}",
               "rollback_json_shredding_enabled": "{{workflow.parameters.rollback-json-shredding-enabled}}",
+              "base_loon_ffi_enabled": "{{workflow.parameters.base-loon-ffi-enabled}}",
               "target_loon_ffi_enabled": "{{workflow.parameters.target-loon-ffi-enabled}}",
+              "rollback_loon_ffi_enabled": "{{workflow.parameters.rollback-loon-ffi-enabled}}",
+              "base_vortex_enabled": "{{workflow.parameters.base-vortex-enabled}}",
+              "target_vortex_enabled": "{{workflow.parameters.target-vortex-enabled}}",
+              "rollback_vortex_enabled": "{{workflow.parameters.rollback-vortex-enabled}}",
               "post_upgrade_config_toggle_enabled": "{{workflow.parameters.post-upgrade-config-toggle-enabled}}",
               "post_upgrade_json_shredding_enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",
@@ -716,6 +782,7 @@ spec:
               "rollback_serviceability_timeout_sec": "{{workflow.parameters.rollback-serviceability-timeout-sec}}",
               "rollback_serviceability_interval_sec": "{{workflow.parameters.rollback-serviceability-interval-sec}}",
               "gate_allow_warning": "{{workflow.parameters.gate-allow-warning}}",
+              "allow_unsafe_negative_coverage": "{{workflow.parameters.allow-unsafe-negative-coverage}}",
               "keep_milvus": "{{workflow.parameters.keep-milvus}}"
             }
             EOF
@@ -733,7 +800,12 @@ spec:
               "base_json_shredding_enabled": "{{workflow.parameters.base-json-shredding-enabled}}",
               "target_json_shredding_enabled": "{{workflow.parameters.target-json-shredding-enabled}}",
               "rollback_json_shredding_enabled": "{{workflow.parameters.rollback-json-shredding-enabled}}",
+              "base_loon_ffi_enabled": "{{workflow.parameters.base-loon-ffi-enabled}}",
               "target_loon_ffi_enabled": "{{workflow.parameters.target-loon-ffi-enabled}}",
+              "rollback_loon_ffi_enabled": "{{workflow.parameters.rollback-loon-ffi-enabled}}",
+              "base_vortex_enabled": "{{workflow.parameters.base-vortex-enabled}}",
+              "target_vortex_enabled": "{{workflow.parameters.target-vortex-enabled}}",
+              "rollback_vortex_enabled": "{{workflow.parameters.rollback-vortex-enabled}}",
               "post_upgrade_config_toggle_enabled": "{{workflow.parameters.post-upgrade-config-toggle-enabled}}",
               "post_upgrade_json_shredding_enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",
@@ -749,6 +821,7 @@ spec:
               "rollback_serviceability_timeout_sec": "{{workflow.parameters.rollback-serviceability-timeout-sec}}",
               "rollback_serviceability_interval_sec": "{{workflow.parameters.rollback-serviceability-interval-sec}}",
               "gate_allow_warning": "{{workflow.parameters.gate-allow-warning}}",
+              "allow_unsafe_negative_coverage": "{{workflow.parameters.allow-unsafe-negative-coverage}}",
               "cleanup_attempted": false,
               "cleanup_status": "pending",
               "cleanup_error": "",
@@ -773,57 +846,27 @@ spec:
         args:
           - |
             set -eux
-            cat <<EOF | kubectl apply -f -
-            apiVersion: milvus.io/v1beta1
-            kind: Milvus
-            metadata:
-              name: {{workflow.name}}
-              namespace: {{workflow.parameters.milvus-namespace}}
-              labels:
-                app.kubernetes.io/managed-by: argo-workflow
-                app.kubernetes.io/name: milvus-standalone-2-6-upgrade-rollback
-                zilliz.com/workflow-run-id: "{{workflow.uid}}"
-              annotations:
-                zilliz.com/workflow-name: "{{workflow.name}}"
-                zilliz.com/workflow-uid: "{{workflow.uid}}"
-            spec:
-              mode: standalone
-              config:
-                common:
-                  storage:
-                    jsonShreddingEnabled: {{workflow.parameters.base-json-shredding-enabled}}
-              components:
-                image: {{workflow.parameters.base-milvus-image}}
-                version: "{{workflow.parameters.base-version}}"
-                imagePullPolicy: IfNotPresent
-                imageUpdateMode: all
-                standalone:
-                  resources:
-                    requests:
-                      cpu: "{{workflow.parameters.standalone-cpu-request}}"
-                      memory: "{{workflow.parameters.standalone-memory-request}}"
-                    limits:
-                      cpu: "{{workflow.parameters.standalone-cpu}}"
-                      memory: "{{workflow.parameters.standalone-memory}}"
-              dependencies:
-                msgStreamType: rocksmq
-                etcd:
-                  inCluster:
-                    deletionPolicy: Delete
-                    pvcDeletion: true
-                    values:
-                      replicaCount: 1
-                      persistence:
-                        size: "{{workflow.parameters.etcd-pvc-size}}"
-                storage:
-                  inCluster:
-                    deletionPolicy: Delete
-                    pvcDeletion: true
-                    values:
-                      mode: standalone
-                      persistence:
-                        size: "{{workflow.parameters.storage-pvc-size}}"
-            EOF
+            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            rm -rf /tmp/repo
+            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            cd /tmp/repo/milvus-bricks
+            mkdir -p /tmp/milvus-bricks/reports
+            PYTHONPATH=. python3 -m milvus_client.requests.render_milvus_cr \
+              --deploy-profile "{{workflow.parameters.deploy-profile}}" \
+              --name "{{workflow.name}}" \
+              --namespace "{{workflow.parameters.milvus-namespace}}" \
+              --image "{{workflow.parameters.base-milvus-image}}" \
+              --version "{{workflow.parameters.base-version}}" \
+              --image-update-mode all \
+              --json-shredding-enabled "{{workflow.parameters.base-json-shredding-enabled}}" \
+              --loon-ffi-enabled "{{workflow.parameters.base-loon-ffi-enabled}}" \
+              --vortex-enabled "{{workflow.parameters.base-vortex-enabled}}" \
+              --workflow-name "{{workflow.name}}" \
+              --workflow-uid "{{workflow.uid}}" \
+              --app-name milvus-standalone-2-6-upgrade-rollback \
+              --output-yaml /tmp/milvus-cr.yaml \
+              --summary-json /tmp/milvus-bricks/reports/deploy_topology.json
+            kubectl apply -f /tmp/milvus-cr.yaml
 
     - name: wait-milvus-ready
       inputs:
@@ -875,6 +918,7 @@ spec:
           - name: image-update-mode
           - name: json-shredding-enabled
           - name: loon-ffi-enabled
+          - name: vortex-enabled
       container:
         image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
@@ -893,6 +937,11 @@ spec:
             from pathlib import Path
 
             loon_ffi_enabled = json.loads("""{{inputs.parameters.loon-ffi-enabled}}""")
+            vortex_enabled = json.loads("""{{inputs.parameters.vortex-enabled}}""")
+            storage = {
+                "jsonShreddingEnabled": json.loads("""{{inputs.parameters.json-shredding-enabled}}"""),
+                "useLoonFFI": loon_ffi_enabled,
+            }
             patch = {
                 "spec": {
                     "components": {
@@ -900,17 +949,10 @@ spec:
                         "version": "{{inputs.parameters.version}}",
                         "imageUpdateMode": "{{inputs.parameters.image-update-mode}}",
                     },
-                    "config": {
-                        "common": {
-                            "storage": {
-                                "jsonShreddingEnabled": json.loads("""{{inputs.parameters.json-shredding-enabled}}"""),
-                                "useLoonFFI": loon_ffi_enabled,
-                            }
-                        }
-                    },
+                    "config": {"common": {"storage": storage}},
                 }
             }
-            if loon_ffi_enabled:
+            if vortex_enabled:
                 patch["spec"]["config"]["dataNode"] = {"storage": {"format": "vortex"}}
             else:
                 patch["spec"]["config"]["dataNode"] = {"storage": {"format": None}}
@@ -926,6 +968,7 @@ spec:
           - name: enabled
           - name: json-shredding-enabled
           - name: loon-ffi-enabled
+          - name: vortex-enabled
       container:
         image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
@@ -948,19 +991,13 @@ spec:
             from pathlib import Path
 
             loon_ffi_enabled = json.loads("""{{inputs.parameters.loon-ffi-enabled}}""")
-            patch = {
-                "spec": {
-                    "config": {
-                        "common": {
-                            "storage": {
-                                "jsonShreddingEnabled": json.loads("""{{inputs.parameters.json-shredding-enabled}}"""),
-                                "useLoonFFI": loon_ffi_enabled,
-                            }
-                        }
-                    }
-                }
+            vortex_enabled = json.loads("""{{inputs.parameters.vortex-enabled}}""")
+            storage = {
+                "jsonShreddingEnabled": json.loads("""{{inputs.parameters.json-shredding-enabled}}"""),
+                "useLoonFFI": loon_ffi_enabled,
             }
-            if loon_ffi_enabled:
+            patch = {"spec": {"config": {"common": {"storage": storage}}}}
+            if vortex_enabled:
                 patch["spec"]["config"]["dataNode"] = {"storage": {"format": "vortex"}}
             else:
                 patch["spec"]["config"]["dataNode"] = {"storage": {"format": None}}
@@ -1572,6 +1609,9 @@ spec:
               --target-version "{{workflow.parameters.target-version}}" \
               --repo-url "{{workflow.parameters.repo-url}}" \
               --repo-revision "{{workflow.parameters.repo-revision}}" \
+              --scenario-id "{{workflow.parameters.scenario-id}}" \
+              --deploy-profile "{{workflow.parameters.deploy-profile}}" \
+              --deploy-topology /tmp/milvus-bricks/reports/deploy_topology.json \
               --schema-matrix "{{workflow.parameters.schema-matrix}}" \
               --collection-prefix "{{workflow.parameters.collection-prefix}}" \
               --forward-collection-prefix "{{workflow.parameters.forward-collection-prefix}}" \
@@ -1588,7 +1628,12 @@ spec:
               --base-json-shredding-enabled "{{workflow.parameters.base-json-shredding-enabled}}" \
               --target-json-shredding-enabled "{{workflow.parameters.target-json-shredding-enabled}}" \
               --rollback-json-shredding-enabled "{{workflow.parameters.rollback-json-shredding-enabled}}" \
+              --base-loon-ffi-enabled "{{workflow.parameters.base-loon-ffi-enabled}}" \
               --target-loon-ffi-enabled "{{workflow.parameters.target-loon-ffi-enabled}}" \
+              --rollback-loon-ffi-enabled "{{workflow.parameters.rollback-loon-ffi-enabled}}" \
+              --base-vortex-enabled "{{workflow.parameters.base-vortex-enabled}}" \
+              --target-vortex-enabled "{{workflow.parameters.target-vortex-enabled}}" \
+              --rollback-vortex-enabled "{{workflow.parameters.rollback-vortex-enabled}}" \
               --post-upgrade-config-toggle-enabled "{{workflow.parameters.post-upgrade-config-toggle-enabled}}" \
               --post-upgrade-json-shredding-enabled "{{workflow.parameters.post-upgrade-json-shredding-enabled}}" \
               --forward-workload-enabled "{{workflow.parameters.forward-workload-enabled}}" \
@@ -1723,7 +1768,12 @@ spec:
               "base_json_shredding_enabled": "{{workflow.parameters.base-json-shredding-enabled}}",
               "target_json_shredding_enabled": "{{workflow.parameters.target-json-shredding-enabled}}",
               "rollback_json_shredding_enabled": "{{workflow.parameters.rollback-json-shredding-enabled}}",
+              "base_loon_ffi_enabled": "{{workflow.parameters.base-loon-ffi-enabled}}",
               "target_loon_ffi_enabled": "{{workflow.parameters.target-loon-ffi-enabled}}",
+              "rollback_loon_ffi_enabled": "{{workflow.parameters.rollback-loon-ffi-enabled}}",
+              "base_vortex_enabled": "{{workflow.parameters.base-vortex-enabled}}",
+              "target_vortex_enabled": "{{workflow.parameters.target-vortex-enabled}}",
+              "rollback_vortex_enabled": "{{workflow.parameters.rollback-vortex-enabled}}",
               "post_upgrade_config_toggle_enabled": "{{workflow.parameters.post-upgrade-config-toggle-enabled}}",
               "post_upgrade_json_shredding_enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",

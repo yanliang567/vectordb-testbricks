@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
-  name: milvus-standalone-3-0-upgrade-rollback
+  name: milvus-cluster-upgrade-rollback
   namespace: qa
 spec:
   serviceAccountName: milvus-upgrade-rollback-runner
@@ -18,9 +18,9 @@ spec:
       - name: repo-revision
         value: main
       - name: scenario-id
-        value: standalone-3-0-upgrade-rollback
+        value: cluster-upgrade-rollback
       - name: deploy-profile
-        value: milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml
+        value: milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml
       - name: client-image
         value: harbor.milvus.io/qa/fouram:2.1
       - name: python-deps
@@ -861,7 +861,7 @@ spec:
               --vortex-enabled "{{workflow.parameters.base-vortex-enabled}}" \
               --workflow-name "{{workflow.name}}" \
               --workflow-uid "{{workflow.uid}}" \
-              --app-name milvus-standalone-3-0-upgrade-rollback \
+              --app-name milvus-cluster-upgrade-rollback \
               --output-yaml /tmp/milvus-cr.yaml \
               --summary-json /tmp/milvus-bricks/reports/deploy_topology.json
             kubectl apply -f /tmp/milvus-cr.yaml
@@ -1205,7 +1205,7 @@ spec:
                   --dry-run=client -o yaml > /tmp/pressure-attempt.yaml
                 kubectl label --local -f /tmp/pressure-attempt.yaml \
                   app.kubernetes.io/managed-by=argo-workflow \
-                  app.kubernetes.io/name=milvus-standalone-3-0-upgrade-rollback \
+                  app.kubernetes.io/name=milvus-cluster-upgrade-rollback \
                   zilliz.com/workflow-run-id="{{workflow.uid}}" \
                   zilliz.com/pressure-result=true \
                   -o yaml | kubectl apply -f -
@@ -1257,7 +1257,7 @@ spec:
                   --dry-run=client -o yaml > /tmp/pressure-result.yaml
                 kubectl label --local -f /tmp/pressure-result.yaml \
                   app.kubernetes.io/managed-by=argo-workflow \
-                  app.kubernetes.io/name=milvus-standalone-3-0-upgrade-rollback \
+                  app.kubernetes.io/name=milvus-cluster-upgrade-rollback \
                   zilliz.com/workflow-run-id="{{workflow.uid}}" \
                   zilliz.com/pressure-result=true \
                   -o yaml | kubectl apply -f -
@@ -1340,7 +1340,7 @@ spec:
               --dry-run=client -o yaml > /tmp/pressure-stop.yaml
             kubectl label --local -f /tmp/pressure-stop.yaml \
               app.kubernetes.io/managed-by=argo-workflow \
-              app.kubernetes.io/name=milvus-standalone-3-0-upgrade-rollback \
+              app.kubernetes.io/name=milvus-cluster-upgrade-rollback \
               zilliz.com/workflow-run-id="{{workflow.uid}}" \
               zilliz.com/pressure-stop=true \
               -o yaml | kubectl apply -f -

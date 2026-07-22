@@ -1,0 +1,67 @@
+name: cluster-woodpecker-1cu
+mode: cluster
+description: "1CU Milvus cluster with Woodpecker and in-cluster dependencies for QA upgrade/rollback compatibility tests."
+components:
+  mixCoord:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+  proxy:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+  queryNode:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+  dataNode:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+  streamingNode:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+dependencies:
+  msgStreamType: woodpecker
+  etcd:
+    inCluster:
+      deletionPolicy: Delete
+      pvcDeletion: true
+      values:
+        replicaCount: 1
+        persistence:
+          size: 10Gi
+  storage:
+    inCluster:
+      deletionPolicy: Delete
+      pvcDeletion: true
+      values:
+        mode: standalone
+        persistence:
+          size: 50Gi

@@ -155,7 +155,8 @@ RW pressure and validation loops, waits for external upgrade/rollback signals,
 creates and validates forward-only schema after upgrade, validates compat schema
 after rollback, and performs a final compat validation.
 
-See `docs/upgrade-rollback.md` for details.
+See `docs/upgrade-rollback.md` for design details and
+`docs/upgrade-rollback-gates/README.md` for the gate execution guide.
 
 ## 4am 2.6 Standalone Upgrade/Rollback
 
