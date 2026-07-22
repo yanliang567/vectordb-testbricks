@@ -18,7 +18,7 @@ spec:
       - name: repo-revision
         value: main
       - name: scenario-id
-        value: standalone-2-6-upgrade-rollback
+        value: standalone-2-6-18-to-3-0-latest-rollback-2-6-latest
       - name: deploy-profile
         value: milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml
       - name: client-image
@@ -28,15 +28,15 @@ spec:
       - name: base-milvus-image
         value: harbor.milvus.io/milvusdb/milvus:v2.6.18
       - name: rollback-milvus-image
-        value: harbor.milvus.io/milvusdb/milvus:v2.6.18
+        value: harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder
       - name: rollback-version
-        value: "2.6.18"
+        value: "2.6.0"
       - name: base-version
         value: "2.6.18"
       - name: target-milvus-image
-        value: harbor.milvus.io/milvusdb/milvus:2.6-20260707-e9ee9a47
+        value: harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder
       - name: target-version
-        value: "2.6.0"
+        value: "3.0.0"
       - name: base-json-shredding-enabled
         value: "false"
       - name: target-json-shredding-enabled

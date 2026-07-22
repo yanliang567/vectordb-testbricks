@@ -307,8 +307,26 @@ spec:
                 - name: args
                   value: ""
 
-          - name: validate-after-upgrade
+          - name: wait-upgrade-serviceability
             dependencies: [precheck-after-upgrade, pressure-daemon]
+            template: run-brick
+            arguments:
+              parameters:
+                - name: brick-name
+                  value: wait_upgrade_serviceability
+                - name: module
+                  value: milvus_client.requests.wait_data_serviceability
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+                    --interval-sec {{workflow.parameters.rollback-serviceability-interval-sec}}
+
+          - name: validate-after-upgrade
+            dependencies: [wait-upgrade-serviceability, pressure-daemon]
             template: run-brick
             arguments:
               parameters:
@@ -790,7 +808,7 @@ spec:
               "workflow_uid": "{{workflow.uid}}",
               "milvus_release_name": "{{workflow.name}}",
               "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
-              "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
+              "milvus_host": "{{workflow.name}}.{{workflow.parameters.milvus-namespace}}.svc",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
               "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
@@ -849,22 +867,41 @@ spec:
             git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/reports
-            PYTHONPATH=. python3 -m milvus_client.requests.render_milvus_cr \
+            PYTHONPATH=. python3 -m milvus_client.requests.render_milvus_helm_values \
               --deploy-profile "{{workflow.parameters.deploy-profile}}" \
               --name "{{workflow.name}}" \
               --namespace "{{workflow.parameters.milvus-namespace}}" \
               --image "{{workflow.parameters.base-milvus-image}}" \
               --version "{{workflow.parameters.base-version}}" \
-              --image-update-mode all \
               --json-shredding-enabled "{{workflow.parameters.base-json-shredding-enabled}}" \
               --loon-ffi-enabled "{{workflow.parameters.base-loon-ffi-enabled}}" \
               --vortex-enabled "{{workflow.parameters.base-vortex-enabled}}" \
               --workflow-name "{{workflow.name}}" \
               --workflow-uid "{{workflow.uid}}" \
               --app-name milvus-cluster-upgrade-rollback \
-              --output-yaml /tmp/milvus-cr.yaml \
+              --output-yaml /tmp/milvus-values.yaml \
               --summary-json /tmp/milvus-bricks/reports/deploy_topology.json
-            kubectl apply -f /tmp/milvus-cr.yaml
+            PYTHONPATH=. python3 - <<'PY' >/tmp/helm-env
+            from pathlib import Path
+            import shlex
+            import yaml
+
+            profile = yaml.safe_load(Path("{{workflow.parameters.deploy-profile}}").read_text())
+            helm = profile["helm"]
+            for key in ["repo_name", "repo_url", "chart", "chart_version"]:
+                print(f"{key}={shlex.quote(str(helm[key]))}")
+            PY
+            . /tmp/helm-env
+            helm repo add "$repo_name" "$repo_url" || true
+            helm repo update "$repo_name"
+            helm upgrade --install "{{workflow.name}}" "$chart" \
+              --version "$chart_version" \
+              --namespace "{{workflow.parameters.milvus-namespace}}" \
+              --values /tmp/milvus-values.yaml \
+              --wait \
+              --timeout 15m
+            kubectl -n "{{workflow.parameters.milvus-namespace}}" get deploy,statefulset,pods,svc,pvc \
+              -l app.kubernetes.io/instance="{{workflow.name}}" -o wide || true
 
     - name: wait-milvus-ready
       inputs:
@@ -884,28 +921,51 @@ spec:
           - |
             set -eu
             name="{{workflow.name}}"
+            ns="{{workflow.parameters.milvus-namespace}}"
             expected="{{inputs.parameters.expected-image}}"
             for i in $(seq 1 120); do
-              status=$(kubectl -n {{workflow.parameters.milvus-namespace}} get mi "$name" -o jsonpath='{.status.status}' 2>/dev/null || true)
-              current=$(kubectl -n {{workflow.parameters.milvus-namespace}} get mi "$name" -o jsonpath='{.status.currentImage}' 2>/dev/null || true)
-              endpoint=$(kubectl -n {{workflow.parameters.milvus-namespace}} get mi "$name" -o jsonpath='{.status.endpoint}' 2>/dev/null || true)
-              echo "[$i] status=$status currentImage=$current endpoint=$endpoint expected=$expected"
-              if kubectl -n {{workflow.parameters.milvus-namespace}} get svc "${name}-milvus" >/dev/null 2>&1; then
+              helm_status=$(helm status "$name" -n "$ns" -o json 2>/dev/null | python3 -c 'import json,sys; print((json.load(sys.stdin).get("info") or {}).get("status", ""))' 2>/dev/null || true)
+              if kubectl -n "$ns" get svc "$name" >/dev/null 2>&1; then
                 svc_ok=true
               else
                 svc_ok=false
               fi
-              if { [ "$status" = "Healthy" ] || [ "$status" = "Ready" ]; } && [ "$svc_ok" = "true" ]; then
-                if [ -z "$expected" ] || [ "$current" = "$expected" ]; then
-                  kubectl -n {{workflow.parameters.milvus-namespace}} get mi "$name" -o wide || true
-                  kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l app.kubernetes.io/instance="$name" -o wide || true
+              pods_ready=false
+              if kubectl -n "$ns" wait pod -l app.kubernetes.io/instance="$name" --for=condition=Ready --timeout=10s >/tmp/pod-wait.log 2>&1; then
+                pods_ready=true
+              fi
+              kubectl -n "$ns" get deploy,statefulset -l app.kubernetes.io/instance="$name" -o json >/tmp/workloads.json 2>/dev/null || echo '{"items":[]}' >/tmp/workloads.json
+              image_status=$(python3 - "$expected" <<'PY'
+            import json
+            import sys
+
+            expected = sys.argv[1]
+            payload = json.load(open("/tmp/workloads.json"))
+            milvus_images = []
+            for item in payload.get("items", []):
+                for container in item.get("spec", {}).get("template", {}).get("spec", {}).get("containers", []):
+                    image = container.get("image", "")
+                    if "milvusdb/milvus:" in image or "/milvus:" in image:
+                        milvus_images.append(image)
+            if not expected:
+                print("ok" if milvus_images else "missing")
+            else:
+                print("ok" if milvus_images and all(image == expected for image in milvus_images) else ",".join(milvus_images))
+            PY
+              )
+              echo "[$i] helmStatus=$helm_status svc=$svc_ok podsReady=$pods_ready milvusImages=$image_status expected=$expected"
+              if [ "$helm_status" = "deployed" ] && [ "$svc_ok" = "true" ] && [ "$pods_ready" = "true" ]; then
+                if [ "$image_status" = "ok" ]; then
+                  helm status "$name" -n "$ns" || true
+                  kubectl -n "$ns" get deploy,statefulset,pods,svc -l app.kubernetes.io/instance="$name" -o wide || true
                   exit 0
                 fi
               fi
               sleep 10
             done
-            kubectl -n {{workflow.parameters.milvus-namespace}} get mi "$name" -o yaml || true
-            kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l app.kubernetes.io/instance="$name" -o wide || true
+            helm status "$name" -n "$ns" || true
+            kubectl -n "$ns" get deploy,statefulset,pods,svc,pvc -l app.kubernetes.io/instance="$name" -o wide || true
+            kubectl -n "$ns" get events --sort-by=.lastTimestamp | tail -120 || true
             exit 1
 
     - name: patch-milvus-image
@@ -930,35 +990,58 @@ spec:
         args:
           - |
             set -eux
+            python3 -m pip install --disable-pip-version-check -q pyyaml
+            image="{{inputs.parameters.image}}"
+            repository="${image%:*}"
+            tag="${image##*:}"
+            rm -rf /tmp/repo
+            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            cd /tmp/repo/milvus-bricks
             python3 - <<'PY'
-            import json
             from pathlib import Path
+            import yaml
 
-            loon_ffi_enabled = json.loads("""{{inputs.parameters.loon-ffi-enabled}}""")
-            vortex_enabled = json.loads("""{{inputs.parameters.vortex-enabled}}""")
-            storage = {
-                "jsonShreddingEnabled": json.loads("""{{inputs.parameters.json-shredding-enabled}}"""),
-                "useLoonFFI": loon_ffi_enabled,
-            }
-            patch = {
-                "spec": {
-                    "components": {
-                        "image": "{{inputs.parameters.image}}",
-                        "version": "{{inputs.parameters.version}}",
-                        "imageUpdateMode": "{{inputs.parameters.image-update-mode}}",
-                    },
-                    "config": {"common": {"storage": storage}},
+            def as_bool(value: str) -> bool:
+                return value == "true"
+
+            config = {
+                "common": {
+                    "storage": {
+                        "jsonShreddingEnabled": as_bool("{{inputs.parameters.json-shredding-enabled}}"),
+                    }
                 }
             }
-            if vortex_enabled:
-                patch["spec"]["config"]["dataNode"] = {"storage": {"format": "vortex"}}
-            else:
-                patch["spec"]["config"]["dataNode"] = {"storage": {"format": None}}
-            Path("/tmp/milvus-patch.json").write_text(json.dumps(patch, indent=2, sort_keys=True))
-            print(json.dumps(patch, indent=2, sort_keys=True))
+            if as_bool("{{inputs.parameters.loon-ffi-enabled}}"):
+                config["common"]["storage"]["useLoonFFI"] = True
+            if as_bool("{{inputs.parameters.vortex-enabled}}"):
+                config["dataNode"] = {"storage": {"format": "vortex"}}
+            Path("/tmp/user.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+            print(Path("/tmp/user.yaml").read_text())
             PY
-            kubectl -n {{workflow.parameters.milvus-namespace}} patch mi {{workflow.name}} --type merge --patch-file /tmp/milvus-patch.json
-            kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o yaml | sed -n '1,180p'
+            PYTHONPATH=. python3 - <<'PY' >/tmp/helm-env
+            from pathlib import Path
+            import shlex
+            import yaml
+
+            profile = yaml.safe_load(Path("{{workflow.parameters.deploy-profile}}").read_text())
+            helm = profile["helm"]
+            for key in ["repo_name", "repo_url", "chart", "chart_version"]:
+                print(f"{key}={shlex.quote(str(helm[key]))}")
+            PY
+            . /tmp/helm-env
+            helm repo add "$repo_name" "$repo_url" || true
+            helm repo update "$repo_name"
+            helm upgrade "{{workflow.name}}" "$chart" \
+              --version "$chart_version" \
+              --namespace "{{workflow.parameters.milvus-namespace}}" \
+              --reuse-values \
+              --set image.all.repository="$repository" \
+              --set image.all.tag="$tag" \
+              --set image.all.pullPolicy=Always \
+              --set-file extraConfigFiles.user\\.yaml=/tmp/user.yaml \
+              --wait \
+              --timeout 15m
+            helm get values "{{workflow.name}}" -n "{{workflow.parameters.milvus-namespace}}" -a | sed -n '1,180p'
 
     - name: patch-milvus-config
       inputs:
@@ -984,26 +1067,52 @@ spec:
               echo "post-upgrade config toggle disabled"
               exit 0
             fi
+            python3 -m pip install --disable-pip-version-check -q pyyaml
+            rm -rf /tmp/repo
+            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            cd /tmp/repo/milvus-bricks
             python3 - <<'PY'
-            import json
             from pathlib import Path
+            import yaml
 
-            loon_ffi_enabled = json.loads("""{{inputs.parameters.loon-ffi-enabled}}""")
-            vortex_enabled = json.loads("""{{inputs.parameters.vortex-enabled}}""")
-            storage = {
-                "jsonShreddingEnabled": json.loads("""{{inputs.parameters.json-shredding-enabled}}"""),
-                "useLoonFFI": loon_ffi_enabled,
+            def as_bool(value: str) -> bool:
+                return value == "true"
+
+            config = {
+                "common": {
+                    "storage": {
+                        "jsonShreddingEnabled": as_bool("{{inputs.parameters.json-shredding-enabled}}"),
+                    }
+                }
             }
-            patch = {"spec": {"config": {"common": {"storage": storage}}}}
-            if vortex_enabled:
-                patch["spec"]["config"]["dataNode"] = {"storage": {"format": "vortex"}}
-            else:
-                patch["spec"]["config"]["dataNode"] = {"storage": {"format": None}}
-            Path("/tmp/milvus-config-patch.json").write_text(json.dumps(patch, indent=2, sort_keys=True))
-            print(json.dumps(patch, indent=2, sort_keys=True))
+            if as_bool("{{inputs.parameters.loon-ffi-enabled}}"):
+                config["common"]["storage"]["useLoonFFI"] = True
+            if as_bool("{{inputs.parameters.vortex-enabled}}"):
+                config["dataNode"] = {"storage": {"format": "vortex"}}
+            Path("/tmp/user.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+            print(Path("/tmp/user.yaml").read_text())
             PY
-            kubectl -n {{workflow.parameters.milvus-namespace}} patch mi {{workflow.name}} --type merge --patch-file /tmp/milvus-config-patch.json
-            kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o yaml | sed -n '1,180p'
+            PYTHONPATH=. python3 - <<'PY' >/tmp/helm-env
+            from pathlib import Path
+            import shlex
+            import yaml
+
+            profile = yaml.safe_load(Path("{{workflow.parameters.deploy-profile}}").read_text())
+            helm = profile["helm"]
+            for key in ["repo_name", "repo_url", "chart", "chart_version"]:
+                print(f"{key}={shlex.quote(str(helm[key]))}")
+            PY
+            . /tmp/helm-env
+            helm repo add "$repo_name" "$repo_url" || true
+            helm repo update "$repo_name"
+            helm upgrade "{{workflow.name}}" "$chart" \
+              --version "$chart_version" \
+              --namespace "{{workflow.parameters.milvus-namespace}}" \
+              --reuse-values \
+              --set-file extraConfigFiles.user\\.yaml=/tmp/user.yaml \
+              --wait \
+              --timeout 15m
+            helm get values "{{workflow.name}}" -n "{{workflow.parameters.milvus-namespace}}" -a | sed -n '1,180p'
 
     - name: snapshot-milvus-config
       inputs:
@@ -1026,30 +1135,52 @@ spec:
         args:
           - |
             set -eu
+            python3 -m pip install --disable-pip-version-check -q pyyaml
             mkdir -p /tmp/milvus-bricks/k8s
             phase="{{inputs.parameters.phase}}"
-            kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o json > "/tmp/milvus-bricks/k8s/milvus-${phase}.json"
+            version="{{workflow.parameters.target-version}}"
+            case "$phase" in
+              base) version="{{workflow.parameters.base-version}}" ;;
+              after-rollback) version="{{workflow.parameters.rollback-version}}" ;;
+            esac
+            export SNAPSHOT_PHASE="$phase"
+            export SNAPSHOT_VERSION="$version"
+            helm get values "{{workflow.name}}" -n "{{workflow.parameters.milvus-namespace}}" -a -o yaml > "/tmp/milvus-bricks/k8s/helm-values-${phase}.yaml"
+            kubectl -n {{workflow.parameters.milvus-namespace}} get deploy,statefulset \
+              -l app.kubernetes.io/instance="{{workflow.name}}" -o json > "/tmp/milvus-bricks/k8s/workloads-${phase}.json"
             python3 - <<'PY'
             import json
+            import os
             from pathlib import Path
+            import yaml
 
-            phase = "{{inputs.parameters.phase}}"
-            source = Path(f"/tmp/milvus-bricks/k8s/milvus-{phase}.json")
+            phase = os.environ["SNAPSHOT_PHASE"]
+            version = os.environ["SNAPSHOT_VERSION"]
+            values_source = Path(f"/tmp/milvus-bricks/k8s/helm-values-{phase}.yaml")
+            workloads_source = Path(f"/tmp/milvus-bricks/k8s/workloads-{phase}.json")
             target = Path(f"/tmp/milvus-bricks/k8s/config-{phase}.json")
-            payload = json.loads(source.read_text())
-            spec = payload.get("spec", {})
-            status = payload.get("status", {})
+            values = yaml.safe_load(values_source.read_text()) or {}
+            workloads = json.loads(workloads_source.read_text())
+            image_all = values.get("image", {}).get("all", {})
+            image = f"{image_all.get('repository')}:{image_all.get('tag')}"
+            milvus_images = []
+            for item in workloads.get("items", []):
+                for container in item.get("spec", {}).get("template", {}).get("spec", {}).get("containers", []):
+                    container_image = container.get("image", "")
+                    if "milvusdb/milvus:" in container_image or "/milvus:" in container_image:
+                        milvus_images.append(container_image)
             snapshot = {
                 "phase": phase,
-                "name": payload.get("metadata", {}).get("name"),
-                "namespace": payload.get("metadata", {}).get("namespace"),
-                "image": spec.get("components", {}).get("image"),
-                "version": spec.get("components", {}).get("version"),
-                "image_update_mode": spec.get("components", {}).get("imageUpdateMode"),
-                "current_image": status.get("currentImage"),
-                "current_version": status.get("currentVersion"),
-                "status": status.get("status"),
-                "config": spec.get("config", {}),
+                "name": "{{workflow.name}}",
+                "namespace": "{{workflow.parameters.milvus-namespace}}",
+                "image": image,
+                "version": version,
+                "image_update_mode": "helm-upgrade",
+                "current_image": image,
+                "current_version": version,
+                "status": "deployed",
+                "milvus_images": milvus_images,
+                "config": yaml.safe_load(values.get("extraConfigFiles", {}).get("user.yaml", "{}")) or {},
             }
             target.write_text(json.dumps(snapshot, indent=2, sort_keys=True))
             print(json.dumps(snapshot, indent=2, sort_keys=True))
@@ -1104,7 +1235,7 @@ spec:
             git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
             cd /tmp/repo/milvus-bricks
             PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
-              --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
+              --uri "http://{{workflow.name}}.{{workflow.parameters.milvus-namespace}}.svc:19530" \
               --collection-prefix "{{inputs.parameters.collection-prefix}}" \
               --checkpoint-dir /tmp/milvus-bricks/checkpoints \
               --output-json /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json \
@@ -1148,7 +1279,7 @@ spec:
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/results /tmp/milvus-bricks/checkpoints
             PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
-              --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
+              --uri "http://{{workflow.name}}.{{workflow.parameters.milvus-namespace}}.svc:19530" \
               --collection-prefix "{{inputs.parameters.collection-prefix}}" \
               --checkpoint-dir /tmp/milvus-bricks/checkpoints \
               --output-json /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json \
@@ -1211,7 +1342,7 @@ spec:
                   -o yaml | kubectl apply -f -
                 set +e
                 PYTHONPATH=. python3 -m "milvus_client.requests.${module}" \
-                  --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
+                  --uri "http://{{workflow.name}}.{{workflow.parameters.milvus-namespace}}.svc:19530" \
                   --collection-prefix "{{workflow.parameters.collection-prefix}}" \
                   --checkpoint-dir /tmp/pressure-checkpoints \
                   --output-json "$result" \
@@ -1296,7 +1427,7 @@ spec:
               echo "strict pressure phase=${phase} module=${module}"
               set +e
               PYTHONPATH=. python3 -m "milvus_client.requests.${module}" \
-                --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
+                --uri "http://{{workflow.name}}.{{workflow.parameters.milvus-namespace}}.svc:19530" \
                 --collection-prefix "{{inputs.parameters.collection-prefix}}" \
                 --checkpoint-dir /tmp/strict-pressure-checkpoints \
                 --output-json "$result" \
@@ -1577,7 +1708,7 @@ spec:
               "workflow_uid": "{{workflow.uid}}",
               "milvus_release_name": "{{workflow.name}}",
               "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
-              "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
+              "milvus_host": "{{workflow.name}}.{{workflow.parameters.milvus-namespace}}.svc",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
               "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
@@ -1598,7 +1729,7 @@ spec:
               --workflow-namespace "{{workflow.namespace}}" \
               --milvus-release-name "{{workflow.name}}" \
               --milvus-namespace "{{workflow.parameters.milvus-namespace}}" \
-              --milvus-host "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc" \
+              --milvus-host "{{workflow.name}}.{{workflow.parameters.milvus-namespace}}.svc" \
               --base-milvus-image "{{workflow.parameters.base-milvus-image}}" \
               --rollback-milvus-image "{{workflow.parameters.rollback-milvus-image}}" \
               --target-milvus-image "{{workflow.parameters.target-milvus-image}}" \
@@ -1738,9 +1869,77 @@ spec:
             if [ "{{workflow.parameters.keep-milvus}}" = "false" ]; then
               cleanup_attempted=true
               if {
-                kubectl -n "$ns" delete milvuses -l "$selector" --ignore-not-found=true
-                kubectl -n "$ns" delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets -l app.kubernetes.io/instance="{{workflow.name}}" --ignore-not-found=true
-                kubectl -n "$workflow_ns" delete configmaps -l "$selector" --ignore-not-found=true
+                cleanup_failed=false
+                if ! helm uninstall "{{workflow.name}}" -n "$ns" --wait --timeout 5m; then
+                  cleanup_failed=true
+                  echo "helm uninstall failed for release {{workflow.name}}"
+                fi
+                if ! kubectl -n "$ns" get pvc -o json > /tmp/milvus-bricks/k8s/pvcs-before-explicit-cleanup.json; then
+                  cleanup_failed=true
+                  echo "failed to list PVCs before explicit cleanup"
+                  echo '{"items":[]}' > /tmp/milvus-bricks/k8s/pvcs-before-explicit-cleanup.json
+                fi
+                python3 - "{{workflow.name}}" <<'PY' > /tmp/milvus-bricks/k8s/explicit-pvcs-to-delete.txt
+            import json
+            import re
+            import sys
+            from pathlib import Path
+
+            release = sys.argv[1]
+            payload = json.loads(Path("/tmp/milvus-bricks/k8s/pvcs-before-explicit-cleanup.json").read_text())
+            pattern = re.compile(
+                rf"^(data-{re.escape(release)}-etcd-[0-9]+|woodpecker-storage-{re.escape(release)}-woodpecker-[0-9]+)$"
+            )
+            for item in payload.get("items", []):
+                name = item.get("metadata", {}).get("name", "")
+                if pattern.match(name):
+                    print(f"persistentvolumeclaim/{name}")
+            PY
+                while IFS= read -r pvc_resource; do
+                  [ -n "$pvc_resource" ] || continue
+                  kubectl -n "$ns" delete "$pvc_resource" --ignore-not-found=true || cleanup_failed=true
+                done < /tmp/milvus-bricks/k8s/explicit-pvcs-to-delete.txt
+                kubectl -n "$ns" delete milvuses -l "$selector" --ignore-not-found=true || cleanup_failed=true
+                kubectl -n "$ns" delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets,serviceaccounts,poddisruptionbudgets -l app.kubernetes.io/instance="{{workflow.name}}" --ignore-not-found=true || cleanup_failed=true
+                kubectl -n "$ns" delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets,serviceaccounts,poddisruptionbudgets -l release="{{workflow.name}}" --ignore-not-found=true || cleanup_failed=true
+                kubectl -n "$workflow_ns" delete configmaps -l "$selector" --ignore-not-found=true || cleanup_failed=true
+                if helm status "{{workflow.name}}" -n "$ns" >/dev/null 2>&1; then
+                  cleanup_failed=true
+                  echo "helm release still exists after cleanup: {{workflow.name}}"
+                fi
+                if ! kubectl -n "$ns" get pvc -o json > /tmp/milvus-bricks/k8s/pvcs-after-cleanup.json; then
+                  cleanup_failed=true
+                  echo "failed to list PVCs after cleanup"
+                  echo '{"items":[]}' > /tmp/milvus-bricks/k8s/pvcs-after-cleanup.json
+                fi
+                python3 - "{{workflow.name}}" <<'PY' > /tmp/milvus-bricks/k8s/remaining-pvcs-after-cleanup.txt
+            import json
+            import re
+            import sys
+            from pathlib import Path
+
+            release = sys.argv[1]
+            payload = json.loads(Path("/tmp/milvus-bricks/k8s/pvcs-after-cleanup.json").read_text())
+            release_owned_names = re.compile(
+                rf"^(data-{re.escape(release)}-etcd-[0-9]+|woodpecker-storage-{re.escape(release)}-woodpecker-[0-9]+)$"
+            )
+            for item in payload.get("items", []):
+                metadata = item.get("metadata", {})
+                name = metadata.get("name", "")
+                labels = metadata.get("labels", {})
+                if (
+                    release_owned_names.match(name)
+                    or labels.get("release") == release
+                    or labels.get("app.kubernetes.io/instance") == release
+                ):
+                    print(name)
+            PY
+                if [ -s /tmp/milvus-bricks/k8s/remaining-pvcs-after-cleanup.txt ]; then
+                  cleanup_failed=true
+                  echo "PVCs still exist after cleanup:"
+                  cat /tmp/milvus-bricks/k8s/remaining-pvcs-after-cleanup.txt
+                fi
+                [ "$cleanup_failed" = "false" ]
               } > /tmp/milvus-bricks/k8s/cleanup.txt 2>&1; then
                 cleanup_status="completed"
               else
@@ -1798,7 +1997,7 @@ spec:
                     "workflow_uid": "{{workflow.uid}}",
                     "milvus_release_name": "{{workflow.name}}",
                     "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
-                    "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
+                    "milvus_host": "{{workflow.name}}.{{workflow.parameters.milvus-namespace}}.svc",
                     "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
                     "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
                     "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
@@ -1822,7 +2021,7 @@ spec:
               "workflow_uid": "{{workflow.uid}}",
               "milvus_release_name": "{{workflow.name}}",
               "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
-              "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
+              "milvus_host": "{{workflow.name}}.{{workflow.parameters.milvus-namespace}}.svc",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
               "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",

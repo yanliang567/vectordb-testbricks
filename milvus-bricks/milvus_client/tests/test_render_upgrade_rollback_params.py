@@ -91,7 +91,7 @@ def test_render_params_cli_writes_json(tmp_path):
             "--manifest",
             str(GATES),
             "--scenario-id",
-            "standalone-2-6-18-to-3-0-latest-rollback-2-6-18",
+            "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
             "--format",
             "json",
             "--allow-placeholder",
@@ -103,7 +103,7 @@ def test_render_params_cli_writes_json(tmp_path):
     payload = json.loads(output.read_text())
     assert rc == 0
     assert payload["workflow_template"] == "milvus-standalone-2-6-upgrade-rollback"
-    assert payload["parameters"]["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
+    assert payload["parameters"]["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder"
 
 
 def test_render_params_cli_writes_yaml_and_supports_deploy_profile_override(tmp_path):
@@ -165,7 +165,7 @@ def test_render_params_cli_rejects_placeholder_images_for_promoted_gate(tmp_path
             "--manifest",
             str(GATES),
             "--scenario-id",
-            "standalone-2-6-18-to-3-0-latest-rollback-2-6-18",
+            "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
             "--format",
             "json",
             "--output",

@@ -46,10 +46,10 @@ image_aliases:
 
 scenarios:
   - id: standalone-2-6-18-to-3-0-latest-rollback-2-6-18
-    description: "Officially supported 2.6.18 baseline to 3.0 latest rollback boundary; storage v3/vortex must stay disabled."
+    description: "Diagnostic coverage for the pre-#50792 2.6.18 rollback boundary; expected to hit #50694 session version guard with recent 3.0 images."
     mode: standalone
-    classification: gate
-    support_status: supported_with_config_constraints
+    classification: diagnostic
+    support_status: unsupported_known_issue
     workflow_template_ref: standalone_2_6
     deploy_profile_ref: standalone
     schema_matrix_ref: "2.6"
@@ -148,10 +148,10 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-2-6-18-to-3-0-latest-rollback-2-6-18
-    description: "Cluster-mode coverage for the supported 2.6.18 to 3.0 latest rollback boundary; storage v3/vortex must stay disabled."
+    description: "Cluster-mode diagnostic coverage for the pre-#50792 2.6.18 rollback boundary; expected to hit #50694 session version guard with recent 3.0 images."
     mode: cluster
-    classification: gate
-    support_status: supported_with_config_constraints
+    classification: diagnostic
+    support_status: unsupported_known_issue
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
     schema_matrix_ref: "2.6"
