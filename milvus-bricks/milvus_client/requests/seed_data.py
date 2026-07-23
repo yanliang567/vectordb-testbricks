@@ -6,9 +6,17 @@ import sys
 
 from milvus_client.common.args import build_common_parser, parse_bool
 from milvus_client.common.client import create_client
-from milvus_client.common.data import checksum_fields_for_spec, generate_rows, stable_checksum
+from milvus_client.common.data import (
+    checksum_fields_for_spec,
+    generate_rows,
+    stable_checksum,
+)
 from milvus_client.common.result import FAILED, result_from_args
-from milvus_client.common.schema import auto_id_enabled, collection_name, load_schema_matrix
+from milvus_client.common.schema import (
+    auto_id_enabled,
+    collection_name,
+    load_schema_matrix,
+)
 
 
 def add_args(parser):
@@ -39,14 +47,20 @@ def _partition_for_id(partitions: list[str], pk: int) -> str | None:
     return partitions[pk % len(partitions)]
 
 
-def _insert_rows(client, collection_name: str, rows: list[dict], partition_name: str | None = None):
+def _insert_rows(
+    client, collection_name: str, rows: list[dict], partition_name: str | None = None
+):
     if partition_name:
-        return client.insert(collection_name=collection_name, data=rows, partition_name=partition_name)
+        return client.insert(
+            collection_name=collection_name, data=rows, partition_name=partition_name
+        )
     return client.insert(collection_name=collection_name, data=rows)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_common_parser("Seed deterministic data into schema matrix collections")
+    parser = build_common_parser(
+        "Seed deterministic data into schema matrix collections"
+    )
     add_args(parser)
     args = parser.parse_args(argv)
     result = result_from_args(args, "seed_data")
@@ -67,18 +81,35 @@ def main(argv: list[str] | None = None) -> int:
             uses_auto_id = auto_id_enabled(spec)
             try:
                 if not client.has_collection(name):
-                    result.mark_failed("COLLECTION_NOT_FOUND", "target collection does not exist", collection=name)
+                    result.mark_failed(
+                        "COLLECTION_NOT_FOUND",
+                        "target collection does not exist",
+                        collection=name,
+                    )
                     continue
-                for start in range(args.start_id, args.start_id + args.rows_per_collection, args.batch_size):
-                    count = min(args.batch_size, args.start_id + args.rows_per_collection - start)
-                    rows = generate_rows(spec, start_id=start, count=count, seed=args.seed)
+                for start in range(
+                    args.start_id,
+                    args.start_id + args.rows_per_collection,
+                    args.batch_size,
+                ):
+                    count = min(
+                        args.batch_size,
+                        args.start_id + args.rows_per_collection - start,
+                    )
+                    rows = generate_rows(
+                        spec, start_id=start, count=count, seed=args.seed
+                    )
                     if rows:
                         if spec.partitions:
                             responses = []
                             partition_rows: dict[str, list[tuple[int, dict]]] = {}
                             for offset, row in enumerate(rows):
-                                partition = _partition_for_id(spec.partitions, start + offset)
-                                partition_rows.setdefault(partition or "", []).append((offset, row))
+                                partition = _partition_for_id(
+                                    spec.partitions, start + offset
+                                )
+                                partition_rows.setdefault(partition or "", []).append(
+                                    (offset, row)
+                                )
                             for partition, rows_with_offsets in partition_rows.items():
                                 response = _insert_rows(
                                     client,
@@ -88,7 +119,12 @@ def main(argv: list[str] | None = None) -> int:
                                 )
                                 responses.append((rows_with_offsets, response))
                         else:
-                            responses = [([(offset, row) for offset, row in enumerate(rows)], _insert_rows(client, name, rows))]
+                            responses = [
+                                (
+                                    [(offset, row) for offset, row in enumerate(rows)],
+                                    _insert_rows(client, name, rows),
+                                )
+                            ]
                         if uses_auto_id:
                             for rows_with_offsets, response in responses:
                                 ids = _extract_insert_ids(response)
@@ -96,7 +132,9 @@ def main(argv: list[str] | None = None) -> int:
                                     raise RuntimeError(
                                         f"auto_id insert returned {len(ids)} ids for {len(rows_with_offsets)} rows"
                                     )
-                                for (_, row), inserted_id in zip(rows_with_offsets, ids):
+                                for (_, row), inserted_id in zip(
+                                    rows_with_offsets, ids
+                                ):
                                     row[primary_field] = inserted_id
                                     collection_ids.append(inserted_id)
                         collection_rows.extend(rows)
@@ -123,7 +161,9 @@ def main(argv: list[str] | None = None) -> int:
                 pk_samples = list(
                     dict.fromkeys(
                         collection_ids[:1]
-                        + collection_ids[len(collection_ids) // 2 : len(collection_ids) // 2 + 1]
+                        + collection_ids[
+                            len(collection_ids) // 2 : len(collection_ids) // 2 + 1
+                        ]
                         + collection_ids[-1:]
                     )
                 )
@@ -139,8 +179,12 @@ def main(argv: list[str] | None = None) -> int:
                 "primary_field": primary_field,
                 "min_pk": min_pk,
                 "max_pk": max_pk,
+                "data_min_pk": args.start_id,
+                "data_max_pk": args.start_id + args.rows_per_collection - 1,
                 "checksum_fields": checksum_fields,
-                "checksum": stable_checksum(collection_rows, fields=checksum_fields, primary_field=primary_field),
+                "checksum": stable_checksum(
+                    collection_rows, fields=checksum_fields, primary_field=primary_field
+                ),
             }
             if pk_samples:
                 collection_checkpoint["pk_samples"] = pk_samples
@@ -169,7 +213,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if result.failures else 0
     except Exception as exc:
         result.status = FAILED
-        result.mark_failed("SEED_DATA_FAILED", "unexpected error during data seeding", error=str(exc))
+        result.mark_failed(
+            "SEED_DATA_FAILED", "unexpected error during data seeding", error=str(exc)
+        )
         result.write(args.output_json)
         return 4
 

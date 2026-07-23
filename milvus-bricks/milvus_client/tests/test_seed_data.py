@@ -27,7 +27,12 @@ class AutoIdClient:
 
     def insert(self, **kwargs):
         self.insert_calls.append(kwargs)
-        return {"ids": [1000 + len(self.insert_calls) * 10 + offset for offset, _ in enumerate(kwargs["data"])]}
+        return {
+            "ids": [
+                1000 + len(self.insert_calls) * 10 + offset
+                for offset, _ in enumerate(kwargs["data"])
+            ]
+        }
 
     def flush(self, *args, **kwargs):
         del args, kwargs
@@ -35,7 +40,9 @@ class AutoIdClient:
 
 def test_seed_data_writes_structured_failure(monkeypatch, tmp_path):
     output_json = tmp_path / "result.json"
-    monkeypatch.setattr(seed_data, "create_client", lambda *args, **kwargs: FailingInsertClient())
+    monkeypatch.setattr(
+        seed_data, "create_client", lambda *args, **kwargs: FailingInsertClient()
+    )
 
     code = seed_data.main(
         [
@@ -136,6 +143,8 @@ schemas:
     assert meta["primary_field"] == "id"
     assert meta["min_pk"] == 1010
     assert meta["max_pk"] == 1011
+    assert meta["data_min_pk"] == 0
+    assert meta["data_max_pk"] == 1
     assert meta["pk_samples"] == [1010, 1011]
     assert meta["pk_values"] == [1010, 1011]
 

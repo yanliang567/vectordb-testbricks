@@ -17,6 +17,7 @@ from milvus_client.common.schema import (
     FieldSpec,
     SchemaSpec,
     VECTOR_TYPES,
+    auto_id_enabled,
     build_index_params,
     function_output_fields,
     load_schema_matrix,
@@ -359,15 +360,23 @@ def _create_indexes_for_spec(
 def _expected_primary_value(
     spec: SchemaSpec,
     meta: dict[str, Any],
-    pk_number: int,
+    data_pk_number: int,
 ) -> Any:
     primary = _primary_field(spec)
+    if auto_id_enabled(spec):
+        pk_values = meta.get("pk_values") or meta.get("pk_samples") or []
+        if pk_values:
+            return pk_values[0]
+        return meta.get("min_pk")
     if primary is not None:
-        return generate_primary_key_value(primary, pk_number)
-    pk_values = meta.get("pk_values") or meta.get("pk_samples") or []
-    if pk_values:
-        return pk_values[0]
-    return pk_number
+        return generate_primary_key_value(primary, data_pk_number)
+    return data_pk_number
+
+
+def _data_pk_number(spec: SchemaSpec, meta: dict[str, Any]) -> int:
+    if auto_id_enabled(spec):
+        return int(meta.get("data_min_pk", 0))
+    return int(meta["min_pk"])
 
 
 def _hit_value(hit: Any, key: str) -> Any:
@@ -444,7 +453,7 @@ def _validate_vector_search_hit(
     if distance is None:
         return
     metric = metric_type.upper()
-    if metric in {"L2", "COSINE", "HAMMING", "JACCARD"} and distance > 1e-3:
+    if metric in {"L2", "HAMMING", "JACCARD"} and distance > 1e-3:
         report.fail(
             INDEX_SEARCH_FAILED,
             "indexed vector self-search distance is higher than expected",
@@ -455,7 +464,7 @@ def _validate_vector_search_hit(
             distance=distance,
             max_distance=1e-3,
         )
-    if metric == "IP" and distance < 0.9:
+    if metric in {"COSINE", "IP"} and distance < 0.9:
         report.fail(
             INDEX_SEARCH_FAILED,
             "indexed vector self-search score is lower than expected",
@@ -481,17 +490,17 @@ def _validate_index_searches(
     primary_name = meta.get("primary_field") or (
         primary.name if primary is not None else "id"
     )
-    pk_number = int(meta["min_pk"])
-    expected_pk = _expected_primary_value(spec, meta, pk_number)
+    data_pk_number = _data_pk_number(spec, meta)
+    expected_pk = _expected_primary_value(spec, meta, data_pk_number)
     function_outputs = function_output_fields(spec)
     for vector_field in _indexed_vector_fields(spec):
         metric_type = metric_type_for_field(spec, vector_field.name)
         if vector_field.name in function_outputs and metric_type == "BM25":
             query_vector = (
-                f"milvus compatibility upgrade rollback token_{pk_number % 16}"
+                f"milvus compatibility upgrade rollback token_{data_pk_number % 16}"
             )
         else:
-            query_vector = stable_vector_value(vector_field, pk_number, seed)
+            query_vector = stable_vector_value(vector_field, data_pk_number, seed)
         try:
             response = client.search(
                 collection_name=collection,
@@ -557,11 +566,11 @@ def _validate_scalar_index_queries(
     primary_name = meta.get("primary_field") or (
         primary.name if primary is not None else "id"
     )
-    pk = int(meta["min_pk"])
-    expected_pk = _expected_primary_value(spec, meta, pk)
+    data_pk_number = _data_pk_number(spec, meta)
+    expected_pk = _expected_primary_value(spec, meta, data_pk_number)
     queries = 0
     for field in _indexed_scalar_fields(spec):
-        filter_expr = _scalar_index_filter(field, pk, seed)
+        filter_expr = _scalar_index_filter(field, data_pk_number, seed)
         if not filter_expr:
             continue
         try:

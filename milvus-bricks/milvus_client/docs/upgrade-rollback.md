@@ -177,7 +177,11 @@ workflow reads that checkpoint, re-enumerates the actual indexes, compares
 index name/field/type/metric metadata, and validates load/search/query again.
 Scalar index queries must return the expected target PK; deterministic vector
 self-search must return the expected PK and a sane self-match distance/score
-when the metric supports that assertion.
+when the metric supports that assertion. L2/HAMMING/JACCARD self-search expects
+near-zero distance, while COSINE/IP expects a high similarity score. AutoID
+checkpoints keep both the deterministic data-generation id range and the actual
+Milvus-generated PKs, so query vectors/filters are rebuilt from generation ids
+while expected hits use actual PKs.
 Promoted gates do not drop/recreate baseline indexes while the pressure daemon
 is running; `--rebuild-index=true` remains available only for manual diagnostic
 runs outside strict pressure.

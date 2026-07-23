@@ -1,5 +1,6 @@
 import json
 
+from milvus_client.common.data import stable_vector_value
 from milvus_client.common.schema import FieldSpec, IndexSpec, SchemaSpec
 from milvus_client.requests import validate_index_compatibility
 
@@ -12,7 +13,7 @@ class IndexCompatibilityClient:
         category_index_type: str = "INVERTED",
         scalar_query_pk=0,
         search_pk=0,
-        search_distance=0.0,
+        search_distance=1.0,
     ):
         self.calls = []
         self.search_fails = search_fails
@@ -100,6 +101,33 @@ class IndexCompatibilityClient:
         return [[{"id": self.search_pk, "distance": self.search_distance}]]
 
 
+class AutoIdIndexCompatibilityClient(IndexCompatibilityClient):
+    def __init__(self):
+        super().__init__(scalar_query_pk=1010, search_pk=1010, search_distance=1.0)
+        self.expected_query_vector = stable_vector_value(
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+            0,
+            0,
+        )
+
+    def query(self, **kwargs):
+        self.calls.append(("query", kwargs))
+        if kwargs.get("output_fields") == ["count(*)"]:
+            return [{"count(*)": 3}]
+        if kwargs.get("filter") in {"id == 1010", "id == 1011", "id == 1012"}:
+            pk = int(kwargs["filter"].rsplit(" ", 1)[-1])
+            return [{"id": pk}]
+        if kwargs.get("filter") == "category == 0":
+            return [{"id": 1010}]
+        return []
+
+    def search(self, **kwargs):
+        self.calls.append(("search", kwargs))
+        if kwargs.get("data") == [self.expected_query_vector]:
+            return [[{"id": 1010, "distance": 1.0}]]
+        return [[{"id": 9999, "distance": 0.1}]]
+
+
 class MissingScalarIndexClient(IndexCompatibilityClient):
     def __init__(self):
         super().__init__()
@@ -132,6 +160,27 @@ def _spec():
     )
 
 
+def _auto_id_spec():
+    return SchemaSpec(
+        name="auto",
+        version="test",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True, auto_id=True),
+            FieldSpec(name="category", dtype="INT64"),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+        ],
+        indexes=[
+            IndexSpec(
+                field="embedding",
+                index_type="HNSW",
+                metric_type="COSINE",
+                params={"M": 8, "efConstruction": 32},
+            ),
+            IndexSpec(field="category", index_type="INVERTED"),
+        ],
+    )
+
+
 def _seed_checkpoint(tmp_path):
     checkpoint = tmp_path / "seed_data.json"
     checkpoint.write_text(
@@ -145,6 +194,30 @@ def _seed_checkpoint(tmp_path):
                         "min_pk": 0,
                         "max_pk": 2,
                         "pk_samples": [0, 1, 2],
+                    }
+                }
+            }
+        )
+    )
+    return checkpoint
+
+
+def _auto_id_seed_checkpoint(tmp_path):
+    checkpoint = tmp_path / "seed_data.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "collections": {
+                    "qa_auto": {
+                        "schema_name": "auto",
+                        "expected_count": 3,
+                        "primary_field": "id",
+                        "min_pk": 1010,
+                        "max_pk": 1012,
+                        "pk_samples": [1010, 1011, 1012],
+                        "pk_values": [1010, 1011, 1012],
+                        "data_min_pk": 0,
+                        "data_max_pk": 2,
                     }
                 }
             }
@@ -239,6 +312,76 @@ def test_after_upgrade_rebuilds_indexes_and_writes_index_checkpoint(
     assert checkpoint["collections"]["qa_dense"]["indexed_vector_fields"] == [
         "embedding"
     ]
+
+
+def test_cosine_self_search_accepts_high_similarity_score(monkeypatch, tmp_path):
+    seed_checkpoint = _seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = IndexCompatibilityClient(search_distance=1.0)
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+
+
+def test_auto_id_index_queries_use_generation_id_and_expect_actual_pk(
+    monkeypatch, tmp_path
+):
+    seed_checkpoint = _auto_id_seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = AutoIdIndexCompatibilityClient()
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_auto_id_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+    assert any(
+        call[0] == "query" and call[1].get("filter") == "category == 0"
+        for call in client.calls
+    )
 
 
 def test_after_rollback_validates_existing_rebuilt_indexes_without_recreate(
