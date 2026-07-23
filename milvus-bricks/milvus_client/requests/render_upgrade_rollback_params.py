@@ -8,22 +8,35 @@ import sys
 
 import yaml
 
-from milvus_client.common.gates import load_gate_manifest, render_submission, resolve_gate_scenario
+from milvus_client.common.gates import (
+    load_gate_manifest,
+    render_submission,
+    resolve_gate_scenario,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Render Argo submit parameters from a code-managed upgrade/rollback gate scenario"
     )
-    parser.add_argument("--manifest", default=str(Path("milvus_client/manifests/upgrade_rollback_gates.yaml")))
+    parser.add_argument(
+        "--manifest",
+        default=str(Path("milvus_client/manifests/upgrade_rollback_gates.yaml")),
+    )
     parser.add_argument("--scenario-id", required=True)
-    parser.add_argument("--deploy-profile", default=None, help="Override the deploy profile selected by the scenario")
+    parser.add_argument(
+        "--deploy-profile",
+        default=None,
+        help="Override the deploy profile selected by the scenario",
+    )
     parser.add_argument(
         "--allow-placeholder",
         action="store_true",
         help="Allow promoted gate scenarios to render parameters with placeholder images for dry-run/review output",
     )
-    parser.add_argument("--format", choices=["json", "yaml", "argo-args"], default="json")
+    parser.add_argument(
+        "--format", choices=["json", "yaml", "argo-args"], default="json"
+    )
     parser.add_argument("--output", default="-", help="Output path, or '-' for stdout")
     return parser
 
@@ -37,7 +50,9 @@ def main(argv: list[str] | None = None) -> int:
             args.scenario_id,
             deploy_profile_override=args.deploy_profile,
         )
-        submission = render_submission(scenario, manifest, allow_placeholder=args.allow_placeholder)
+        submission = render_submission(
+            scenario, manifest, allow_placeholder=args.allow_placeholder
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -63,7 +78,11 @@ def _render_argo_args(submission: dict[str, object]) -> str:
     parameters = submission["parameters"]
     if not isinstance(parameters, dict):
         raise TypeError("submission.parameters must be a mapping")
-    chunks = [f"--from workflowtemplate/{shlex.quote(workflow_template)}"]
+    chunks = []
+    submit_generate_name = submission.get("submit_generate_name")
+    if submit_generate_name:
+        chunks.append(f"--generate-name {shlex.quote(str(submit_generate_name))}")
+    chunks.append(f"--from workflowtemplate/{shlex.quote(workflow_template)}")
     for name in sorted(parameters):
         chunks.append(f"-p {shlex.quote(f'{name}={parameters[name]}')}")
     return " ".join(chunks)

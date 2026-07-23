@@ -101,6 +101,8 @@ def test_cluster_2_6_gate_scenario_uses_pulsar_profile():
             scenario["deploy_profile"]
             == "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
         )
+        assert scenario["submit_generate_name"] == "c26rb-"
+        assert len(scenario["submit_generate_name"]) <= 20
 
 
 def test_2_6_to_3_0_rollback_gate_scenarios_forbid_storage_v3_and_vortex():
@@ -219,6 +221,24 @@ def test_manifest_validator_rejects_unsafe_negative_escape_hatch_on_gate():
     broken["scenarios"][0]["allow_unsafe_negative_coverage"] = True
 
     with pytest.raises(ValueError, match="only when classification is negative"):
+        validate_gate_manifest(broken)
+
+
+def test_manifest_validator_rejects_long_submit_generate_name():
+    manifest = _manifest()
+    broken = deepcopy(manifest)
+    broken["scenarios"][0]["submit_generate_name"] = "this-prefix-is-too-long-"
+
+    with pytest.raises(ValueError, match="submit_generate_name must be at most"):
+        validate_gate_manifest(broken)
+
+
+def test_manifest_validator_rejects_invalid_submit_generate_name():
+    manifest = _manifest()
+    broken = deepcopy(manifest)
+    broken["scenarios"][0]["submit_generate_name"] = "BadPrefix"
+
+    with pytest.raises(ValueError, match="submit_generate_name must end with"):
         validate_gate_manifest(broken)
 
 
