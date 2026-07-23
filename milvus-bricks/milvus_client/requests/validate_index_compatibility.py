@@ -7,7 +7,11 @@ import sys
 
 from milvus_client.common.args import build_common_parser, parse_bool
 from milvus_client.common.client import create_client
-from milvus_client.common.data import generate_primary_key_value, stable_vector_value
+from milvus_client.common.data import (
+    generate_field_value,
+    generate_primary_key_value,
+    stable_vector_value,
+)
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import (
     FieldSpec,
@@ -19,6 +23,7 @@ from milvus_client.common.schema import (
 )
 from milvus_client.common.validators import (
     ValidationReport,
+    format_filter_value,
     pk_range_filter,
     validate_collection_count,
     validate_pk_samples,
@@ -31,7 +36,9 @@ from milvus_client.common.workload import (
 
 
 INDEX_SEARCH_FAILED = "INDEX_SEARCH_FAILED"
+INDEX_SCALAR_QUERY_FAILED = "INDEX_SCALAR_QUERY_FAILED"
 INDEX_REBUILD_FAILED = "INDEX_REBUILD_FAILED"
+INDEX_METADATA_MISMATCH = "INDEX_METADATA_MISMATCH"
 INDEX_COMPATIBILITY_CHECKPOINT_NOT_FOUND = "INDEX_COMPATIBILITY_CHECKPOINT_NOT_FOUND"
 INDEX_COMPATIBILITY_CHECKPOINT_EMPTY = "INDEX_COMPATIBILITY_CHECKPOINT_EMPTY"
 
@@ -72,6 +79,15 @@ def _indexed_vector_fields(spec: SchemaSpec) -> list[FieldSpec]:
         fields[field_name]
         for field_name in _indexed_fields(spec)
         if field_name in fields and fields[field_name].dtype in VECTOR_TYPES
+    ]
+
+
+def _indexed_scalar_fields(spec: SchemaSpec) -> list[FieldSpec]:
+    fields = _field_by_name(spec)
+    return [
+        fields[field_name]
+        for field_name in _indexed_fields(spec)
+        if field_name in fields and fields[field_name].dtype not in VECTOR_TYPES
     ]
 
 
@@ -132,14 +148,156 @@ def _load_collection(client: Any, collection: str, timeout_sec: int) -> None:
 def _index_names_for_field(client: Any, collection: str, field_name: str) -> list[str]:
     list_indexes = getattr(client, "list_indexes", None)
     if list_indexes is None:
-        return [field_name]
+        raise RuntimeError("Milvus client does not expose list_indexes")
     try:
         names = list_indexes(collection_name=collection, field_name=field_name)
     except TypeError:
         names = list_indexes(collection, field_name)
-    except Exception:
-        return [field_name]
-    return list(names or [field_name])
+    return list(names or [])
+
+
+def _describe_index(
+    client: Any,
+    collection: str,
+    field_name: str,
+    index_name: str,
+) -> dict[str, Any]:
+    describe_index = getattr(client, "describe_index", None)
+    if describe_index is None:
+        raise RuntimeError("Milvus client does not expose describe_index")
+    try:
+        payload = describe_index(collection_name=collection, index_name=index_name)
+    except TypeError:
+        try:
+            payload = describe_index(collection, index_name)
+        except TypeError:
+            payload = describe_index(collection_name=collection, field_name=field_name)
+    if isinstance(payload, list):
+        payload = payload[0] if payload else {}
+    if not isinstance(payload, dict):
+        payload = {}
+    index_param = payload.get("index_param") or payload.get("indexParam") or {}
+    params = payload.get("params") or payload.get("index_params") or {}
+    if not params and isinstance(index_param, dict):
+        params = index_param.get("params") or {}
+    metadata = {
+        "index_name": str(
+            payload.get("index_name")
+            or payload.get("indexName")
+            or payload.get("index")
+            or index_name
+        ),
+        "field_name": str(
+            payload.get("field_name")
+            or payload.get("fieldName")
+            or payload.get("field")
+            or field_name
+        ),
+        "index_type": (
+            payload.get("index_type")
+            or payload.get("indexType")
+            or (
+                index_param.get("index_type") if isinstance(index_param, dict) else None
+            )
+        ),
+        "metric_type": (
+            payload.get("metric_type")
+            or payload.get("metricType")
+            or (
+                index_param.get("metric_type")
+                if isinstance(index_param, dict)
+                else None
+            )
+        ),
+        "params": params or {},
+    }
+    if (
+        not metadata["index_name"]
+        or not metadata["field_name"]
+        or not metadata["index_type"]
+    ):
+        raise RuntimeError(
+            f"incomplete index metadata for {collection}.{field_name}/{index_name}: {payload}"
+        )
+    return metadata
+
+
+def _actual_index_metadata(
+    client: Any,
+    collection: str,
+    spec: SchemaSpec,
+) -> list[dict[str, Any]]:
+    indexes = []
+    for field_name in _indexed_fields(spec):
+        for index_name in _index_names_for_field(client, collection, field_name):
+            indexes.append(_describe_index(client, collection, field_name, index_name))
+    return sorted(
+        indexes,
+        key=lambda item: (
+            str(item.get("field_name")),
+            str(item.get("index_name")),
+            str(item.get("index_type")),
+        ),
+    )
+
+
+def _index_identity(index: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "index_name": index.get("index_name"),
+        "field_name": index.get("field_name"),
+        "index_type": index.get("index_type"),
+        "metric_type": index.get("metric_type"),
+    }
+
+
+def _validate_index_metadata_matches_checkpoint(
+    collection: str,
+    expected_indexes: list[dict[str, Any]],
+    actual_indexes: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    expected = sorted(
+        [_index_identity(index) for index in expected_indexes],
+        key=lambda item: (
+            str(item.get("field_name")),
+            str(item.get("index_name")),
+            str(item.get("index_type")),
+        ),
+    )
+    actual = sorted(
+        [_index_identity(index) for index in actual_indexes],
+        key=lambda item: (
+            str(item.get("field_name")),
+            str(item.get("index_name")),
+            str(item.get("index_type")),
+        ),
+    )
+    if actual != expected:
+        report.fail(
+            INDEX_METADATA_MISMATCH,
+            "actual index metadata differs from after-upgrade checkpoint",
+            collection=collection,
+            expected=expected,
+            actual=actual,
+        )
+
+
+def _validate_expected_index_fields_present(
+    collection: str,
+    expected_fields: list[str],
+    actual_indexes: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    actual_fields = {str(index.get("field_name")) for index in actual_indexes}
+    missing = [field for field in expected_fields if field not in actual_fields]
+    if missing:
+        report.fail(
+            INDEX_METADATA_MISMATCH,
+            "expected indexed fields are missing from actual index metadata",
+            collection=collection,
+            missing_fields=missing,
+            actual_indexes=[_index_identity(index) for index in actual_indexes],
+        )
 
 
 def _drop_indexes_for_spec(
@@ -236,6 +394,61 @@ def _validate_index_searches(
                 error=str(exc),
             )
     return searches
+
+
+def _scalar_index_filter(field: FieldSpec, pk: int, seed: int) -> str | None:
+    if field.dtype == "JSON":
+        value = generate_field_value(field, pk, seed)
+        if isinstance(value, dict) and "bucket" in value:
+            return f"{field.name}['bucket'] == {format_filter_value(value['bucket'])}"
+        return None
+    if field.dtype == "ARRAY":
+        value = generate_field_value(field, pk, seed)
+        if isinstance(value, list) and value:
+            return f"ARRAY_CONTAINS({field.name}, {format_filter_value(value[0])})"
+        return None
+    value = generate_field_value(field, pk, seed)
+    if value is None:
+        return f"{field.name} is null"
+    return f"{field.name} == {format_filter_value(value)}"
+
+
+def _validate_scalar_index_queries(
+    client: Any,
+    collection: str,
+    spec: SchemaSpec,
+    meta: dict[str, Any],
+    seed: int,
+    report: ValidationReport,
+) -> int:
+    primary = _primary_field(spec)
+    primary_name = meta.get("primary_field") or (
+        primary.name if primary is not None else "id"
+    )
+    pk = int(meta["min_pk"])
+    queries = 0
+    for field in _indexed_scalar_fields(spec):
+        filter_expr = _scalar_index_filter(field, pk, seed)
+        if not filter_expr:
+            continue
+        try:
+            client.query(
+                collection_name=collection,
+                filter=filter_expr,
+                output_fields=[primary_name],
+                limit=5,
+            )
+            queries += 1
+        except Exception as exc:
+            report.fail(
+                INDEX_SCALAR_QUERY_FAILED,
+                "indexed scalar filter query failed",
+                collection=collection,
+                field=field.name,
+                filter=filter_expr,
+                error=str(exc),
+            )
+    return queries
 
 
 def _validate_query_serviceability(
@@ -364,7 +577,9 @@ def main(argv: list[str] | None = None) -> int:
             "collections_with_index": 0,
             "indexes_rebuilt": 0,
             "indexes_dropped": 0,
+            "actual_indexes_total": 0,
             "searches_total": 0,
+            "scalar_index_queries_total": 0,
         }
 
         for collection, meta in _collection_items_for_phase(
@@ -409,6 +624,23 @@ def main(argv: list[str] | None = None) -> int:
                         )
                         metrics["indexes_rebuilt"] += len(indexed_fields)
                 _load_collection(client, collection, args.timeout_sec)
+                actual_indexes = _actual_index_metadata(client, collection, spec)
+                metrics["actual_indexes_total"] += len(actual_indexes)
+                _validate_expected_index_fields_present(
+                    collection,
+                    indexed_fields,
+                    actual_indexes,
+                    report,
+                )
+                if args.phase == "after-rollback":
+                    _validate_index_metadata_matches_checkpoint(
+                        collection,
+                        index_checkpoint.get("collections", {})
+                        .get(collection, {})
+                        .get("actual_indexes", []),
+                        actual_indexes,
+                        report,
+                    )
                 _validate_query_serviceability(client, collection, spec, meta, report)
                 metrics["searches_total"] += _validate_index_searches(
                     client,
@@ -417,9 +649,20 @@ def main(argv: list[str] | None = None) -> int:
                     args.seed,
                     report,
                 )
+                metrics["scalar_index_queries_total"] += _validate_scalar_index_queries(
+                    client,
+                    collection,
+                    spec,
+                    meta,
+                    args.seed,
+                    report,
+                )
                 output_checkpoint["collections"][collection] = {
                     "schema_name": schema_name,
-                    "indexed_fields": indexed_fields,
+                    "actual_indexes": actual_indexes,
+                    "indexed_fields": [
+                        index.get("field_name") for index in actual_indexes
+                    ],
                     "indexed_vector_fields": [
                         field.name for field in _indexed_vector_fields(spec)
                     ],

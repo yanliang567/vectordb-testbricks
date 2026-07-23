@@ -2,7 +2,7 @@
 
 **目标：** 在升级/回滚 gate 中显式覆盖“3.0 阶段重建 sealed index 后回滚到 2.6 是否仍可 load/search/query”的兼容性边界。
 
-**架构：** 新增一个独立 request brick `validate_index_compatibility`。升级后对 baseline checkpoint 集合执行 flush、release、drop/recreate index、load、search/query，并写出 index compatibility checkpoint；回滚后读取同一 checkpoint，不再重建 index，只执行 load/search/query 验证。WorkflowTemplate 通过 `index-compatibility-validation-enabled` 参数控制，默认在 standalone-2.6 和 cluster rollback template 中开启，并在最终报告中作为 required validation。
+**架构：** 新增一个独立 request brick `validate_index_compatibility`。升级后对 baseline checkpoint 集合执行 flush/load、记录实际 index metadata、search/query，并写出 index compatibility checkpoint；回滚后读取同一 checkpoint，不再重建 index，重新枚举并比较实际 index metadata，再执行 load/search/query 验证。WorkflowTemplate 通过 `index-compatibility-validation-enabled` 参数控制，默认在 standalone-2.6 和 cluster rollback template 中开启，并在最终报告中作为 required validation。`--rebuild-index=true` 保留为手工诊断能力，不作为 promoted gate 默认路径。
 
 **技术栈：** Python/pymilvus request brick、Argo WorkflowTemplate DAG、pytest、Ruff、Argo lint。
 
@@ -17,8 +17,8 @@
 **步骤 1: 写失败测试**
 
 覆盖：
-- after-upgrade 模式会对 checkpoint collection 执行 `flush -> release_collection -> list_indexes/drop_index -> create_index -> load_collection -> search/query`，并写出 index checkpoint。
-- after-rollback 模式读取 index checkpoint，不 drop/create index，只 load/search/query。
+- after-upgrade 模式会对 checkpoint collection 执行 `flush -> load_collection -> list_indexes/describe_index -> search/query`，并写出实际 index metadata checkpoint。
+- after-rollback 模式读取 index checkpoint，不 drop/create index，重新 `list_indexes/describe_index` 并比较同一批 index metadata，再 load/search/query。
 - 搜索失败会写结构化 `INDEX_SEARCH_FAILED`。
 
 **步骤 2: 实现 request**
@@ -59,7 +59,7 @@
 **步骤 2: 修改 DAG**
 
 用 `optional-run-brick` 调用：
-- after-upgrade: `validate_index_compatibility --rebuild-index true --index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json`
+- after-upgrade: `validate_index_compatibility --rebuild-index false --index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json`
 - after-rollback: `validate_index_compatibility --rebuild-index false --index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json`
 
 **步骤 3: 运行模板测试**

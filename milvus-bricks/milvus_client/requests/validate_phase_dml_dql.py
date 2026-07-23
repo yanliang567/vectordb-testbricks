@@ -42,6 +42,7 @@ from milvus_client.common.workload import (
 PHASE_DML_FAILED = "PHASE_DML_FAILED"
 PHASE_DQL_FAILED = "PHASE_DQL_FAILED"
 PHASE_NEW_COLLECTION_FAILED = "PHASE_NEW_COLLECTION_FAILED"
+PHASE_UPSERT_NOT_APPLIED = "PHASE_UPSERT_NOT_APPLIED"
 CHECKPOINT_NOT_FOUND = "CHECKPOINT_NOT_FOUND"
 
 
@@ -283,6 +284,104 @@ def _run_searches(
     return searches
 
 
+def _normalize_for_compare(value: Any) -> Any:
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if isinstance(value, bytes):
+        return value.hex()
+    if isinstance(value, float):
+        return round(value, 5)
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_for_compare(value[key])
+            for key in sorted(value, key=str)
+        }
+    if isinstance(value, (list, tuple)):
+        return [_normalize_for_compare(item) for item in value]
+    return value
+
+
+def _upsert_validation_field(spec: SchemaSpec) -> FieldSpec | None:
+    function_outputs = function_output_fields(spec)
+    float_vectors = [
+        field
+        for field in vector_fields(spec)
+        if field.name not in function_outputs and field.dtype == "FLOAT_VECTOR"
+    ]
+    if float_vectors:
+        return float_vectors[0]
+    non_function_vectors = [
+        field for field in vector_fields(spec) if field.name not in function_outputs
+    ]
+    if non_function_vectors:
+        return non_function_vectors[0]
+    return None
+
+
+def _validate_upserted_values(
+    client: Any,
+    spec: SchemaSpec,
+    target_collection: str,
+    primary: FieldSpec,
+    start_id: int,
+    sample_offsets: list[int],
+    seed: int,
+    report: ValidationReport,
+) -> None:
+    validation_field = _upsert_validation_field(spec)
+    if validation_field is None:
+        return
+    primary_name = primary.name
+    sample_values = [
+        generate_primary_key_value(primary, start_id + offset)
+        for offset in sample_offsets
+    ]
+    values = ", ".join(format_filter_value(value) for value in sample_values)
+    try:
+        rows = client.query(
+            collection_name=target_collection,
+            filter=f"{primary_name} in [{values}]",
+            output_fields=[primary_name, validation_field.name],
+            limit=len(sample_values),
+        )
+    except Exception as exc:
+        report.fail(
+            PHASE_DQL_FAILED,
+            "upserted value query failed",
+            collection=target_collection,
+            field=validation_field.name,
+            error=str(exc),
+        )
+        return
+    rows_by_pk = {row.get(primary_name): row for row in rows}
+    for offset, pk_value in zip(sample_offsets, sample_values):
+        row = rows_by_pk.get(pk_value)
+        if not row:
+            report.fail(
+                PHASE_UPSERT_NOT_APPLIED,
+                "upserted primary key is missing",
+                collection=target_collection,
+                pk=pk_value,
+                field=validation_field.name,
+            )
+            continue
+        actual = _normalize_for_compare(row.get(validation_field.name))
+        expected_rows = generate_rows(
+            spec, start_id=start_id + offset, count=1, seed=seed + 101
+        )
+        expected = _normalize_for_compare(expected_rows[0].get(validation_field.name))
+        if actual != expected:
+            report.fail(
+                PHASE_UPSERT_NOT_APPLIED,
+                "upserted field value does not match expected updated value",
+                collection=target_collection,
+                pk=pk_value,
+                field=validation_field.name,
+                expected=expected,
+                actual=actual,
+            )
+
+
 def _run_existing_collection_dml_dql(
     client: Any,
     spec: SchemaSpec,
@@ -372,6 +471,16 @@ def _run_existing_collection_dml_dql(
         ]
         validate_pk_samples(
             client, target_collection, primary_name, sample_values, report
+        )
+        _validate_upserted_values(
+            client,
+            spec,
+            target_collection,
+            primary,
+            start_id,
+            [metrics["deleted"], rows - 1],
+            seed,
+            report,
         )
     _validate_deleted_pk_values(
         client,

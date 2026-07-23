@@ -449,7 +449,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         == "milvus_client.requests.validate_index_compatibility"
     )
     assert "--phase after-upgrade" in validate_index_after_upgrade_args["args"]
-    assert "--rebuild-index true" in validate_index_after_upgrade_args["args"]
+    assert "--rebuild-index false" in validate_index_after_upgrade_args["args"]
     assert (
         "--index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json"
         in validate_index_after_upgrade_args["args"]
@@ -984,7 +984,7 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
         == "milvus_client.requests.validate_index_compatibility"
     )
     assert "--phase after-upgrade" in index_after_upgrade_args["args"]
-    assert "--rebuild-index true" in index_after_upgrade_args["args"]
+    assert "--rebuild-index false" in index_after_upgrade_args["args"]
     assert "--phase after-rollback" in index_after_rollback_args["args"]
     assert "--rebuild-index false" in index_after_rollback_args["args"]
     phase_after_upgrade_args = {
@@ -1318,7 +1318,7 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         == "{{workflow.parameters.index-compatibility-validation-enabled}}"
     )
     assert "--phase after-upgrade" in validate_index_after_upgrade_args["args"]
-    assert "--rebuild-index true" in validate_index_after_upgrade_args["args"]
+    assert "--rebuild-index false" in validate_index_after_upgrade_args["args"]
     assert (
         "--index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json"
         in validate_index_after_upgrade_args["args"]

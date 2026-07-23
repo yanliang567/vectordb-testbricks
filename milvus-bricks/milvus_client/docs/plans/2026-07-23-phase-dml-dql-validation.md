@@ -50,7 +50,7 @@ PYTHONPATH=. pytest milvus_client/tests/test_upgrade_rollback_gates_manifest.py 
 
 覆盖：
 
-- 对 existing collection 执行 insert、upsert、delete。
+- 对 existing collection 执行 insert、upsert、delete，并查询样本字段验证 upsert 确实更新。
 - 对 new collection create/index/load/insert。
 - 对 existing 和 new collection 都执行 count/query/search。
 - auto-id collection 会 insert/delete returned ids，并显式 skip upsert。

@@ -382,7 +382,7 @@ spec:
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
                     --index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json
                     --phase after-upgrade
-                    --rebuild-index true
+                    --rebuild-index false
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
 
           - name: validate-phase-dml-dql-after-upgrade

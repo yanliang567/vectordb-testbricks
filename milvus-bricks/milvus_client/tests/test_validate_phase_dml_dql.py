@@ -1,4 +1,5 @@
 import json
+import re
 
 from milvus_client.common.schema import FieldSpec, IndexSpec, SchemaSpec
 from milvus_client.requests import validate_phase_dml_dql
@@ -10,6 +11,7 @@ class PhaseClient:
         self.search_fails = search_fails
         self.calls = []
         self.collections = {"qa_dense"}
+        self.rows = {}
         self.next_id = 1000
 
     def has_collection(self, collection_name):
@@ -40,18 +42,42 @@ class PhaseClient:
         rows = kwargs["data"]
         self.calls.append(("insert", kwargs))
         if not self.auto_id:
+            self._store_rows(kwargs["collection_name"], rows)
             return {"insert_count": len(rows)}
         ids = list(range(self.next_id, self.next_id + len(rows)))
         self.next_id += len(rows)
+        self._store_rows(
+            kwargs["collection_name"],
+            [{**row, "id": pk} for row, pk in zip(rows, ids)],
+        )
         return {"ids": ids}
 
     def upsert(self, **kwargs):
         self.calls.append(("upsert", kwargs))
+        self._store_rows(kwargs["collection_name"], kwargs["data"])
         return {"upsert_count": len(kwargs["data"])}
 
     def delete(self, **kwargs):
         self.calls.append(("delete", kwargs))
+        collection = kwargs["collection_name"]
+        for value in re.findall(r"\d+", kwargs.get("filter", "")):
+            self.rows.get(collection, {}).pop(int(value), None)
         return {"delete_count": 1}
+
+    def _store_rows(self, collection_name, rows):
+        target = self.rows.setdefault(collection_name, {})
+        for row in rows:
+            if "id" in row:
+                target[row["id"]] = dict(row)
+
+    def _project_rows(self, collection_name, pks, output_fields):
+        rows = []
+        for pk in pks:
+            row = self.rows.get(collection_name, {}).get(pk)
+            if not row:
+                continue
+            rows.append({field: row.get(field) for field in output_fields})
+        return rows
 
     def query(self, **kwargs):
         self.calls.append(("query", kwargs))
@@ -68,6 +94,11 @@ class PhaseClient:
             if "6000000" in filter_expr or not filter_expr:
                 return [{"count(*)": 4}]
             return [{"count(*)": 1}]
+        if " in [" in filter_expr:
+            pks = [int(value) for value in re.findall(r"\d+", filter_expr)]
+            rows = self._project_rows(collection_name, pks, output_fields)
+            if rows:
+                return rows
         if collection_name == "qa_dense" and (
             "== 50000000" in filter_expr or "== 70000000" in filter_expr
         ):
@@ -76,6 +107,13 @@ class PhaseClient:
             return []
         if "== 1000" in filter_expr:
             return []
+        equality = re.search(r"==\s*(\d+)", filter_expr)
+        if equality:
+            rows = self._project_rows(
+                collection_name, [int(equality.group(1))], output_fields
+            )
+            if rows:
+                return rows
         return [{"id": 1}]
 
     def search(self, **kwargs):
@@ -83,6 +121,12 @@ class PhaseClient:
         if self.search_fails:
             raise RuntimeError("search unavailable")
         return [[{"id": 1, "distance": 0.1}]]
+
+
+class NoopUpsertPhaseClient(PhaseClient):
+    def upsert(self, **kwargs):
+        self.calls.append(("upsert", kwargs))
+        return {"upsert_count": len(kwargs["data"])}
 
 
 def _dense_spec(auto_id: bool = False) -> SchemaSpec:
@@ -196,6 +240,26 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
     assert "upsert" in call_names
     assert "delete" in call_names
     assert "search" in call_names
+
+
+def test_phase_dml_dql_fails_when_upsert_does_not_update_values(monkeypatch, tmp_path):
+    checkpoint = _checkpoint(tmp_path)
+    client = NoopUpsertPhaseClient()
+    _patch_schema_helpers(monkeypatch, _dense_spec())
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_phase_dml_dql.main(_args(tmp_path, checkpoint))
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 1
+    assert result["status"] == "failed"
+    assert any(
+        failure["type"] == "PHASE_UPSERT_NOT_APPLIED" for failure in result["failures"]
+    )
 
 
 def test_phase_dml_dql_deletes_auto_id_inserted_rows_and_skips_upsert(

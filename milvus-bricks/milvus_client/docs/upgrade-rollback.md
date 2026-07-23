@@ -169,13 +169,15 @@ interval.
 
 When `index-compatibility-validation-enabled=true`, rollback workflows also
 exercise index-version compatibility explicitly. After upgrade, the workflow
-flushes baseline collections, releases them best-effort, drops and recreates the
-schema-matrix indexes with the target Milvus image, loads the collections, runs
-indexed vector search plus checkpoint count/PK queries, and writes
+flushes and loads baseline collections, records the actual index metadata from
+`list_indexes` / `describe_index`, runs indexed vector search, indexed scalar
+filter queries, and checkpoint count/PK queries, and writes
 `/tmp/milvus-bricks/checkpoints/index_compatibility.json`. After rollback, the
-workflow reads that checkpoint and validates load/search/query again without
-dropping or recreating indexes. This catches cases where a newer target version
-rewrites sealed index metadata that the rollback version can no longer load.
+workflow reads that checkpoint, re-enumerates the actual indexes, compares
+index name/field/type/metric metadata, and validates load/search/query again.
+Promoted gates do not drop/recreate baseline indexes while the pressure daemon
+is running; `--rebuild-index=true` remains available only for manual diagnostic
+runs outside strict pressure.
 
 When `phase-dml-dql-validation-enabled=true`, rollback workflows also exercise
 active request compatibility at both phase boundaries:
@@ -200,6 +202,8 @@ Default deterministic data scale:
 Per collection, phase DML inserts `1000` rows, upserts the same PK range when
 the schema has explicit PK, and deletes `100` rows, so the net row increase is
 `900`. Auto-id collections skip upsert and still net `900` after delete. The
+upsert check queries sample PKs and compares the updated field value generated
+with `seed + 101`, so a no-op upsert is reported as a validation failure. The
 table excludes background/foreground pressure workload writes because those are
 not a stable row-count contract.
 

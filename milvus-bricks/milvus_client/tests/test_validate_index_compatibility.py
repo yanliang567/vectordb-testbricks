@@ -5,9 +5,27 @@ from milvus_client.requests import validate_index_compatibility
 
 
 class IndexCompatibilityClient:
-    def __init__(self, *, search_fails: bool = False):
+    def __init__(
+        self, *, search_fails: bool = False, category_index_type: str = "INVERTED"
+    ):
         self.calls = []
         self.search_fails = search_fails
+        self.indexes = {
+            "embedding": {
+                "index_name": "embedding_idx",
+                "field_name": "embedding",
+                "index_type": "HNSW",
+                "metric_type": "COSINE",
+                "params": {"M": 8, "efConstruction": 32},
+            },
+            "category": {
+                "index_name": "category_idx",
+                "field_name": "category",
+                "index_type": category_index_type,
+                "metric_type": None,
+                "params": {},
+            },
+        }
 
     def flush(self, **kwargs):
         self.calls.append(("flush", kwargs))
@@ -17,13 +35,41 @@ class IndexCompatibilityClient:
 
     def list_indexes(self, **kwargs):
         self.calls.append(("list_indexes", kwargs))
-        return [f"{kwargs['field_name']}_idx"]
+        return [self.indexes[kwargs["field_name"]]["index_name"]]
+
+    def describe_index(self, **kwargs):
+        self.calls.append(("describe_index", kwargs))
+        index_name = kwargs["index_name"]
+        for index in self.indexes.values():
+            if index["index_name"] == index_name:
+                return dict(index)
+        return {"index_name": index_name}
 
     def drop_index(self, **kwargs):
         self.calls.append(("drop_index", kwargs))
+        index_name = kwargs["index_name"]
+        for field_name, index in list(self.indexes.items()):
+            if index["index_name"] == index_name:
+                del self.indexes[field_name]
 
     def create_index(self, **kwargs):
         self.calls.append(("create_index", kwargs))
+        self.indexes = {
+            "embedding": {
+                "index_name": "embedding_idx",
+                "field_name": "embedding",
+                "index_type": "HNSW",
+                "metric_type": "COSINE",
+                "params": {"M": 8, "efConstruction": 32},
+            },
+            "category": {
+                "index_name": "category_idx",
+                "field_name": "category",
+                "index_type": "INVERTED",
+                "metric_type": None,
+                "params": {},
+            },
+        }
 
     def load_collection(self, **kwargs):
         self.calls.append(("load_collection", kwargs))
@@ -39,6 +85,17 @@ class IndexCompatibilityClient:
         if self.search_fails:
             raise RuntimeError("load index failed: missing SLICE_META")
         return [[{"id": 0, "distance": 0.1}]]
+
+
+class MissingScalarIndexClient(IndexCompatibilityClient):
+    def __init__(self):
+        super().__init__()
+        del self.indexes["category"]
+
+    def list_indexes(self, **kwargs):
+        self.calls.append(("list_indexes", kwargs))
+        index = self.indexes.get(kwargs["field_name"])
+        return [index["index_name"]] if index else []
 
 
 def _spec():
@@ -147,8 +204,24 @@ def test_after_upgrade_rebuilds_indexes_and_writes_index_checkpoint(
     assert result["metrics"]["indexes_rebuilt"] == 2
     assert result["metrics"]["searches_total"] == 1
     assert checkpoint["collections"]["qa_dense"]["indexed_fields"] == [
-        "embedding",
         "category",
+        "embedding",
+    ]
+    assert checkpoint["collections"]["qa_dense"]["actual_indexes"] == [
+        {
+            "field_name": "category",
+            "index_name": "category_idx",
+            "index_type": "INVERTED",
+            "metric_type": None,
+            "params": {},
+        },
+        {
+            "field_name": "embedding",
+            "index_name": "embedding_idx",
+            "index_type": "HNSW",
+            "metric_type": "COSINE",
+            "params": {"M": 8, "efConstruction": 32},
+        },
     ]
     assert checkpoint["collections"]["qa_dense"]["indexed_vector_fields"] == [
         "embedding"
@@ -167,7 +240,20 @@ def test_after_rollback_validates_existing_rebuilt_indexes_without_recreate(
                 "collections": {
                     "qa_dense": {
                         "schema_name": "dense",
-                        "indexed_fields": ["embedding", "category"],
+                        "actual_indexes": [
+                            {
+                                "field_name": "category",
+                                "index_name": "category_idx",
+                                "index_type": "INVERTED",
+                                "metric_type": None,
+                            },
+                            {
+                                "field_name": "embedding",
+                                "index_name": "embedding_idx",
+                                "index_type": "HNSW",
+                                "metric_type": "COSINE",
+                            },
+                        ],
                     }
                 }
             }
@@ -203,8 +289,114 @@ def test_after_rollback_validates_existing_rebuilt_indexes_without_recreate(
     assert result["status"] == "passed"
     assert "drop_index" not in call_names
     assert "create_index" not in call_names
+    assert "describe_index" in call_names
     assert "load_collection" in call_names
     assert "search" in call_names
+    assert result["metrics"]["actual_indexes_total"] == 2
+    assert result["metrics"]["scalar_index_queries_total"] == 1
+
+
+def test_after_upgrade_fails_when_expected_scalar_index_is_missing(
+    monkeypatch,
+    tmp_path,
+):
+    seed_checkpoint = _seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = MissingScalarIndexClient()
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 1
+    assert result["status"] == "failed"
+    assert any(
+        failure["type"] == "INDEX_METADATA_MISMATCH"
+        and failure["missing_fields"] == ["category"]
+        for failure in result["failures"]
+    )
+
+
+def test_after_rollback_fails_when_actual_index_metadata_differs_from_checkpoint(
+    monkeypatch,
+    tmp_path,
+):
+    seed_checkpoint = _seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    index_checkpoint.write_text(
+        json.dumps(
+            {
+                "collections": {
+                    "qa_dense": {
+                        "schema_name": "dense",
+                        "actual_indexes": [
+                            {
+                                "field_name": "category",
+                                "index_name": "category_idx",
+                                "index_type": "BITMAP",
+                                "metric_type": None,
+                            },
+                            {
+                                "field_name": "embedding",
+                                "index_name": "embedding_idx",
+                                "index_type": "HNSW",
+                                "metric_type": "COSINE",
+                            },
+                        ],
+                    }
+                }
+            }
+        )
+    )
+    output_json = tmp_path / "result.json"
+    client = IndexCompatibilityClient(category_index_type="INVERTED")
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-rollback",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 1
+    assert result["status"] == "failed"
+    assert any(
+        failure["type"] == "INDEX_METADATA_MISMATCH" for failure in result["failures"]
+    )
 
 
 def test_after_rollback_rejects_empty_index_checkpoint(monkeypatch, tmp_path):
