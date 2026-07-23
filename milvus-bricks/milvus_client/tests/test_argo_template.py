@@ -126,6 +126,11 @@ def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     assert parameter_values["post-upgrade-config-toggle-enabled"] == "false"
     assert parameter_values["forward-workload-enabled"] == "false"
     assert parameter_values["rollback-enabled"] == "true"
+    assert parameter_values["index-compatibility-validation-enabled"] == "true"
+    assert parameter_values["phase-dml-dql-validation-enabled"] == "true"
+    assert parameter_values["phase-new-collection-rows"] == "3000"
+    assert parameter_values["phase-existing-dml-rows"] == "1000"
+    assert parameter_values["phase-existing-delete-rows"] == "100"
     assert parameter_values["schema-evolution-existing-enabled"] == "false"
     assert parameter_values["schema-evolution-forward-enabled"] == "false"
     assert parameter_values["standalone-cpu-request"] == "2"
@@ -173,6 +178,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "observe-after-upgrade",
         "precheck-after-upgrade",
         "validate-after-upgrade",
+        "validate-index-compatibility-after-upgrade",
+        "validate-phase-dml-dql-after-upgrade",
         "strict-pressure-after-upgrade",
         "schema-evolution-existing",
         "patch-post-upgrade-config",
@@ -191,6 +198,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "precheck-after-rollback",
         "wait-rollback-serviceability",
         "validate-after-rollback",
+        "validate-index-compatibility-after-rollback",
+        "validate-phase-dml-dql-after-rollback",
         "wait-forward-rollback-serviceability",
         "validate-forward-after-rollback",
         "strict-pressure-after-rollback",
@@ -242,6 +251,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "observe-after-upgrade",
         "precheck-after-upgrade",
         "validate-after-upgrade",
+        "validate-index-compatibility-after-upgrade",
+        "validate-phase-dml-dql-after-upgrade",
         "schema-evolution-existing",
         "patch-post-upgrade-config",
         "wait-post-upgrade-config-ready",
@@ -258,6 +269,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "precheck-after-rollback",
         "wait-rollback-serviceability",
         "validate-after-rollback",
+        "validate-index-compatibility-after-rollback",
+        "validate-phase-dml-dql-after-rollback",
         "wait-forward-rollback-serviceability",
         "validate-forward-after-rollback",
         "strict-pressure-after-rollback",
@@ -265,8 +278,16 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     ]
     for task_name in pressure_covered_tasks:
         assert "pressure-daemon" in tasks[task_name]["dependencies"]
-    assert tasks["strict-pressure-after-upgrade"]["dependencies"] == [
+    assert tasks["validate-index-compatibility-after-upgrade"]["dependencies"] == [
         "validate-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["strict-pressure-after-upgrade"]["dependencies"] == [
+        "validate-phase-dml-dql-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-phase-dml-dql-after-upgrade"]["dependencies"] == [
+        "validate-index-compatibility-after-upgrade",
         "pressure-daemon",
     ]
     assert tasks["schema-evolution-existing"]["dependencies"] == [
@@ -313,8 +334,16 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "wait-forward-rollback-serviceability",
         "pressure-daemon",
     ]
-    assert tasks["validate-after-rollback"]["dependencies"] == [
+    assert tasks["validate-index-compatibility-after-rollback"]["dependencies"] == [
         "observe-after-rollback",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-phase-dml-dql-after-rollback"]["dependencies"] == [
+        "validate-index-compatibility-after-rollback",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-after-rollback"]["dependencies"] == [
+        "validate-phase-dml-dql-after-rollback",
         "pressure-daemon",
     ]
     assert (
@@ -343,6 +372,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "precheck-after-rollback",
         "wait-rollback-serviceability",
         "validate-after-rollback",
+        "validate-index-compatibility-after-rollback",
+        "validate-phase-dml-dql-after-rollback",
         "strict-pressure-after-rollback",
     ]
     for task_name in rollback_gated_tasks:
@@ -376,6 +407,30 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         parameter["name"]: parameter["value"]
         for parameter in tasks["validate-after-rollback"]["arguments"]["parameters"]
     }
+    validate_index_after_upgrade_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-index-compatibility-after-upgrade"][
+            "arguments"
+        ]["parameters"]
+    }
+    validate_index_after_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-index-compatibility-after-rollback"][
+            "arguments"
+        ]["parameters"]
+    }
+    validate_phase_after_upgrade_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-phase-dml-dql-after-upgrade"]["arguments"][
+            "parameters"
+        ]
+    }
+    validate_phase_after_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-phase-dml-dql-after-rollback"]["arguments"][
+            "parameters"
+        ]
+    }
     for validate_args in [
         validate_before_args,
         validate_after_upgrade_args,
@@ -385,6 +440,76 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
             "--checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json"
             in validate_args["args"]
         )
+    assert (
+        validate_index_after_upgrade_args["enabled"]
+        == "{{workflow.parameters.index-compatibility-validation-enabled}}"
+    )
+    assert (
+        validate_index_after_upgrade_args["module"]
+        == "milvus_client.requests.validate_index_compatibility"
+    )
+    assert "--phase after-upgrade" in validate_index_after_upgrade_args["args"]
+    assert "--rebuild-index false" in validate_index_after_upgrade_args["args"]
+    assert (
+        "--index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json"
+        in validate_index_after_upgrade_args["args"]
+    )
+    assert (
+        validate_index_after_rollback_args["enabled"]
+        == "{{workflow.parameters.index-compatibility-validation-enabled}}"
+    )
+    assert (
+        validate_index_after_rollback_args["module"]
+        == "milvus_client.requests.validate_index_compatibility"
+    )
+    assert "--phase after-rollback" in validate_index_after_rollback_args["args"]
+    assert "--rebuild-index false" in validate_index_after_rollback_args["args"]
+    assert (
+        "--index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json"
+        in validate_index_after_rollback_args["args"]
+    )
+    assert (
+        validate_phase_after_upgrade_args["enabled"]
+        == "{{workflow.parameters.phase-dml-dql-validation-enabled}}"
+    )
+    assert (
+        validate_phase_after_upgrade_args["module"]
+        == "milvus_client.requests.validate_phase_dml_dql"
+    )
+    assert "--phase after-upgrade" in validate_phase_after_upgrade_args["args"]
+    assert (
+        "--new-collection-prefix {{workflow.parameters.collection-prefix}}_after_upgrade"
+        in validate_phase_after_upgrade_args["args"]
+    )
+    assert (
+        "--new-collection-rows {{workflow.parameters.phase-new-collection-rows}}"
+        in validate_phase_after_upgrade_args["args"]
+    )
+    assert (
+        "--existing-dml-rows {{workflow.parameters.phase-existing-dml-rows}}"
+        in validate_phase_after_upgrade_args["args"]
+    )
+    assert (
+        "--existing-delete-rows {{workflow.parameters.phase-existing-delete-rows}}"
+        in validate_phase_after_upgrade_args["args"]
+    )
+    assert (
+        validate_phase_after_rollback_args["enabled"]
+        == "{{workflow.parameters.phase-dml-dql-validation-enabled}}"
+    )
+    assert (
+        validate_phase_after_rollback_args["module"]
+        == "milvus_client.requests.validate_phase_dml_dql"
+    )
+    assert "--phase after-rollback" in validate_phase_after_rollback_args["args"]
+    assert (
+        "--new-collection-prefix {{workflow.parameters.collection-prefix}}_after_rollback"
+        in validate_phase_after_rollback_args["args"]
+    )
+    assert (
+        "--carried-collection-prefix {{workflow.parameters.collection-prefix}}_after_upgrade"
+        in validate_phase_after_rollback_args["args"]
+    )
     seed_forward_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["seed-forward-data"]["arguments"]["parameters"]
@@ -643,6 +768,11 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "--observe-before-rollback-sec" in final_command
     assert "--rollback-serviceability-timeout-sec" in final_command
     assert "--rollback-serviceability-interval-sec" in final_command
+    assert "--index-compatibility-validation-enabled" in final_command
+    assert "--phase-dml-dql-validation-enabled" in final_command
+    assert "--phase-new-collection-rows" in final_command
+    assert "--phase-existing-dml-rows" in final_command
+    assert "--phase-existing-delete-rows" in final_command
     assert "--scenario-id" in final_command
     assert "--deploy-profile" in final_command
     assert (
@@ -780,6 +910,11 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     assert parameter_values["forward-collection-prefix"] == "qa_upgrade_30_forward"
     assert parameter_values["rollback-enabled"] == "true"
     assert parameter_values["rollback-forward-validation-enabled"] == "true"
+    assert parameter_values["index-compatibility-validation-enabled"] == "true"
+    assert parameter_values["phase-dml-dql-validation-enabled"] == "true"
+    assert parameter_values["phase-new-collection-rows"] == "3000"
+    assert parameter_values["phase-existing-dml-rows"] == "1000"
+    assert parameter_values["phase-existing-delete-rows"] == "100"
     assert parameter_values["schema-evolution-existing-enabled"] == "true"
     assert parameter_values["schema-evolution-forward-enabled"] == "false"
     assert parameter_values["standalone-cpu-request"] == "2"
@@ -796,6 +931,10 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     assert parameter_values["gate-allow-warning"] == "true"
 
     templates = {item["name"]: item for item in template["spec"]["templates"]}
+    main = next(
+        item for item in template["spec"]["templates"] if item["name"] == "main"
+    )
+    tasks = {task["name"]: task for task in main["dag"]["tasks"]}
     assert templates["pressure-daemon"]["daemon"] is True
     assert "volumeMounts" not in templates["pressure-daemon"]["container"]
     assert "volumeMounts" not in templates["run-pressure-suite"]["container"]
@@ -804,6 +943,86 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
         "mountPath": "/tmp/milvus-bricks",
     }
     assert "patch-milvus-config" in templates
+    assert tasks["validate-index-compatibility-after-upgrade"]["dependencies"] == [
+        "validate-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-phase-dml-dql-after-upgrade"]["dependencies"] == [
+        "validate-index-compatibility-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["strict-pressure-after-upgrade"]["dependencies"] == [
+        "validate-phase-dml-dql-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-index-compatibility-after-rollback"]["dependencies"] == [
+        "observe-after-rollback",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-phase-dml-dql-after-rollback"]["dependencies"] == [
+        "validate-index-compatibility-after-rollback",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-after-rollback"]["dependencies"] == [
+        "validate-phase-dml-dql-after-rollback",
+        "pressure-daemon",
+    ]
+    index_after_upgrade_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-index-compatibility-after-upgrade"][
+            "arguments"
+        ]["parameters"]
+    }
+    index_after_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-index-compatibility-after-rollback"][
+            "arguments"
+        ]["parameters"]
+    }
+    assert (
+        index_after_upgrade_args["module"]
+        == "milvus_client.requests.validate_index_compatibility"
+    )
+    assert "--phase after-upgrade" in index_after_upgrade_args["args"]
+    assert "--rebuild-index false" in index_after_upgrade_args["args"]
+    assert "--phase after-rollback" in index_after_rollback_args["args"]
+    assert "--rebuild-index false" in index_after_rollback_args["args"]
+    phase_after_upgrade_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-phase-dml-dql-after-upgrade"]["arguments"][
+            "parameters"
+        ]
+    }
+    phase_after_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-phase-dml-dql-after-rollback"]["arguments"][
+            "parameters"
+        ]
+    }
+    assert (
+        phase_after_upgrade_args["module"]
+        == "milvus_client.requests.validate_phase_dml_dql"
+    )
+    assert "--phase after-upgrade" in phase_after_upgrade_args["args"]
+    assert (
+        "--new-collection-prefix {{workflow.parameters.collection-prefix}}_after_upgrade"
+        in phase_after_upgrade_args["args"]
+    )
+    assert (
+        phase_after_rollback_args["module"]
+        == "milvus_client.requests.validate_phase_dml_dql"
+    )
+    assert "--phase after-rollback" in phase_after_rollback_args["args"]
+    assert (
+        "--carried-collection-prefix {{workflow.parameters.collection-prefix}}_after_upgrade"
+        in phase_after_rollback_args["args"]
+    )
+    final_command = templates["generate-final-report"]["container"]["args"][0]
+    assert "--index-compatibility-validation-enabled" in final_command
+    assert "--phase-dml-dql-validation-enabled" in final_command
+    assert "--phase-new-collection-rows" in final_command
+    assert "--phase-existing-dml-rows" in final_command
+    assert "--phase-existing-delete-rows" in final_command
     resolve_command = templates["resolve-inputs"]["container"]["args"][0]
     assert "approved_unsafe_negative_scenarios = set()" in resolve_command
     assert "invalid unsafe negative coverage bypass" in resolve_command
@@ -843,6 +1062,11 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     assert parameter_values["pressure-fail-on-error"] == "true"
     assert parameter_values["gate-allow-warning"] == "false"
     assert parameter_values["rollback-enabled"] == "true"
+    assert parameter_values["index-compatibility-validation-enabled"] == "true"
+    assert parameter_values["phase-dml-dql-validation-enabled"] == "true"
+    assert parameter_values["phase-new-collection-rows"] == "3000"
+    assert parameter_values["phase-existing-dml-rows"] == "1000"
+    assert parameter_values["phase-existing-delete-rows"] == "100"
     assert parameter_values["schema-evolution-existing-enabled"] == "true"
 
     templates = {item["name"]: item for item in template["spec"]["templates"]}
@@ -861,6 +1085,10 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         "patch-rollback",
         "wait-rollback-ready",
         "wait-rollback-serviceability",
+        "validate-index-compatibility-after-upgrade",
+        "validate-index-compatibility-after-rollback",
+        "validate-phase-dml-dql-after-upgrade",
+        "validate-phase-dml-dql-after-rollback",
         "validate-after-rollback",
         "generate-final-report",
         "gate-final-status",
@@ -961,6 +1189,11 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     final_command = templates["generate-final-report"]["container"]["args"][0]
     assert "--scenario-id" in final_command
     assert "--deploy-profile" in final_command
+    assert "--index-compatibility-validation-enabled" in final_command
+    assert "--phase-dml-dql-validation-enabled" in final_command
+    assert "--phase-new-collection-rows" in final_command
+    assert "--phase-existing-dml-rows" in final_command
+    assert "--phase-existing-delete-rows" in final_command
     assert (
         "--deploy-topology /tmp/milvus-bricks/reports/deploy_topology.json"
         in final_command
@@ -985,8 +1218,16 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         "wait-upgrade-serviceability",
         "pressure-daemon",
     ]
-    assert tasks["strict-pressure-after-upgrade"]["dependencies"] == [
+    assert tasks["validate-index-compatibility-after-upgrade"]["dependencies"] == [
         "validate-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-phase-dml-dql-after-upgrade"]["dependencies"] == [
+        "validate-index-compatibility-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["strict-pressure-after-upgrade"]["dependencies"] == [
+        "validate-phase-dml-dql-after-upgrade",
         "pressure-daemon",
     ]
     assert tasks["schema-evolution-existing"]["dependencies"] == [
@@ -1016,8 +1257,16 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         "wait-forward-rollback-serviceability",
         "pressure-daemon",
     ]
-    assert tasks["validate-after-rollback"]["dependencies"] == [
+    assert tasks["validate-index-compatibility-after-rollback"]["dependencies"] == [
         "observe-after-rollback",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-phase-dml-dql-after-rollback"]["dependencies"] == [
+        "validate-index-compatibility-after-rollback",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-after-rollback"]["dependencies"] == [
+        "validate-phase-dml-dql-after-rollback",
         "pressure-daemon",
     ]
     assert tasks["validate-forward-after-rollback"]["dependencies"] == [
@@ -1047,6 +1296,46 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     assert (
         "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json"
         in forward_seed_args["args"]
+    )
+    validate_index_after_upgrade_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-index-compatibility-after-upgrade"][
+            "arguments"
+        ]["parameters"]
+    }
+    validate_index_after_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-index-compatibility-after-rollback"][
+            "arguments"
+        ]["parameters"]
+    }
+    assert (
+        validate_index_after_upgrade_args["module"]
+        == "milvus_client.requests.validate_index_compatibility"
+    )
+    assert (
+        validate_index_after_upgrade_args["enabled"]
+        == "{{workflow.parameters.index-compatibility-validation-enabled}}"
+    )
+    assert "--phase after-upgrade" in validate_index_after_upgrade_args["args"]
+    assert "--rebuild-index false" in validate_index_after_upgrade_args["args"]
+    assert (
+        "--index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json"
+        in validate_index_after_upgrade_args["args"]
+    )
+    assert (
+        validate_index_after_rollback_args["module"]
+        == "milvus_client.requests.validate_index_compatibility"
+    )
+    assert (
+        validate_index_after_rollback_args["enabled"]
+        == "{{workflow.parameters.index-compatibility-validation-enabled}}"
+    )
+    assert "--phase after-rollback" in validate_index_after_rollback_args["args"]
+    assert "--rebuild-index false" in validate_index_after_rollback_args["args"]
+    assert (
+        "--index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json"
+        in validate_index_after_rollback_args["args"]
     )
     upgrade_serviceability_args = {
         parameter["name"]: parameter["value"]

@@ -20,16 +20,19 @@ def _manifest() -> dict:
 
 def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
     manifest = _manifest()
+    assert manifest["defaults"]["index_compatibility_validation_enabled"] is True
+    assert manifest["defaults"]["phase_dml_dql_validation_enabled"] is True
+    assert manifest["defaults"]["phase_new_collection_rows"] == 3000
+    assert manifest["defaults"]["phase_existing_dml_rows"] == 1000
+    assert manifest["defaults"]["phase_existing_delete_rows"] == 100
     scenarios = {
         scenario["id"]: resolve_gate_scenario(manifest, scenario["id"])
         for scenario in manifest["scenarios"]
     }
 
     assert {
-        "standalone-2-6-18-to-3-0-latest-rollback-2-6-18",
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
-        "cluster-2-6-18-to-3-0-latest-rollback-2-6-18",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
     } <= set(scenarios)
@@ -54,15 +57,7 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         assert scenario["validation_policy"]["serviceability"] == "strict"
         assert scenario["validation_policy"]["pressure_fail_on_error"] is True
         assert scenario["validation_policy"]["gate_allow_warning"] is False
-
-    for scenario_id in [
-        "standalone-2-6-18-to-3-0-latest-rollback-2-6-18",
-        "cluster-2-6-18-to-3-0-latest-rollback-2-6-18",
-    ]:
-        scenario = scenarios[scenario_id]
-        assert scenario["classification"] == "diagnostic"
-        assert scenario["support_status"] == "unsupported_known_issue"
-        assert scenario["rollback"]["image_ref"] == "milvus-2-6-18"
+        assert scenario["index_compatibility_validation_enabled"] is True
 
 
 def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
@@ -89,7 +84,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
 
 
-def test_cluster_2_6_diagnostic_and_gate_scenarios_use_pulsar_profile():
+def test_cluster_2_6_gate_scenario_uses_pulsar_profile():
     manifest = _manifest()
     cluster_2_6_scenarios = [
         resolve_gate_scenario(manifest, scenario["id"])
@@ -99,7 +94,6 @@ def test_cluster_2_6_diagnostic_and_gate_scenarios_use_pulsar_profile():
     ]
 
     assert {scenario["classification"] for scenario in cluster_2_6_scenarios} == {
-        "diagnostic",
         "gate",
     }
     for scenario in cluster_2_6_scenarios:
@@ -191,6 +185,30 @@ def test_manifest_validator_rejects_string_bool_values():
 
     with pytest.raises(
         ValueError, match="target.loon_ffi_enabled must be a YAML boolean"
+    ):
+        validate_gate_manifest(broken)
+
+
+def test_manifest_validator_rejects_string_bool_values_in_defaults():
+    manifest = _manifest()
+    broken = deepcopy(manifest)
+    broken["defaults"]["index_compatibility_validation_enabled"] = "false"
+
+    with pytest.raises(
+        ValueError,
+        match="index_compatibility_validation_enabled must be a YAML boolean",
+    ):
+        validate_gate_manifest(broken)
+
+
+def test_manifest_validator_rejects_string_phase_bool_value_in_defaults():
+    manifest = _manifest()
+    broken = deepcopy(manifest)
+    broken["defaults"]["phase_dml_dql_validation_enabled"] = "false"
+
+    with pytest.raises(
+        ValueError,
+        match="phase_dml_dql_validation_enabled must be a YAML boolean",
     ):
         validate_gate_manifest(broken)
 

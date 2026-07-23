@@ -119,6 +119,11 @@ Both templates expose the same configuration matrix parameters:
 - `rollback-enabled`
 - `rollback-version`
 - `rollback-forward-validation-enabled`
+- `index-compatibility-validation-enabled`
+- `phase-dml-dql-validation-enabled`
+- `phase-new-collection-rows`
+- `phase-existing-dml-rows`
+- `phase-existing-delete-rows`
 - `allow-unsafe-negative-coverage` (negative scenario only; default `false`)
 - `observe-before-upgrade-sec`
 - `observe-after-upgrade-sec`
@@ -148,9 +153,9 @@ after both upgrade and rollback. These observe windows default to 300 seconds so
 client request traffic covers at least five minutes in each steady phase.
 `observe-after-upgrade-sec` and `observe-before-rollback-sec` are sequential,
 not overlapping. The workflow runs the after-upgrade observation first, then
-upgrade-phase precheck/validation, existing schema evolution, optional
-post-upgrade config patch, optional forward workload, and only then the
-before-rollback observation.
+upgrade-phase precheck/validation, index compatibility validation, phase
+DML/DQL validation, existing schema evolution, optional post-upgrade config
+patch, optional forward workload, and only then the before-rollback observation.
 
 After rollback, the templates run a data serviceability wait gate before strict
 integrity validation. This gate repeatedly runs lightweight checkpoint count and
@@ -161,6 +166,64 @@ responses. If the data becomes queryable again, the brick records
 `transient_failure_attempts`; if the timeout expires, the workflow fails before
 checksum validation. The default timeout is 900 seconds with a 10 second
 interval.
+
+When `index-compatibility-validation-enabled=true`, rollback workflows also
+exercise index-version compatibility explicitly. After upgrade, the workflow
+flushes and loads baseline collections, records the actual index metadata from
+`list_indexes` / `describe_index`, runs indexed vector search, indexed scalar
+filter queries, and checkpoint count/PK queries, and writes
+`/tmp/milvus-bricks/checkpoints/index_compatibility.json`. After rollback, the
+workflow reads that checkpoint, re-enumerates the actual indexes, compares
+index name/field/type/metric metadata, and validates load/search/query again.
+Scalar index validation selects a deterministic non-null probe row when
+possible, runs a scalar-only query to prove the predicate has matches, then runs
+`scalar predicate + primary-key predicate` so non-unique scalar conditions do not
+depend on unordered query results. Deterministic vector self-search must return
+the expected PK and a sane self-match distance/score when the metric supports
+that assertion. L2/HAMMING/JACCARD self-search expects near-zero distance, while
+COSINE/IP expects a high similarity score. AutoID checkpoints keep both the
+deterministic data-generation id range and the actual Milvus-generated PKs, so
+query vectors/filters are rebuilt from generation ids while expected hits use
+actual PKs.
+Promoted gates do not drop/recreate baseline indexes while the pressure daemon
+is running; `--rebuild-index=true` remains available only for manual diagnostic
+runs outside strict pressure.
+
+When `phase-dml-dql-validation-enabled=true`, rollback workflows also exercise
+active request compatibility at both phase boundaries:
+
+- after upgrade: run insert/upsert/delete on baseline collections, create one
+  `${collection-prefix}_after_upgrade` collection per schema, then query/search
+  both old and new collections. The upsert/delete operations target the PK range
+  inserted by this phase, not the original baseline seed rows. The workflow
+  persists `/tmp/milvus-bricks/checkpoints/phase_dml_dql_after_upgrade.json`
+  with the inserted PK ranges, deleted PKs, upsert sample values, and new
+  collection row counts;
+- after rollback: first validate the after-upgrade phase checkpoint, proving the
+  baseline `50000000` range and upgrade-created `60000000` collections survived
+  rollback. Only after that succeeds does the workflow run insert/upsert/delete
+  on baseline collections again, carry the upgrade-created collections forward
+  for another DML/DQL round, create one `${collection-prefix}_after_rollback`
+  collection per schema, then query/search all of them. The carried collection
+  upsert/delete operations also target rows inserted during the rollback phase.
+
+Default deterministic data scale:
+
+| Gate family | Schema count | Before upgrade baseline | After-upgrade phase validation | Before rollback after schema evolution | After-rollback phase validation |
+| --- | --- | --- | --- | --- | --- |
+| 2.6 rollback gate | 3 | baseline `15000` | baseline `17700`, upgrade-new `9000` | same as after-upgrade; schema evolution disabled | baseline `20400`, upgrade-new/carried `11700`, rollback-new `9000` |
+| 3.0 branch gate | 4 | baseline `20000` | baseline `23600`, upgrade-new `12000` | baseline `43600`, upgrade-new `12000`; schema evolution adds `4 × 5000` | baseline `47200`, upgrade-new/carried `15600`, rollback-new `12000` |
+
+Per collection, phase DML inserts `1000` rows, upserts the same PK range when
+the schema has explicit PK, and deletes `100` rows, so the net row increase is
+`900`. Auto-id collections skip upsert and still net `900` after delete. The
+upsert check queries sample PKs and compares the updated field value generated
+with `seed + 101`, so a no-op upsert is reported as a validation failure. The
+rollback phase validates the after-upgrade phase checkpoint before any new
+rollback writes, so losing all `50000000` / `60000000` phase data is reported
+before the `70000000` / `80000000` ranges are inserted. The
+table excludes background/foreground pressure workload writes because those are
+not a stable row-count contract.
 
 Submit example:
 
@@ -430,6 +493,4 @@ capability catalog treats `NullableVector` as a 3.0+ forward-only capability.
 | 3.0 baseline -> latest 3.0 -> 3.0 baseline | `milvus-standalone-3-0-upgrade-rollback` | 3.0 schema/data, serviceability, and pressure | Strict 3.0 branch rollback gate. |
 | cluster 2.6.18 -> latest 3.0 -> latest 2.6 | `milvus-cluster-upgrade-rollback` | 2.6 schema/data, serviceability, pressure, and cluster topology | Positive cluster gate. Rollback target must contain #50792; storage v3 and vortex stay disabled after upgrade. |
 | cluster 3.0 baseline -> latest 3.0 -> 3.0 baseline | `milvus-cluster-upgrade-rollback` | 3.0 schema/data, serviceability, pressure, and cluster topology | Strict 3.0 branch rollback gate under distributed components. |
-| 2.6.18 -> latest 3.0 -> 2.6.18 | `milvus-standalone-2-6-upgrade-rollback` | Diagnostic-only | Expected to hit #50694 because `v2.6.18` lacks #50792. Not a promoted gate. |
-| cluster 2.6.18 -> latest 3.0 -> 2.6.18 | `milvus-cluster-upgrade-rollback` | Diagnostic-only | Expected to hit #50694 because `v2.6.18` lacks #50792. Not a promoted gate. |
 | 2.6.18 -> latest 3.0 LoonFFI/vortex -> latest 2.6 | `milvus-standalone-2-6-upgrade-rollback` | Negative/observe-only | Not a promoted gate. This documents the unsafe rollback boundary and must not be treated as supported. |

@@ -47,6 +47,11 @@ def test_render_standalone_2_6_to_3_0_gate_parameters():
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
     assert params["forward-workload-enabled"] == "false"
     assert params["rollback-forward-validation-enabled"] == "false"
+    assert params["index-compatibility-validation-enabled"] == "true"
+    assert params["phase-dml-dql-validation-enabled"] == "true"
+    assert params["phase-new-collection-rows"] == "3000"
+    assert params["phase-existing-dml-rows"] == "1000"
+    assert params["phase-existing-delete-rows"] == "100"
     assert params["schema-evolution-existing-enabled"] == "false"
     assert params["target-loon-ffi-enabled"] == "false"
     assert params["target-json-shredding-enabled"] == "false"
@@ -91,6 +96,8 @@ def test_render_cluster_3_0_gate_parameters():
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
     assert params["schema-evolution-existing-enabled"] == "true"
     assert params["rollback-forward-validation-enabled"] == "true"
+    assert params["index-compatibility-validation-enabled"] == "true"
+    assert params["phase-dml-dql-validation-enabled"] == "true"
 
 
 def test_render_cluster_2_6_to_3_0_gate_uses_pulsar_profile():
@@ -109,6 +116,7 @@ def test_render_cluster_2_6_to_3_0_gate_uses_pulsar_profile():
         == "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
     )
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
+    assert params["index-compatibility-validation-enabled"] == "true"
     assert params["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
     assert (
         params["rollback-milvus-image"]

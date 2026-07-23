@@ -31,11 +31,15 @@ def resolve_gate_scenario(
         raise ValueError(f"unknown scenario id {scenario_id!r}; available: {available}")
 
     resolved = deepcopy(scenario)
-    resolved["workflow_template"] = _resolve_ref(manifest, "workflow_templates", scenario, "workflow_template")
+    resolved["workflow_template"] = _resolve_ref(
+        manifest, "workflow_templates", scenario, "workflow_template"
+    )
     resolved["deploy_profile"] = deploy_profile_override or _resolve_ref(
         manifest, "deploy_profiles", scenario, "deploy_profile"
     )
-    resolved["schema_matrix"] = _resolve_ref(manifest, "schema_matrices", scenario, "schema_matrix")
+    resolved["schema_matrix"] = _resolve_ref(
+        manifest, "schema_matrices", scenario, "schema_matrix"
+    )
     if "forward_schema_matrix_ref" in scenario or "forward_schema_matrix" in scenario:
         resolved["forward_schema_matrix"] = _resolve_ref(
             manifest, "schema_matrices", scenario, "forward_schema_matrix"
@@ -45,6 +49,16 @@ def resolve_gate_scenario(
 
     for phase in ("base", "target", "rollback"):
         resolved[phase] = _resolve_phase(manifest, scenario, phase)
+
+    defaults = manifest.get("defaults") or {}
+    resolved.setdefault(
+        "index_compatibility_validation_enabled",
+        defaults.get("index_compatibility_validation_enabled", True),
+    )
+    resolved.setdefault(
+        "phase_dml_dql_validation_enabled",
+        defaults.get("phase_dml_dql_validation_enabled", True),
+    )
 
     validate_resolved_gate_scenario(resolved)
     return resolved
@@ -71,15 +85,31 @@ def render_argo_parameters(
         "target-version": str(scenario["target"]["version"]),
         "rollback-milvus-image": str(scenario["rollback"]["image"]),
         "rollback-version": str(scenario["rollback"]["version"]),
-        "base-json-shredding-enabled": _bool_str(scenario["base"].get("json_shredding_enabled", False)),
-        "target-json-shredding-enabled": _bool_str(scenario["target"].get("json_shredding_enabled", False)),
-        "rollback-json-shredding-enabled": _bool_str(scenario["rollback"].get("json_shredding_enabled", False)),
-        "base-loon-ffi-enabled": _bool_str(scenario["base"].get("loon_ffi_enabled", False)),
-        "target-loon-ffi-enabled": _bool_str(scenario["target"].get("loon_ffi_enabled", False)),
-        "rollback-loon-ffi-enabled": _bool_str(scenario["rollback"].get("loon_ffi_enabled", False)),
+        "base-json-shredding-enabled": _bool_str(
+            scenario["base"].get("json_shredding_enabled", False)
+        ),
+        "target-json-shredding-enabled": _bool_str(
+            scenario["target"].get("json_shredding_enabled", False)
+        ),
+        "rollback-json-shredding-enabled": _bool_str(
+            scenario["rollback"].get("json_shredding_enabled", False)
+        ),
+        "base-loon-ffi-enabled": _bool_str(
+            scenario["base"].get("loon_ffi_enabled", False)
+        ),
+        "target-loon-ffi-enabled": _bool_str(
+            scenario["target"].get("loon_ffi_enabled", False)
+        ),
+        "rollback-loon-ffi-enabled": _bool_str(
+            scenario["rollback"].get("loon_ffi_enabled", False)
+        ),
         "base-vortex-enabled": _bool_str(scenario["base"].get("vortex_enabled", False)),
-        "target-vortex-enabled": _bool_str(scenario["target"].get("vortex_enabled", False)),
-        "rollback-vortex-enabled": _bool_str(scenario["rollback"].get("vortex_enabled", False)),
+        "target-vortex-enabled": _bool_str(
+            scenario["target"].get("vortex_enabled", False)
+        ),
+        "rollback-vortex-enabled": _bool_str(
+            scenario["rollback"].get("vortex_enabled", False)
+        ),
         "post-upgrade-config-toggle-enabled": _bool_str(
             scenario.get("post_upgrade_config_toggle_enabled", False)
         ),
@@ -89,11 +119,25 @@ def render_argo_parameters(
                 scenario["target"].get("json_shredding_enabled", False),
             )
         ),
-        "forward-workload-enabled": _bool_str(scenario.get("forward_workload_enabled", False)),
+        "forward-workload-enabled": _bool_str(
+            scenario.get("forward_workload_enabled", False)
+        ),
         "forward-schema-matrix": str(scenario["forward_schema_matrix"]),
         "rollback-enabled": _bool_str(scenario.get("rollback_enabled", True)),
         "rollback-forward-validation-enabled": _bool_str(
             scenario.get("rollback_forward_validation_enabled", False)
+        ),
+        "index-compatibility-validation-enabled": _bool_str(
+            scenario.get(
+                "index_compatibility_validation_enabled",
+                defaults.get("index_compatibility_validation_enabled", True),
+            )
+        ),
+        "phase-dml-dql-validation-enabled": _bool_str(
+            scenario.get(
+                "phase_dml_dql_validation_enabled",
+                defaults.get("phase_dml_dql_validation_enabled", True),
+            )
         ),
         "schema-evolution-existing-enabled": _bool_str(
             scenario.get("schema_evolution_existing_enabled", False)
@@ -103,14 +147,44 @@ def render_argo_parameters(
         ),
         "collection-prefix": str(scenario["collection_prefix"]),
         "forward-collection-prefix": str(
-            scenario.get("forward_collection_prefix", f"{scenario['collection_prefix']}_forward")
+            scenario.get(
+                "forward_collection_prefix", f"{scenario['collection_prefix']}_forward"
+            )
         ),
         "schema-matrix": str(scenario["schema_matrix"]),
-        "rows-per-collection": str(scenario.get("rows_per_collection", defaults.get("rows_per_collection", 1000))),
+        "rows-per-collection": str(
+            scenario.get(
+                "rows_per_collection", defaults.get("rows_per_collection", 1000)
+            )
+        ),
         "batch-size": str(scenario.get("batch_size", defaults.get("batch_size", 100))),
-        "pressure-modules": " ".join(scenario.get("pressure_modules", defaults.get("pressure_modules", []))),
-        "pressure-fail-on-error": _bool_str(validation_policy.get("pressure_fail_on_error", False)),
-        "gate-allow-warning": _bool_str(validation_policy.get("gate_allow_warning", True)),
+        "phase-new-collection-rows": str(
+            scenario.get(
+                "phase_new_collection_rows",
+                defaults.get("phase_new_collection_rows", 3000),
+            )
+        ),
+        "phase-existing-dml-rows": str(
+            scenario.get(
+                "phase_existing_dml_rows",
+                defaults.get("phase_existing_dml_rows", 1000),
+            )
+        ),
+        "phase-existing-delete-rows": str(
+            scenario.get(
+                "phase_existing_delete_rows",
+                defaults.get("phase_existing_delete_rows", 100),
+            )
+        ),
+        "pressure-modules": " ".join(
+            scenario.get("pressure_modules", defaults.get("pressure_modules", []))
+        ),
+        "pressure-fail-on-error": _bool_str(
+            validation_policy.get("pressure_fail_on_error", False)
+        ),
+        "gate-allow-warning": _bool_str(
+            validation_policy.get("gate_allow_warning", True)
+        ),
         "allow-unsafe-negative-coverage": _bool_str(
             scenario.get("allow_unsafe_negative_coverage", False)
         ),
@@ -139,16 +213,38 @@ def render_submission(
     return {
         "scenario_id": scenario["id"],
         "workflow_template": scenario["workflow_template"],
-        "parameters": render_argo_parameters(scenario, manifest, allow_placeholder=allow_placeholder),
+        "parameters": render_argo_parameters(
+            scenario, manifest, allow_placeholder=allow_placeholder
+        ),
     }
 
 
-def validate_gate_manifest(manifest: dict[str, Any], source: str = "<manifest>") -> None:
+def validate_gate_manifest(
+    manifest: dict[str, Any], source: str = "<manifest>"
+) -> None:
     if manifest.get("version") != "1":
         raise ValueError(f"{source}: version must be '1'")
-    for section in ("defaults", "workflow_templates", "deploy_profiles", "schema_matrices", "image_aliases"):
+    for section in (
+        "defaults",
+        "workflow_templates",
+        "deploy_profiles",
+        "schema_matrices",
+        "image_aliases",
+    ):
         if not isinstance(manifest.get(section), dict) or not manifest[section]:
             raise ValueError(f"{source}: {section} must be a non-empty mapping")
+    _require_bool_if_present(
+        manifest["defaults"],
+        "index_compatibility_validation_enabled",
+        source=source,
+        scenario_id="defaults",
+    )
+    _require_bool_if_present(
+        manifest["defaults"],
+        "phase_dml_dql_validation_enabled",
+        source=source,
+        scenario_id="defaults",
+    )
     scenarios = manifest.get("scenarios")
     if not isinstance(scenarios, list) or not scenarios:
         raise ValueError(f"{source}: scenarios must be a non-empty list")
@@ -198,7 +294,9 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
 
     forbidden = set(scenario.get("forbidden_after_upgrade") or [])
     if not {"storage_v3", "vortex"} <= forbidden:
-        raise ValueError(f"{scenario['id']}: 2.6 -> 3.0 -> 2.6 gate must forbid storage_v3 and vortex")
+        raise ValueError(
+            f"{scenario['id']}: 2.6 -> 3.0 -> 2.6 gate must forbid storage_v3 and vortex"
+        )
 
     blocked_flags_by_phase = {
         "base": {"storage_v3": "loon_ffi_enabled", "vortex": "vortex_enabled"},
@@ -218,7 +316,9 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
         )
 
 
-def validate_no_gate_placeholders(scenario: dict[str, Any], *, allow_placeholder: bool = False) -> None:
+def validate_no_gate_placeholders(
+    scenario: dict[str, Any], *, allow_placeholder: bool = False
+) -> None:
     if allow_placeholder:
         return
     placeholders = [
@@ -233,18 +333,24 @@ def validate_no_gate_placeholders(scenario: dict[str, Any], *, allow_placeholder
         )
 
 
-def _resolve_phase(manifest: dict[str, Any], scenario: dict[str, Any], phase: str) -> dict[str, Any]:
+def _resolve_phase(
+    manifest: dict[str, Any], scenario: dict[str, Any], phase: str
+) -> dict[str, Any]:
     payload = deepcopy(scenario.get(phase) or {})
     image_ref = payload.get("image_ref")
     if image_ref:
         aliases = manifest.get("image_aliases") or {}
         if image_ref not in aliases:
-            raise ValueError(f"{scenario.get('id')}: {phase}.image_ref {image_ref!r} is not defined")
+            raise ValueError(
+                f"{scenario.get('id')}: {phase}.image_ref {image_ref!r} is not defined"
+            )
         alias = aliases[image_ref]
         payload["image"] = alias["image"]
         payload["version"] = alias["version"]
     if not payload.get("image") or not payload.get("version"):
-        raise ValueError(f"{scenario.get('id')}: {phase} requires image_ref or image+version")
+        raise ValueError(
+            f"{scenario.get('id')}: {phase} requires image_ref or image+version"
+        )
     return payload
 
 
@@ -262,7 +368,9 @@ def _resolve_ref(
         raise ValueError(f"{scenario.get('id')}: missing {field} or {field}_ref")
     mapping = manifest.get(section) or {}
     if ref not in mapping:
-        raise ValueError(f"{scenario.get('id')}: {field}_ref {ref!r} is not defined in {section}")
+        raise ValueError(
+            f"{scenario.get('id')}: {field}_ref {ref!r} is not defined in {section}"
+        )
     return str(mapping[ref])
 
 
@@ -280,6 +388,8 @@ def _validate_scenario_bool_fields(scenario: dict[str, Any], *, source: str) -> 
         "forward_workload_enabled",
         "rollback_enabled",
         "rollback_forward_validation_enabled",
+        "index_compatibility_validation_enabled",
+        "phase_dml_dql_validation_enabled",
         "schema_evolution_existing_enabled",
         "schema_evolution_forward_enabled",
         "allow_unsafe_negative_coverage",
@@ -294,7 +404,9 @@ def _validate_scenario_bool_fields(scenario: dict[str, Any], *, source: str) -> 
         "gate_allow_warning",
     }
     for field in scenario_bool_fields:
-        _require_bool_if_present(scenario, field, source=source, scenario_id=scenario_id)
+        _require_bool_if_present(
+            scenario, field, source=source, scenario_id=scenario_id
+        )
     for phase in ("base", "target", "rollback"):
         phase_payload = scenario.get(phase) or {}
         for field in phase_bool_fields:
