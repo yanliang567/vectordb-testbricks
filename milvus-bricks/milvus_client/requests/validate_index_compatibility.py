@@ -366,6 +366,10 @@ def _expected_primary_value(
     if auto_id_enabled(spec):
         pk_values = meta.get("pk_values") or meta.get("pk_samples") or []
         if pk_values:
+            data_min_pk = int(meta.get("data_min_pk", 0))
+            offset = data_pk_number - data_min_pk
+            if 0 <= offset < len(pk_values):
+                return pk_values[offset]
             return pk_values[0]
         return meta.get("min_pk")
     if primary is not None:
@@ -377,6 +381,12 @@ def _data_pk_number(spec: SchemaSpec, meta: dict[str, Any]) -> int:
     if auto_id_enabled(spec):
         return int(meta.get("data_min_pk", 0))
     return int(meta["min_pk"])
+
+
+def _data_pk_range(meta: dict[str, Any]) -> tuple[int, int]:
+    min_pk = int(meta.get("data_min_pk", meta["min_pk"]))
+    max_pk = int(meta.get("data_max_pk", meta["max_pk"]))
+    return min_pk, max_pk
 
 
 def _hit_value(hit: Any, key: str) -> Any:
@@ -554,6 +564,27 @@ def _scalar_index_filter(field: FieldSpec, pk: int, seed: int) -> str | None:
     return f"{field.name} == {format_filter_value(value)}"
 
 
+def _scalar_index_probe(
+    spec: SchemaSpec,
+    meta: dict[str, Any],
+    field: FieldSpec,
+    seed: int,
+) -> tuple[int, Any, str] | None:
+    data_min_pk, data_max_pk = _data_pk_range(meta)
+    null_fallback: tuple[int, Any, str] | None = None
+    for data_pk_number in range(data_min_pk, data_max_pk + 1):
+        filter_expr = _scalar_index_filter(field, data_pk_number, seed)
+        if not filter_expr:
+            continue
+        expected_pk = _expected_primary_value(spec, meta, data_pk_number)
+        probe = (data_pk_number, expected_pk, filter_expr)
+        if not filter_expr.endswith(" is null"):
+            return probe
+        if null_fallback is None:
+            null_fallback = probe
+    return null_fallback
+
+
 def _validate_scalar_index_queries(
     client: Any,
     collection: str,
@@ -566,19 +597,44 @@ def _validate_scalar_index_queries(
     primary_name = meta.get("primary_field") or (
         primary.name if primary is not None else "id"
     )
-    data_pk_number = _data_pk_number(spec, meta)
-    expected_pk = _expected_primary_value(spec, meta, data_pk_number)
     queries = 0
     for field in _indexed_scalar_fields(spec):
-        filter_expr = _scalar_index_filter(field, data_pk_number, seed)
-        if not filter_expr:
+        probe = _scalar_index_probe(spec, meta, field, seed)
+        if probe is None:
+            report.fail(
+                INDEX_SCALAR_QUERY_FAILED,
+                "could not build deterministic scalar index probe",
+                collection=collection,
+                field=field.name,
+            )
             continue
+        data_pk_number, expected_pk, scalar_filter_expr = probe
+        filter_expr = (
+            f"({scalar_filter_expr}) && "
+            f"{primary_name} == {format_filter_value(expected_pk)}"
+        )
         try:
+            scalar_rows = client.query(
+                collection_name=collection,
+                filter=scalar_filter_expr,
+                output_fields=[primary_name],
+                limit=1,
+            )
+            if not scalar_rows:
+                report.fail(
+                    INDEX_SCALAR_QUERY_FAILED,
+                    "indexed scalar filter query returned no matches",
+                    collection=collection,
+                    field=field.name,
+                    filter=scalar_filter_expr,
+                    data_pk=data_pk_number,
+                    expected_pk=expected_pk,
+                )
             rows = client.query(
                 collection_name=collection,
                 filter=filter_expr,
                 output_fields=[primary_name],
-                limit=5,
+                limit=1,
             )
             actual_pks = [row.get(primary_name) for row in rows]
             if expected_pk not in actual_pks:
@@ -588,6 +644,8 @@ def _validate_scalar_index_queries(
                     collection=collection,
                     field=field.name,
                     filter=filter_expr,
+                    scalar_filter=scalar_filter_expr,
+                    data_pk=data_pk_number,
                     expected_pk=expected_pk,
                     actual_pks=actual_pks,
                 )

@@ -117,7 +117,10 @@ class AutoIdIndexCompatibilityClient(IndexCompatibilityClient):
         if kwargs.get("filter") in {"id == 1010", "id == 1011", "id == 1012"}:
             pk = int(kwargs["filter"].rsplit(" ", 1)[-1])
             return [{"id": pk}]
-        if kwargs.get("filter") == "category == 0":
+        if kwargs.get("filter") in {
+            "category == 0",
+            "(category == 0) && id == 1010",
+        }:
             return [{"id": 1010}]
         return []
 
@@ -137,6 +140,57 @@ class MissingScalarIndexClient(IndexCompatibilityClient):
         self.calls.append(("list_indexes", kwargs))
         index = self.indexes.get(kwargs["field_name"])
         return [index["index_name"]] if index else []
+
+
+class NonUniqueScalarIndexClient(IndexCompatibilityClient):
+    def query(self, **kwargs):
+        self.calls.append(("query", kwargs))
+        if kwargs.get("output_fields") == ["count(*)"]:
+            return [{"count(*)": 3}]
+        if kwargs.get("filter") == "category == 0":
+            return [{"id": pk} for pk in range(10, 15)]
+        if kwargs.get("filter") == "(category == 0) && id == 0":
+            return [{"id": 0}]
+        if kwargs.get("filter") == "id == 0":
+            return [{"id": 0}]
+        if kwargs.get("filter") in {"id == 1", "id == 2"}:
+            pk = int(kwargs["filter"].rsplit(" ", 1)[-1])
+            return [{"id": pk}]
+        return []
+
+
+class NullableJsonIndexClient(IndexCompatibilityClient):
+    def __init__(self):
+        super().__init__(scalar_query_pk=1, search_pk=0, search_distance=1.0)
+        self.indexes = {
+            "embedding": {
+                "index_name": "embedding_idx",
+                "field_name": "embedding",
+                "index_type": "HNSW",
+                "metric_type": "COSINE",
+                "params": {"M": 8, "efConstruction": 32},
+            },
+            "json_profile": {
+                "index_name": "json_profile_idx",
+                "field_name": "json_profile",
+                "index_type": "INVERTED",
+                "metric_type": None,
+                "params": {"json_cast_type": "double"},
+            },
+        }
+
+    def query(self, **kwargs):
+        self.calls.append(("query", kwargs))
+        if kwargs.get("output_fields") == ["count(*)"]:
+            return [{"count(*)": 3}]
+        if kwargs.get("filter") in {"id == 0", "id == 1", "id == 2"}:
+            pk = int(kwargs["filter"].rsplit(" ", 1)[-1])
+            return [{"id": pk}]
+        if kwargs.get("filter") == "json_profile['bucket'] == 1":
+            return [{"id": 11}, {"id": 21}]
+        if kwargs.get("filter") == "(json_profile['bucket'] == 1) && id == 1":
+            return [{"id": 1}]
+        return []
 
 
 def _spec():
@@ -181,6 +235,27 @@ def _auto_id_spec():
     )
 
 
+def _nullable_json_spec():
+    return SchemaSpec(
+        name="json_nullable",
+        version="test",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="json_profile", dtype="JSON", nullable=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+        ],
+        indexes=[
+            IndexSpec(field="json_profile", index_type="INVERTED"),
+            IndexSpec(
+                field="embedding",
+                index_type="HNSW",
+                metric_type="COSINE",
+                params={"M": 8, "efConstruction": 32},
+            ),
+        ],
+    )
+
+
 def _seed_checkpoint(tmp_path):
     checkpoint = tmp_path / "seed_data.json"
     checkpoint.write_text(
@@ -194,6 +269,29 @@ def _seed_checkpoint(tmp_path):
                         "min_pk": 0,
                         "max_pk": 2,
                         "pk_samples": [0, 1, 2],
+                    }
+                }
+            }
+        )
+    )
+    return checkpoint
+
+
+def _json_seed_checkpoint(tmp_path):
+    checkpoint = tmp_path / "seed_data.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "collections": {
+                    "qa_json_nullable": {
+                        "schema_name": "json_nullable",
+                        "expected_count": 3,
+                        "primary_field": "id",
+                        "min_pk": 0,
+                        "max_pk": 2,
+                        "pk_samples": [0, 1, 2],
+                        "data_min_pk": 0,
+                        "data_max_pk": 2,
                     }
                 }
             }
@@ -379,7 +477,85 @@ def test_auto_id_index_queries_use_generation_id_and_expect_actual_pk(
     assert code == 0
     assert result["status"] == "passed"
     assert any(
-        call[0] == "query" and call[1].get("filter") == "category == 0"
+        call[0] == "query" and call[1].get("filter") == "(category == 0) && id == 1010"
+        for call in client.calls
+    )
+
+
+def test_scalar_index_query_uses_pk_conjunction_for_non_unique_predicate(
+    monkeypatch, tmp_path
+):
+    seed_checkpoint = _seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = NonUniqueScalarIndexClient()
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+    assert any(
+        call[0] == "query"
+        and call[1].get("filter") == "(category == 0) && id == 0"
+        and call[1].get("limit") == 1
+        for call in client.calls
+    )
+
+
+def test_nullable_json_index_selects_non_null_probe_row(monkeypatch, tmp_path):
+    seed_checkpoint = _json_seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = NullableJsonIndexClient()
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_nullable_json_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+    assert result["metrics"]["scalar_index_queries_total"] == 1
+    assert any(
+        call[0] == "query"
+        and call[1].get("filter") == "(json_profile['bucket'] == 1) && id == 1"
         for call in client.calls
     )
 

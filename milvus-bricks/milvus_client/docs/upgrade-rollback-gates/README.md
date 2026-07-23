@@ -311,7 +311,7 @@ argo submit -n qa \
 6. 启动 background pressure daemon。
 7. 升级到 target image。
 8. 升级后做 precheck；cluster gate 会先等待 checkpoint 数据 serviceability 恢复，再做数据完整性校验。
-9. 默认执行 index compatibility validation：用 target 版本 flush/load baseline 集合，记录实际 index metadata，执行向量 search、标量索引过滤 query 和 checkpoint query，并写出 index checkpoint；标量 query 和确定性向量 search 会校验返回的预期 PK。COSINE/IP 按高相似度分数校验，L2/HAMMING/JACCARD 按近零距离校验；AutoID collection 使用 checkpoint 中的生成 ID 重建向量/标量，用真实 AutoID PK 校验命中。
+9. 默认执行 index compatibility validation：用 target 版本 flush/load baseline 集合，记录实际 index metadata，执行向量 search、标量索引过滤 query 和 checkpoint query，并写出 index checkpoint；标量 query 会优先选择确定性非空行，先验证 scalar predicate 有结果，再用 `scalar predicate + PK predicate` 校验目标行，避免非唯一条件依赖无序返回。确定性向量 search 会校验返回的预期 PK。COSINE/IP 按高相似度分数校验，L2/HAMMING/JACCARD 按近零距离校验；AutoID collection 使用 checkpoint 中的生成 ID 重建向量/标量，用真实 AutoID PK 校验命中。
 10. 默认执行 phase DML/DQL validation：老 collection 做 insert/upsert/delete/query/search，同时新建 after-upgrade collection 并做 query/search，然后写出 after-upgrade phase checkpoint。
 11. 执行 foreground pressure。
 12. 按场景决定是否执行 schema evolution / forward workload。
