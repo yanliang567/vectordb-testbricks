@@ -90,6 +90,32 @@ def test_render_cluster_helm_values_from_profile_omits_3_0_storage_fields_by_def
     assert "dataNode" not in user_config
 
 
+def test_render_cluster_pulsar_helm_values_from_profile_uses_pulsarv3():
+    profile = load_deploy_profile(
+        ROOT / "manifests" / "deploy_profiles" / "cluster-pulsar-1cu.yaml"
+    )
+
+    values = render_milvus_helm_values(
+        profile=profile,
+        name="cluster-upgrade-test",
+        namespace="qa-milvus",
+        image="harbor.milvus.io/milvusdb/milvus:v2.6.18",
+        version="2.6.18",
+    )
+
+    assert values["cluster"]["enabled"] is True
+    assert values["woodpecker"]["enabled"] is False
+    assert values["pulsar"]["enabled"] is False
+    assert values["pulsarv3"]["enabled"] is True
+    assert values["pulsarv3"]["persistence"] is False
+    assert values["pulsarv3"]["volumes"]["persistence"] is False
+    assert values["pulsarv3"]["zookeeper"]["replicaCount"] == 1
+    assert values["pulsarv3"]["bookkeeper"]["replicaCount"] == 1
+    assert values["pulsarv3"]["broker"]["replicaCount"] == 1
+    assert values["image"]["all"]["repository"] == "harbor.milvus.io/milvusdb/milvus"
+    assert values["image"]["all"]["tag"] == "v2.6.18"
+
+
 def test_render_cluster_helm_values_from_profile_emits_enabled_3_0_storage_fields():
     profile = load_deploy_profile(
         ROOT / "manifests" / "deploy_profiles" / "cluster-woodpecker-1cu.yaml"

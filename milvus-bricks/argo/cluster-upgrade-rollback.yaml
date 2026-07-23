@@ -20,7 +20,7 @@ spec:
       - name: scenario-id
         value: cluster-upgrade-rollback
       - name: deploy-profile
-        value: milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml
+        value: milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml
       - name: client-image
         value: harbor.milvus.io/qa/fouram:2.1
       - name: python-deps

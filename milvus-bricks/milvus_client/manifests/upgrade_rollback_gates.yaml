@@ -23,6 +23,7 @@ workflow_templates:
 
 deploy_profiles:
   standalone: milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml
+  cluster_pulsar_1cu: milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml
   cluster_woodpecker_1cu: milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml
   cluster_woodpecker_2cu: milvus_client/manifests/deploy_profiles/cluster-woodpecker-2cu.yaml
 
@@ -153,7 +154,7 @@ scenarios:
     classification: diagnostic
     support_status: unsupported_known_issue
     workflow_template_ref: cluster
-    deploy_profile_ref: cluster_woodpecker_1cu
+    deploy_profile_ref: cluster_pulsar_1cu
     schema_matrix_ref: "2.6"
     collection_prefix: qa_gate_cluster_2618_to_30_rb_2618
     forward_workload_enabled: false
@@ -188,7 +189,7 @@ scenarios:
     classification: gate
     support_status: supported_with_config_constraints
     workflow_template_ref: cluster
-    deploy_profile_ref: cluster_woodpecker_1cu
+    deploy_profile_ref: cluster_pulsar_1cu
     schema_matrix_ref: "2.6"
     collection_prefix: qa_gate_cluster_2618_to_30_rb_26latest
     forward_workload_enabled: false

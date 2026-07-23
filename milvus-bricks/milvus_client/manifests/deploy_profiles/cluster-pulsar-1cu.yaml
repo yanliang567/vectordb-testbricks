@@ -1,0 +1,146 @@
+name: cluster-pulsar-1cu
+mode: cluster
+deployer: helm
+description: "1CU Milvus cluster with Pulsar v3 and in-cluster dependencies for 2.6-compatible QA upgrade/rollback tests."
+helm:
+  repo_name: zilliztech
+  repo_url: https://zilliztech.github.io/milvus-helm/
+  chart: zilliztech/milvus
+  chart_version: 5.0.24
+helm_values:
+  cluster:
+    enabled: true
+  streaming:
+    enabled: true
+  woodpecker:
+    enabled: false
+  kafka:
+    enabled: false
+  pulsar:
+    enabled: false
+  pulsarv3:
+    enabled: true
+    persistence: false
+    volumes:
+      persistence: false
+    zookeeper:
+      replicaCount: 1
+      volumes:
+        persistence: false
+      resources:
+        requests:
+          cpu: "0.2"
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+    bookkeeper:
+      replicaCount: 1
+      volumes:
+        persistence: false
+      resources:
+        requests:
+          cpu: "0.2"
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 4Gi
+      configData:
+        PULSAR_MEM: >
+          -Xms512m
+          -Xmx512m
+          -XX:MaxDirectMemorySize=1024m
+    broker:
+      replicaCount: 1
+      resources:
+        requests:
+          cpu: "0.2"
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 4Gi
+    proxy:
+      resources:
+        requests:
+          cpu: "0.1"
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+  indexNode:
+    enabled: false
+  service:
+    type: ClusterIP
+  metrics:
+    serviceMonitor:
+      enabled: false
+components:
+  mixCoord:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+  proxy:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+  queryNode:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+  dataNode:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+  streamingNode:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+dependencies:
+  msgStreamType: pulsar
+  etcd:
+    inCluster:
+      deletionPolicy: Delete
+      pvcDeletion: true
+      values:
+        replicaCount: 1
+        metrics:
+          enabled: false
+        persistence:
+          size: 10Gi
+        persistentVolumeClaimRetentionPolicy:
+          enabled: true
+          whenDeleted: Delete
+          whenScaled: Delete
+  storage:
+    inCluster:
+      deletionPolicy: Delete
+      pvcDeletion: true
+      values:
+        mode: standalone
+        persistence:
+          size: 50Gi

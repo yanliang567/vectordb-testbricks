@@ -825,7 +825,7 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     assert parameter_values["scenario-id"] == "cluster-upgrade-rollback"
     assert (
         parameter_values["deploy-profile"]
-        == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+        == "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
     )
     assert (
         parameter_values["schema-matrix"]

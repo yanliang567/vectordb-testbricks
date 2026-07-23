@@ -2,7 +2,11 @@ import json
 from pathlib import Path
 
 import yaml
-from milvus_client.common.gates import load_gate_manifest, render_submission, resolve_gate_scenario
+from milvus_client.common.gates import (
+    load_gate_manifest,
+    render_submission,
+    resolve_gate_scenario,
+)
 from milvus_client.requests import render_upgrade_rollback_params as render_cli
 
 
@@ -21,11 +25,22 @@ def test_render_standalone_2_6_to_3_0_gate_parameters():
     params = submission["parameters"]
 
     assert submission["workflow_template"] == "milvus-standalone-2-6-upgrade-rollback"
-    assert params["scenario-id"] == "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest"
-    assert params["deploy-profile"] == "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
+    assert (
+        params["scenario-id"] == "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest"
+    )
+    assert (
+        params["deploy-profile"]
+        == "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
+    )
     assert params["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
-    assert params["target-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
-    assert params["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder"
+    assert (
+        params["target-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
+    )
+    assert (
+        params["rollback-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder"
+    )
     assert params["base-version"] == "2.6.18"
     assert params["target-version"] == "3.0.0"
     assert params["rollback-version"] == "2.6.0"
@@ -57,13 +72,48 @@ def test_render_cluster_3_0_gate_parameters():
     params = submission["parameters"]
 
     assert submission["workflow_template"] == "milvus-cluster-upgrade-rollback"
-    assert params["deploy-profile"] == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
-    assert params["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:3.0-baseline-placeholder"
-    assert params["target-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
-    assert params["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:3.0-baseline-placeholder"
+    assert (
+        params["deploy-profile"]
+        == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+    )
+    assert (
+        params["base-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:3.0-baseline-placeholder"
+    )
+    assert (
+        params["target-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
+    )
+    assert (
+        params["rollback-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:3.0-baseline-placeholder"
+    )
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
     assert params["schema-evolution-existing-enabled"] == "true"
     assert params["rollback-forward-validation-enabled"] == "true"
+
+
+def test_render_cluster_2_6_to_3_0_gate_uses_pulsar_profile():
+    manifest = load_gate_manifest(GATES)
+    scenario = resolve_gate_scenario(
+        manifest,
+        "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
+    )
+
+    submission = render_submission(scenario, manifest, allow_placeholder=True)
+    params = submission["parameters"]
+
+    assert submission["workflow_template"] == "milvus-cluster-upgrade-rollback"
+    assert (
+        params["deploy-profile"]
+        == "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
+    )
+    assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
+    assert params["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
+    assert (
+        params["rollback-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder"
+    )
 
 
 def test_render_negative_scenario_enables_explicit_unsafe_coverage_escape_hatch():
@@ -103,7 +153,10 @@ def test_render_params_cli_writes_json(tmp_path):
     payload = json.loads(output.read_text())
     assert rc == 0
     assert payload["workflow_template"] == "milvus-standalone-2-6-upgrade-rollback"
-    assert payload["parameters"]["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder"
+    assert (
+        payload["parameters"]["rollback-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder"
+    )
 
 
 def test_render_params_cli_writes_yaml_and_supports_deploy_profile_override(tmp_path):
@@ -153,8 +206,14 @@ def test_render_params_cli_writes_argo_args(tmp_path):
     args = output.read_text()
     assert rc == 0
     assert "--from workflowtemplate/milvus-standalone-3-0-upgrade-rollback" in args
-    assert "-p scenario-id=standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline" in args
-    assert "-p target-milvus-image=harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder" in args
+    assert (
+        "-p scenario-id=standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline"
+        in args
+    )
+    assert (
+        "-p target-milvus-image=harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
+        in args
+    )
 
 
 def test_render_params_cli_rejects_placeholder_images_for_promoted_gate(tmp_path):
