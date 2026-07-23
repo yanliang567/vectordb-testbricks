@@ -117,6 +117,14 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "false",
         "--index-compatibility-validation-enabled",
         "true",
+        "--phase-dml-dql-validation-enabled",
+        "true",
+        "--phase-new-collection-rows",
+        "1000",
+        "--phase-existing-dml-rows",
+        "1000",
+        "--phase-existing-delete-rows",
+        "100",
         "--schema-evolution-existing-enabled",
         "true",
         "--schema-evolution-forward-enabled",
@@ -136,11 +144,19 @@ def _write_successful_validation(tmp_path: Path) -> None:
         {"status": "passed"},
     )
     _write_json(
+        tmp_path / "results" / "validate_phase_dml_dql_after_upgrade.json",
+        {"status": "passed"},
+    )
+    _write_json(
         tmp_path / "results" / "validate_forward_after_upgrade.json",
         {"status": "skipped"},
     )
     _write_json(
         tmp_path / "results" / "validate_index_compatibility_after_rollback.json",
+        {"status": "passed"},
+    )
+    _write_json(
+        tmp_path / "results" / "validate_phase_dml_dql_after_rollback.json",
         {"status": "passed"},
     )
     _write_json(
@@ -194,6 +210,22 @@ def _write_successful_index_compatibility_validation(
     if after_rollback:
         _write_json(
             tmp_path / "results" / "validate_index_compatibility_after_rollback.json",
+            {"status": "passed"},
+        )
+
+
+def _write_successful_phase_dml_dql_validation(
+    tmp_path: Path,
+    *,
+    after_rollback: bool,
+) -> None:
+    _write_json(
+        tmp_path / "results" / "validate_phase_dml_dql_after_upgrade.json",
+        {"status": "passed"},
+    )
+    if after_rollback:
+        _write_json(
+            tmp_path / "results" / "validate_phase_dml_dql_after_rollback.json",
             {"status": "passed"},
         )
 
@@ -281,6 +313,10 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
         "rollback_enabled": True,
         "rollback_forward_validation_enabled": False,
         "index_compatibility_validation_enabled": True,
+        "phase_dml_dql_validation_enabled": True,
+        "phase_new_collection_rows": 1000,
+        "phase_existing_dml_rows": 1000,
+        "phase_existing_delete_rows": 100,
         "schema_evolution_existing_enabled": True,
         "schema_evolution_forward_enabled": False,
     }
@@ -298,6 +334,8 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert "- forward collection prefix: `qa_upgrade_forward`" in markdown
     assert "- rollback enabled: `True`" in markdown
     assert "- index compatibility validation: `True`" in markdown
+    assert "- phase DML/DQL validation: `True`" in markdown
+    assert "- phase new collection rows/schema: `1000`" in markdown
     assert "- base jsonShredding: `True`" in markdown
     assert "- target LoonFFI/storage v3: `False`" in markdown
     assert "- target vortex: `False`" in markdown
@@ -347,6 +385,7 @@ def test_generate_workflow_report_fails_when_required_rollback_validation_is_mis
 ):
     _write_successful_upgrade_validation(tmp_path)
     _write_successful_index_compatibility_validation(tmp_path, after_rollback=True)
+    _write_successful_phase_dml_dql_validation(tmp_path, after_rollback=True)
     _write_json(
         tmp_path / "results" / "wait_rollback_serviceability.json",
         {"brick": "wait_data_serviceability", "status": "passed"},
@@ -386,6 +425,7 @@ def test_generate_workflow_report_fails_when_required_serviceability_result_is_m
 ):
     _write_successful_upgrade_validation(tmp_path)
     _write_successful_index_compatibility_validation(tmp_path, after_rollback=True)
+    _write_successful_phase_dml_dql_validation(tmp_path, after_rollback=True)
     _write_json(
         tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
     )
@@ -422,6 +462,7 @@ def test_generate_workflow_report_fails_when_index_compatibility_result_is_missi
     tmp_path,
 ):
     _write_successful_upgrade_validation(tmp_path)
+    _write_successful_phase_dml_dql_validation(tmp_path, after_rollback=True)
     _write_json(
         tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
     )
@@ -467,6 +508,7 @@ def test_generate_workflow_report_does_not_require_index_compatibility_when_disa
     tmp_path,
 ):
     _write_successful_upgrade_validation(tmp_path)
+    _write_successful_phase_dml_dql_validation(tmp_path, after_rollback=True)
     _write_json(
         tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
     )
@@ -511,11 +553,102 @@ def test_generate_workflow_report_does_not_require_index_compatibility_when_disa
     )
 
 
+def test_generate_workflow_report_fails_when_phase_dml_dql_result_is_missing(
+    tmp_path,
+):
+    _write_successful_upgrade_validation(tmp_path)
+    _write_successful_index_compatibility_validation(tmp_path, after_rollback=True)
+    _write_json(
+        tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
+    )
+    _write_json(
+        tmp_path / "results" / "wait_rollback_serviceability.json",
+        {"brick": "wait_data_serviceability", "status": "passed"},
+    )
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        _base_args(tmp_path, pressure_fail_on_error="true")
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 1
+    assert report["status"] == "failed"
+    assert (
+        report["validation"]["results"]["validate_phase_dml_dql_after_upgrade"][
+            "status"
+        ]
+        == "missing"
+    )
+    assert (
+        report["validation"]["results"]["validate_phase_dml_dql_after_rollback"][
+            "status"
+        ]
+        == "missing"
+    )
+
+
+def test_generate_workflow_report_does_not_require_phase_dml_dql_when_disabled(
+    tmp_path,
+):
+    _write_successful_upgrade_validation(tmp_path)
+    _write_successful_index_compatibility_validation(tmp_path, after_rollback=True)
+    _write_json(
+        tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
+    )
+    _write_json(
+        tmp_path / "results" / "wait_rollback_serviceability.json",
+        {"brick": "wait_data_serviceability", "status": "passed"},
+    )
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        [
+            *_base_args(tmp_path, pressure_fail_on_error="true"),
+            "--phase-dml-dql-validation-enabled",
+            "false",
+        ]
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 0
+    assert report["status"] == "passed"
+    assert (
+        report["parameters"]["config_matrix"]["phase_dml_dql_validation_enabled"]
+        is False
+    )
+    assert "validate_phase_dml_dql_after_upgrade" not in report["validation"]["results"]
+    assert (
+        "validate_phase_dml_dql_after_rollback" not in report["validation"]["results"]
+    )
+
+
 def test_generate_workflow_report_fails_when_required_forward_validation_is_missing(
     tmp_path,
 ):
     _write_successful_upgrade_validation(tmp_path)
     _write_successful_index_compatibility_validation(tmp_path, after_rollback=True)
+    _write_successful_phase_dml_dql_validation(tmp_path, after_rollback=True)
     _write_json(
         tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
     )

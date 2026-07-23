@@ -69,6 +69,14 @@ spec:
         value: "false"
       - name: index-compatibility-validation-enabled
         value: "true"
+      - name: phase-dml-dql-validation-enabled
+        value: "true"
+      - name: phase-new-collection-rows
+        value: "1000"
+      - name: phase-existing-dml-rows
+        value: "1000"
+      - name: phase-existing-delete-rows
+        value: "100"
       - name: schema-evolution-existing-enabled
         value: "false"
       - name: schema-evolution-forward-enabled
@@ -326,7 +334,7 @@ spec:
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
 
           - name: strict-pressure-after-upgrade
-            dependencies: [validate-index-compatibility-after-upgrade, pressure-daemon]
+            dependencies: [validate-phase-dml-dql-after-upgrade, pressure-daemon]
             template: run-pressure-suite
             arguments:
               parameters:
@@ -358,6 +366,33 @@ spec:
                     --phase after-upgrade
                     --rebuild-index true
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+
+          - name: validate-phase-dml-dql-after-upgrade
+            dependencies: [validate-index-compatibility-after-upgrade, pressure-daemon]
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.phase-dml-dql-validation-enabled}}"
+                - name: brick-name
+                  value: validate_phase_dml_dql_after_upgrade
+                - name: module
+                  value: milvus_client.requests.validate_phase_dml_dql
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --phase after-upgrade
+                    --new-collection-prefix {{workflow.parameters.collection-prefix}}_after_upgrade
+                    --new-collection-rows {{workflow.parameters.phase-new-collection-rows}}
+                    --existing-dml-rows {{workflow.parameters.phase-existing-dml-rows}}
+                    --existing-delete-rows {{workflow.parameters.phase-existing-delete-rows}}
+                    --batch-size {{workflow.parameters.batch-size}}
+                    --existing-start-id 50000000
+                    --new-start-id 60000000
+                    --drop-new-collections-if-exist true
 
           - name: schema-evolution-existing
             dependencies: [strict-pressure-after-upgrade, pressure-daemon]
@@ -572,7 +607,7 @@ spec:
                   value: ""
 
           - name: validate-after-rollback
-            dependencies: [validate-index-compatibility-after-rollback, pressure-daemon]
+            dependencies: [validate-phase-dml-dql-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: run-brick
             arguments:
@@ -610,6 +645,35 @@ spec:
                     --phase after-rollback
                     --rebuild-index false
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+
+          - name: validate-phase-dml-dql-after-rollback
+            dependencies: [validate-index-compatibility-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.phase-dml-dql-validation-enabled}}"
+                - name: brick-name
+                  value: validate_phase_dml_dql_after_rollback
+                - name: module
+                  value: milvus_client.requests.validate_phase_dml_dql
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --phase after-rollback
+                    --new-collection-prefix {{workflow.parameters.collection-prefix}}_after_rollback
+                    --carried-collection-prefix {{workflow.parameters.collection-prefix}}_after_upgrade
+                    --new-collection-rows {{workflow.parameters.phase-new-collection-rows}}
+                    --existing-dml-rows {{workflow.parameters.phase-existing-dml-rows}}
+                    --existing-delete-rows {{workflow.parameters.phase-existing-delete-rows}}
+                    --batch-size {{workflow.parameters.batch-size}}
+                    --existing-start-id 70000000
+                    --new-start-id 80000000
+                    --drop-new-collections-if-exist true
 
           - name: wait-rollback-serviceability
             dependencies: [precheck-after-rollback, pressure-daemon]
@@ -808,6 +872,7 @@ spec:
               "rollback_enabled": "{{workflow.parameters.rollback-enabled}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
               "index_compatibility_validation_enabled": "{{workflow.parameters.index-compatibility-validation-enabled}}",
+              "phase_dml_dql_validation_enabled": "{{workflow.parameters.phase-dml-dql-validation-enabled}}",
               "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
               "schema_evolution_forward_enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}",
               "collection_prefix": "{{workflow.parameters.collection-prefix}}",
@@ -820,6 +885,9 @@ spec:
               "etcd_pvc_size": "{{workflow.parameters.etcd-pvc-size}}",
               "storage_pvc_size": "{{workflow.parameters.storage-pvc-size}}",
               "rows_per_collection": "{{workflow.parameters.rows-per-collection}}",
+              "phase_new_collection_rows": "{{workflow.parameters.phase-new-collection-rows}}",
+              "phase_existing_dml_rows": "{{workflow.parameters.phase-existing-dml-rows}}",
+              "phase_existing_delete_rows": "{{workflow.parameters.phase-existing-delete-rows}}",
               "batch_size": "{{workflow.parameters.batch-size}}",
               "pressure_modules": "{{workflow.parameters.pressure-modules}}",
               "pressure_fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}",
@@ -863,9 +931,13 @@ spec:
               "forward_collection_prefix": "{{workflow.parameters.forward-collection-prefix}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
               "index_compatibility_validation_enabled": "{{workflow.parameters.index-compatibility-validation-enabled}}",
+              "phase_dml_dql_validation_enabled": "{{workflow.parameters.phase-dml-dql-validation-enabled}}",
               "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
               "schema_evolution_forward_enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}",
               "rows_per_collection": "{{workflow.parameters.rows-per-collection}}",
+              "phase_new_collection_rows": "{{workflow.parameters.phase-new-collection-rows}}",
+              "phase_existing_dml_rows": "{{workflow.parameters.phase-existing-dml-rows}}",
+              "phase_existing_delete_rows": "{{workflow.parameters.phase-existing-delete-rows}}",
               "pressure_fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}",
               "rollback_serviceability_timeout_sec": "{{workflow.parameters.rollback-serviceability-timeout-sec}}",
               "rollback_serviceability_interval_sec": "{{workflow.parameters.rollback-serviceability-interval-sec}}",
@@ -1690,6 +1762,10 @@ spec:
               --rollback-enabled "{{workflow.parameters.rollback-enabled}}" \
               --rollback-forward-validation-enabled "{{workflow.parameters.rollback-forward-validation-enabled}}" \
               --index-compatibility-validation-enabled "{{workflow.parameters.index-compatibility-validation-enabled}}" \
+              --phase-dml-dql-validation-enabled "{{workflow.parameters.phase-dml-dql-validation-enabled}}" \
+              --phase-new-collection-rows "{{workflow.parameters.phase-new-collection-rows}}" \
+              --phase-existing-dml-rows "{{workflow.parameters.phase-existing-dml-rows}}" \
+              --phase-existing-delete-rows "{{workflow.parameters.phase-existing-delete-rows}}" \
               --schema-evolution-existing-enabled "{{workflow.parameters.schema-evolution-existing-enabled}}" \
               --schema-evolution-forward-enabled "{{workflow.parameters.schema-evolution-forward-enabled}}" \
               --soft-fail
@@ -1833,6 +1909,7 @@ spec:
               "forward_collection_prefix": "{{workflow.parameters.forward-collection-prefix}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
               "index_compatibility_validation_enabled": "{{workflow.parameters.index-compatibility-validation-enabled}}",
+              "phase_dml_dql_validation_enabled": "{{workflow.parameters.phase-dml-dql-validation-enabled}}",
               "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
               "schema_evolution_forward_enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}"
             }

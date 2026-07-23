@@ -16,6 +16,10 @@ defaults:
   rollback_serviceability_timeout_sec: 900
   rollback_serviceability_interval_sec: 10
   index_compatibility_validation_enabled: true
+  phase_dml_dql_validation_enabled: true
+  phase_new_collection_rows: 1000
+  phase_existing_dml_rows: 1000
+  phase_existing_delete_rows: 100
 
 workflow_templates:
   standalone_2_6: milvus-standalone-2-6-upgrade-rollback
@@ -47,41 +51,6 @@ image_aliases:
     version: "3.0.0"
 
 scenarios:
-  - id: standalone-2-6-18-to-3-0-latest-rollback-2-6-18
-    description: "Diagnostic coverage for the pre-#50792 2.6.18 rollback boundary; expected to hit #50694 session version guard with recent 3.0 images."
-    mode: standalone
-    classification: diagnostic
-    support_status: unsupported_known_issue
-    workflow_template_ref: standalone_2_6
-    deploy_profile_ref: standalone
-    schema_matrix_ref: "2.6"
-    collection_prefix: qa_gate_2618_to_30_rb_2618
-    forward_workload_enabled: false
-    schema_evolution_existing_enabled: false
-    schema_evolution_forward_enabled: false
-    rollback_forward_validation_enabled: false
-    base:
-      image_ref: milvus-2-6-18
-      json_shredding_enabled: false
-      vortex_enabled: false
-    target:
-      image_ref: milvus-3-0-latest
-      json_shredding_enabled: false
-      loon_ffi_enabled: false
-      vortex_enabled: false
-    rollback:
-      image_ref: milvus-2-6-18
-      json_shredding_enabled: false
-      vortex_enabled: false
-    validation_policy:
-      data_integrity: strict
-      serviceability: strict
-      pressure_fail_on_error: true
-      gate_allow_warning: false
-    forbidden_after_upgrade:
-      - storage_v3
-      - vortex
-
   - id: standalone-2-6-18-to-3-0-latest-rollback-2-6-latest
     description: "Officially supported 2.6.18 baseline to 3.0 latest then rollback to latest 2.6; storage v3/vortex must stay disabled."
     mode: standalone
@@ -148,41 +117,6 @@ scenarios:
       serviceability: strict
       pressure_fail_on_error: true
       gate_allow_warning: false
-
-  - id: cluster-2-6-18-to-3-0-latest-rollback-2-6-18
-    description: "Cluster-mode diagnostic coverage for the pre-#50792 2.6.18 rollback boundary; expected to hit #50694 session version guard with recent 3.0 images."
-    mode: cluster
-    classification: diagnostic
-    support_status: unsupported_known_issue
-    workflow_template_ref: cluster
-    deploy_profile_ref: cluster_pulsar_1cu
-    schema_matrix_ref: "2.6"
-    collection_prefix: qa_gate_cluster_2618_to_30_rb_2618
-    forward_workload_enabled: false
-    schema_evolution_existing_enabled: false
-    schema_evolution_forward_enabled: false
-    rollback_forward_validation_enabled: false
-    base:
-      image_ref: milvus-2-6-18
-      json_shredding_enabled: false
-      vortex_enabled: false
-    target:
-      image_ref: milvus-3-0-latest
-      json_shredding_enabled: false
-      loon_ffi_enabled: false
-      vortex_enabled: false
-    rollback:
-      image_ref: milvus-2-6-18
-      json_shredding_enabled: false
-      vortex_enabled: false
-    validation_policy:
-      data_integrity: strict
-      serviceability: strict
-      pressure_fail_on_error: true
-      gate_allow_warning: false
-    forbidden_after_upgrade:
-      - storage_v3
-      - vortex
 
   - id: cluster-2-6-18-to-3-0-latest-rollback-2-6-latest
     description: "Cluster-mode coverage for the supported 2.6.18 to 3.0 latest then rollback to latest 2.6 path; storage v3/vortex must stay disabled."

@@ -55,6 +55,10 @@ def resolve_gate_scenario(
         "index_compatibility_validation_enabled",
         defaults.get("index_compatibility_validation_enabled", True),
     )
+    resolved.setdefault(
+        "phase_dml_dql_validation_enabled",
+        defaults.get("phase_dml_dql_validation_enabled", True),
+    )
 
     validate_resolved_gate_scenario(resolved)
     return resolved
@@ -129,6 +133,12 @@ def render_argo_parameters(
                 defaults.get("index_compatibility_validation_enabled", True),
             )
         ),
+        "phase-dml-dql-validation-enabled": _bool_str(
+            scenario.get(
+                "phase_dml_dql_validation_enabled",
+                defaults.get("phase_dml_dql_validation_enabled", True),
+            )
+        ),
         "schema-evolution-existing-enabled": _bool_str(
             scenario.get("schema_evolution_existing_enabled", False)
         ),
@@ -148,6 +158,24 @@ def render_argo_parameters(
             )
         ),
         "batch-size": str(scenario.get("batch_size", defaults.get("batch_size", 100))),
+        "phase-new-collection-rows": str(
+            scenario.get(
+                "phase_new_collection_rows",
+                defaults.get("phase_new_collection_rows", 1000),
+            )
+        ),
+        "phase-existing-dml-rows": str(
+            scenario.get(
+                "phase_existing_dml_rows",
+                defaults.get("phase_existing_dml_rows", 1000),
+            )
+        ),
+        "phase-existing-delete-rows": str(
+            scenario.get(
+                "phase_existing_delete_rows",
+                defaults.get("phase_existing_delete_rows", 100),
+            )
+        ),
         "pressure-modules": " ".join(
             scenario.get("pressure_modules", defaults.get("pressure_modules", []))
         ),
@@ -208,6 +236,12 @@ def validate_gate_manifest(
     _require_bool_if_present(
         manifest["defaults"],
         "index_compatibility_validation_enabled",
+        source=source,
+        scenario_id="defaults",
+    )
+    _require_bool_if_present(
+        manifest["defaults"],
+        "phase_dml_dql_validation_enabled",
         source=source,
         scenario_id="defaults",
     )
@@ -355,6 +389,7 @@ def _validate_scenario_bool_fields(scenario: dict[str, Any], *, source: str) -> 
         "rollback_enabled",
         "rollback_forward_validation_enabled",
         "index_compatibility_validation_enabled",
+        "phase_dml_dql_validation_enabled",
         "schema_evolution_existing_enabled",
         "schema_evolution_forward_enabled",
         "allow_unsafe_negative_coverage",

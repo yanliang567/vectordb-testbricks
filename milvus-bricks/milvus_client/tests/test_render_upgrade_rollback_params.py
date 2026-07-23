@@ -48,6 +48,10 @@ def test_render_standalone_2_6_to_3_0_gate_parameters():
     assert params["forward-workload-enabled"] == "false"
     assert params["rollback-forward-validation-enabled"] == "false"
     assert params["index-compatibility-validation-enabled"] == "true"
+    assert params["phase-dml-dql-validation-enabled"] == "true"
+    assert params["phase-new-collection-rows"] == "1000"
+    assert params["phase-existing-dml-rows"] == "1000"
+    assert params["phase-existing-delete-rows"] == "100"
     assert params["schema-evolution-existing-enabled"] == "false"
     assert params["target-loon-ffi-enabled"] == "false"
     assert params["target-json-shredding-enabled"] == "false"
@@ -93,6 +97,7 @@ def test_render_cluster_3_0_gate_parameters():
     assert params["schema-evolution-existing-enabled"] == "true"
     assert params["rollback-forward-validation-enabled"] == "true"
     assert params["index-compatibility-validation-enabled"] == "true"
+    assert params["phase-dml-dql-validation-enabled"] == "true"
 
 
 def test_render_cluster_2_6_to_3_0_gate_uses_pulsar_profile():

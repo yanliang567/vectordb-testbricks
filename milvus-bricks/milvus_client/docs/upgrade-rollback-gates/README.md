@@ -24,15 +24,11 @@
 | `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest` | cluster | `2.6.18 -> latest 3.0 -> latest 2.6` | 2.6 rollback-safe schema/data | cluster 正式 gate；latest 2.6 必须包含 #50792。3.0 阶段必须禁用 storage v3/vortex。 |
 | `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | `3.0 baseline -> latest 3.0 -> 3.0 baseline` | 3.0 schema/data | cluster 模式下的 3.0 branch gate。 |
 
-另外保留以下非正式 gate 场景：
-
-- `standalone-2-6-18-to-3-0-latest-rollback-2-6-18`
-- `cluster-2-6-18-to-3-0-latest-rollback-2-6-18`
-
-它们用于诊断 pre-#50792 的 rollback boundary。`v2.6.18` 有 coordinator
-session version guard，但不包含 #50792 的 `3.0.x -> 2.6.x` rollback 例外逻辑；
-recent 3.0 image 写入 `meta/session/version=3.0.0-beta` 后，回滚到 `v2.6.18`
-会命中 #50694 并在 coordinator session 注册时 panic。因此它们不作为发布 gate。
+已确认 `2.6.18 -> latest 3.0 -> 2.6.18` 不属于支持路径，不再保留为
+workflow gate 或 diagnostic 场景。`v2.6.18` 有 coordinator session version
+guard，但不包含 #50792 的 `3.0.x -> 2.6.x` rollback 例外逻辑；recent 3.0
+image 写入 `meta/session/version=3.0.0-beta` 后，回滚到 `v2.6.18` 会命中
+#50694 并在 coordinator session 注册时 panic。
 
 另外保留一个 unsafe negative 场景：
 
@@ -56,6 +52,43 @@ rollback.vortex_enabled=false
 ```
 
 Milvus 3.0 的 StorageV3 有效开关是 `common.storage.useLoonFFI`，在 manifest/Argo 参数中统一表示为 `loon_ffi_enabled` / `*-loon-ffi-enabled`；不存在单独的 `storageV3Enabled` CR 配置键。代码层面已有静态校验：如果 promoted gate 是 `2.6 -> 3.0 -> 2.6`，但 base、target 或 rollback 任一阶段开启了 `loon_ffi_enabled` 或 `vortex_enabled`，参数渲染会直接失败。manifest validator 还会强制这些开关必须是 YAML boolean，避免 `"false"` 字符串被误解析。所有可运行场景默认都会拒绝 placeholder 镜像；只有生成 dry-run/review 参数时才使用 `--allow-placeholder`。
+
+## 数据量口径
+
+默认参数：
+
+- `rows-per-collection=5000`
+- `phase-new-collection-rows=1000`
+- `phase-existing-dml-rows=1000`
+- `phase-existing-delete-rows=100`
+
+升级后和回滚后都会运行 `validate_phase_dml_dql`：
+
+- 对 baseline 已存在 collection 执行 insert / upsert / delete，再做 query/search。
+- 在当前 phase 新建一组 collection 并插入数据，再做 query/search。
+- 回滚后还会把升级后新建的 collection 当作 carried collection 继续执行 insert / upsert / delete 和 query/search。
+
+2.6 gate 使用 `schema_matrix_2_6.yaml`，默认 3 个 collection：
+
+| 阶段 | Baseline 存量 collection | 升级后新建 collection | 回滚后新建 collection |
+| --- | --- | --- | --- |
+| 升级前 | `3 × 5000 = 15000` | `0` | `0` |
+| 升级后 phase 校验后 | `3 × (5000 + 1000 - 100) = 17700` | `3 × 1000 = 3000` | `0` |
+| 回滚后 phase 校验后 | `3 × (5000 + 900 + 900) = 20400` | `3 × (1000 + 1000 - 100) = 5700` | `3 × 1000 = 3000` |
+
+3.0 gate 使用 `schema_matrix_3_0.yaml`，默认 4 个 collection：
+
+| 阶段 | Baseline 存量 collection | 升级后新建 collection | 回滚后新建 collection |
+| --- | --- | --- | --- |
+| 升级前 | `4 × 5000 = 20000` | `0` | `0` |
+| 升级后 phase 校验后 | `4 × (5000 + 1000 - 100) = 23600` | `4 × 1000 = 4000` | `0` |
+| 回滚前 schema evolution 后 | `23600 + 4 × 5000 = 43600` | `4000` | `0` |
+| 回滚后 phase 校验后 | `43600 + 4 × 900 = 47200` | `4 × (1000 + 1000 - 100) = 7600` | `4 × 1000 = 4000` |
+
+说明：phase upsert 对显式主键 collection 使用同一批 PK，因此不增加净行数；auto-id
+collection 会跳过 upsert。3.0 branch gate 默认还会在回滚前对 baseline collection
+执行 schema evolution，并用 `rows-per-collection=5000` upsert 新 PK range。上表不包含
+pressure workload 可能产生的非确定性写入。
 
 ## 目录结构
 
@@ -276,14 +309,16 @@ argo submit -n qa \
 7. 升级到 target image。
 8. 升级后做 precheck；cluster gate 会先等待 checkpoint 数据 serviceability 恢复，再做数据完整性校验。
 9. 默认执行 index compatibility validation：用 target 版本 drop/recreate baseline 集合索引、load、search/query，并写出 index checkpoint。
-10. 执行 foreground pressure。
-11. 按场景决定是否执行 schema evolution / forward workload。
-12. 回滚到 rollback image。
-13. 回滚后等待数据 serviceability 恢复。
-14. 默认再次执行 index compatibility validation：不重建索引，只用 rollback 版本 load/search/query 第 9 步重建过索引的集合。
-15. 回滚后做数据完整性校验和 foreground pressure。
-16. 收集 K8s snapshot、pressure result、checkpoint、最终报告。
-17. 按 `keep-milvus` 决定是否清理 Milvus CR/Helm release 和依赖资源。
+10. 默认执行 phase DML/DQL validation：老 collection 做 insert/upsert/delete/query/search，同时新建 after-upgrade collection 并做 query/search。
+11. 执行 foreground pressure。
+12. 按场景决定是否执行 schema evolution / forward workload。
+13. 回滚到 rollback image。
+14. 回滚后等待数据 serviceability 恢复。
+15. 默认再次执行 index compatibility validation：不重建索引，只用 rollback 版本 load/search/query 第 9 步重建过索引的集合。
+16. 默认再次执行 phase DML/DQL validation：老 collection、升级后新 collection、回滚后新 collection 都要覆盖 DML/DQL。
+17. 回滚后做数据完整性校验和 foreground pressure。
+18. 收集 K8s snapshot、pressure result、checkpoint、最终报告。
+19. 按 `keep-milvus` 决定是否清理 Milvus CR/Helm release 和依赖资源。
 
 ## 报告和 artifacts
 
@@ -311,6 +346,7 @@ workflow 会导出这些核心 artifact：
 - storage/jsonShredding/LoonFFI 参数
 - upgrade/rollback serviceability 恢复耗时
 - index compatibility validation 结果
+- phase DML/DQL validation 结果和行数参数
 - pressure 和 data integrity 结果
 
 ## 如何新增 3.1、4.0 或改版本

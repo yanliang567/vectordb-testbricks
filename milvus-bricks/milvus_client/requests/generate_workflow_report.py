@@ -30,6 +30,11 @@ def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
         and config_matrix["index_compatibility_validation_enabled"]
     ):
         required.append("validate_index_compatibility_after_upgrade")
+    if (
+        config_matrix["rollback_enabled"]
+        and config_matrix["phase_dml_dql_validation_enabled"]
+    ):
+        required.append("validate_phase_dml_dql_after_upgrade")
     if config_matrix["rollback_enabled"]:
         required.append("validate_after_rollback")
     if (
@@ -37,6 +42,11 @@ def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
         and config_matrix["index_compatibility_validation_enabled"]
     ):
         required.append("validate_index_compatibility_after_rollback")
+    if (
+        config_matrix["rollback_enabled"]
+        and config_matrix["phase_dml_dql_validation_enabled"]
+    ):
+        required.append("validate_phase_dml_dql_after_rollback")
     if (
         config_matrix["rollback_enabled"]
         and config_matrix["forward_workload_enabled"]
@@ -101,6 +111,12 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "index_compatibility_validation_enabled": parse_bool(
             args.index_compatibility_validation_enabled
         ),
+        "phase_dml_dql_validation_enabled": parse_bool(
+            args.phase_dml_dql_validation_enabled
+        ),
+        "phase_new_collection_rows": args.phase_new_collection_rows,
+        "phase_existing_dml_rows": args.phase_existing_dml_rows,
+        "phase_existing_delete_rows": args.phase_existing_delete_rows,
         "schema_evolution_existing_enabled": parse_bool(
             args.schema_evolution_existing_enabled
         ),
@@ -302,6 +318,10 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- rollback enabled: `{config_matrix.get('rollback_enabled')}`",
         f"- rollback forward validation: `{config_matrix.get('rollback_forward_validation_enabled')}`",
         f"- index compatibility validation: `{config_matrix.get('index_compatibility_validation_enabled')}`",
+        f"- phase DML/DQL validation: `{config_matrix.get('phase_dml_dql_validation_enabled')}`",
+        f"- phase new collection rows/schema: `{config_matrix.get('phase_new_collection_rows')}`",
+        f"- phase existing DML rows/schema: `{config_matrix.get('phase_existing_dml_rows')}`",
+        f"- phase existing delete rows/schema: `{config_matrix.get('phase_existing_delete_rows')}`",
         f"- schema evolution existing: `{config_matrix.get('schema_evolution_existing_enabled')}`",
         f"- schema evolution forward: `{config_matrix.get('schema_evolution_forward_enabled')}`",
         f"- rollback serviceability timeout sec: `{params.get('rollback_serviceability_timeout_sec')}`",
@@ -404,6 +424,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rollback-enabled", default="true")
     parser.add_argument("--rollback-forward-validation-enabled", default="false")
     parser.add_argument("--index-compatibility-validation-enabled", default="false")
+    parser.add_argument("--phase-dml-dql-validation-enabled", default="false")
+    parser.add_argument("--phase-new-collection-rows", type=int, default=0)
+    parser.add_argument("--phase-existing-dml-rows", type=int, default=0)
+    parser.add_argument("--phase-existing-delete-rows", type=int, default=0)
     parser.add_argument("--schema-evolution-existing-enabled", default="false")
     parser.add_argument("--schema-evolution-forward-enabled", default="false")
     parser.add_argument(
