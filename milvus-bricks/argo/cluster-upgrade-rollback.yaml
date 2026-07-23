@@ -18,9 +18,9 @@ spec:
       - name: repo-revision
         value: main
       - name: scenario-id
-        value: cluster-upgrade-rollback
+        value: cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline
       - name: deploy-profile
-        value: milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml
+        value: milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml
       - name: client-image
         value: harbor.milvus.io/qa/fouram:2.1
       - name: python-deps
@@ -84,13 +84,13 @@ spec:
       - name: storage-pvc-size
         value: 20Gi
       - name: collection-prefix
-        value: qa_upgrade_30
+        value: qa_gate_cluster_30_to_30latest
       - name: forward-collection-prefix
-        value: qa_upgrade_30_forward
+        value: qa_gate_cluster_30_to_30latest_forward
       - name: schema-matrix
         value: milvus_client/manifests/schema_matrix_3_0.yaml
       - name: rows-per-collection
-        value: "1000"
+        value: "5000"
       - name: batch-size
         value: "100"
       - name: pressure-modules
@@ -104,9 +104,9 @@ spec:
       - name: pressure-interval-sec
         value: "1"
       - name: pressure-fail-on-error
-        value: "false"
-      - name: gate-allow-warning
         value: "true"
+      - name: gate-allow-warning
+        value: "false"
       - name: allow-unsafe-negative-coverage
         value: "false"
       - name: observe-before-upgrade-sec
@@ -1649,6 +1649,7 @@ spec:
             kubectl -n "$ns" get services -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/services.txt 2>&1 || true
             kubectl -n "$ns" get persistentvolumeclaims -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/pvcs.txt 2>&1 || true
             kubectl -n "$ns" get deployments,statefulsets,replicasets -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/workloads.txt 2>&1 || true
+            kubectl -n "$ns" get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets,jobs,roles,rolebindings -l release="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/release_resources.txt 2>&1 || true
             kubectl -n "$ns" get events --sort-by=.lastTimestamp > /tmp/milvus-bricks/k8s/events.txt 2>&1 || true
             kubectl -n "{{workflow.namespace}}" get configmaps -l zilliz.com/workflow-run-id="{{workflow.uid}}" -o wide > /tmp/milvus-bricks/k8s/workflow_configmaps.txt 2>&1 || true
         volumeMounts:
@@ -1860,6 +1861,7 @@ spec:
             workflow_ns="{{workflow.namespace}}"
             kubectl -n "$ns" get milvuses -l "$selector" -o wide > /tmp/milvus-bricks/k8s/owned_milvuses.txt 2>&1 || true
             kubectl -n "$ns" get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/instance_resources.txt 2>&1 || true
+            kubectl -n "$ns" get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets,jobs,roles,rolebindings -l release="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/release_resources.txt 2>&1 || true
             kubectl -n "$workflow_ns" get configmaps -l "$selector" -o wide > /tmp/milvus-bricks/k8s/workflow_configmaps.txt 2>&1 || true
             kubectl -n "$ns" get events --sort-by=.lastTimestamp > /tmp/milvus-bricks/k8s/events.txt 2>&1 || true
             cleanup_attempted=false
@@ -1900,8 +1902,8 @@ spec:
                   kubectl -n "$ns" delete "$pvc_resource" --ignore-not-found=true || cleanup_failed=true
                 done < /tmp/milvus-bricks/k8s/explicit-pvcs-to-delete.txt
                 kubectl -n "$ns" delete milvuses -l "$selector" --ignore-not-found=true || cleanup_failed=true
-                kubectl -n "$ns" delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets,serviceaccounts,poddisruptionbudgets -l app.kubernetes.io/instance="{{workflow.name}}" --ignore-not-found=true || cleanup_failed=true
-                kubectl -n "$ns" delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets,serviceaccounts,poddisruptionbudgets -l release="{{workflow.name}}" --ignore-not-found=true || cleanup_failed=true
+                kubectl -n "$ns" delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets,serviceaccounts,poddisruptionbudgets,jobs,roles,rolebindings -l app.kubernetes.io/instance="{{workflow.name}}" --ignore-not-found=true || cleanup_failed=true
+                kubectl -n "$ns" delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets,serviceaccounts,poddisruptionbudgets,jobs,roles,rolebindings -l release="{{workflow.name}}" --ignore-not-found=true || cleanup_failed=true
                 kubectl -n "$workflow_ns" delete configmaps -l "$selector" --ignore-not-found=true || cleanup_failed=true
                 if helm status "{{workflow.name}}" -n "$ns" >/dev/null 2>&1; then
                   cleanup_failed=true

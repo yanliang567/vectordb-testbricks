@@ -112,6 +112,26 @@ def test_render_cluster_pulsar_helm_values_from_profile_uses_pulsarv3():
     assert values["pulsarv3"]["zookeeper"]["replicaCount"] == 1
     assert values["pulsarv3"]["bookkeeper"]["replicaCount"] == 1
     assert values["pulsarv3"]["broker"]["replicaCount"] == 1
+    assert (
+        values["pulsarv3"]["broker"]["configData"]["managedLedgerDefaultEnsembleSize"]
+        == "1"
+    )
+    assert (
+        values["pulsarv3"]["broker"]["configData"]["managedLedgerDefaultWriteQuorum"]
+        == "1"
+    )
+    assert (
+        values["pulsarv3"]["broker"]["configData"]["managedLedgerDefaultAckQuorum"]
+        == "1"
+    )
+    assert (
+        values["pulsarv3"]["broker"]["configData"]["PULSAR_MEM"]
+        == "-Xms512m -Xmx512m -XX:MaxDirectMemorySize=1024m\n"
+    )
+    assert (
+        values["pulsarv3"]["proxy"]["configData"]["PULSAR_MEM"]
+        == "-Xms256m -Xmx512m -XX:MaxDirectMemorySize=512m\n"
+    )
     assert values["image"]["all"]["repository"] == "harbor.milvus.io/milvusdb/milvus"
     assert values["image"]["all"]["tag"] == "v2.6.18"
 
@@ -233,6 +253,50 @@ def test_render_milvus_helm_values_cli_writes_yaml_and_topology_summary(tmp_path
     assert summary["helm"]["chart"] == "zilliztech/milvus"
     assert summary["helm"]["chart_version"] == "5.0.24"
     assert summary["components"]["queryNode"]["replicas"] == 1
+    assert summary["dependencies"]["woodpecker"]["enabled"] is True
+    assert summary["dependencies"]["pulsarv3"]["enabled"] is False
+
+
+def test_render_pulsar_helm_values_cli_writes_pulsar_topology_summary(tmp_path):
+    output_yaml = tmp_path / "values.yaml"
+    summary_json = tmp_path / "deploy_topology.json"
+
+    rc = render_helm_cli.main(
+        [
+            "--deploy-profile",
+            str(ROOT / "manifests" / "deploy_profiles" / "cluster-pulsar-1cu.yaml"),
+            "--name",
+            "cluster-pulsar-upgrade-test",
+            "--namespace",
+            "qa-milvus",
+            "--image",
+            "harbor.milvus.io/milvusdb/milvus:v2.6.18",
+            "--version",
+            "2.6.18",
+            "--workflow-name",
+            "wf-1",
+            "--workflow-uid",
+            "uid-1",
+            "--app-name",
+            "milvus-cluster-upgrade-rollback",
+            "--output-yaml",
+            str(output_yaml),
+            "--summary-json",
+            str(summary_json),
+        ]
+    )
+
+    values = yaml.safe_load(output_yaml.read_text())
+    summary = json.loads(summary_json.read_text())
+    assert rc == 0
+    assert values["pulsarv3"]["enabled"] is True
+    assert summary["profile"] == "cluster-pulsar-1cu"
+    assert summary["dependencies"]["msgStreamType"] == "pulsar"
+    assert summary["dependencies"]["woodpecker"]["enabled"] is False
+    assert summary["dependencies"]["pulsarv3"]["enabled"] is True
+    assert summary["dependencies"]["pulsarv3"]["broker"]["replicaCount"] == 1
+    assert summary["dependencies"]["pulsarv3"]["bookkeeper"]["replicaCount"] == 1
+    assert summary["dependencies"]["pulsarv3"]["zookeeper"]["replicaCount"] == 1
 
 
 def test_render_cluster_helm_values_rejects_chart_managed_labels():

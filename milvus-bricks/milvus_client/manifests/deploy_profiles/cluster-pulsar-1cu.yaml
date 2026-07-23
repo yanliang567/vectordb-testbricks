@@ -21,6 +21,10 @@ helm_values:
   pulsarv3:
     enabled: true
     persistence: false
+    rbac:
+      enabled: false
+      psp: false
+      limit_to_namespace: true
     volumes:
       persistence: false
     zookeeper:
@@ -59,6 +63,14 @@ helm_values:
         limits:
           cpu: "1"
           memory: 4Gi
+      configData:
+        PULSAR_MEM: >
+          -Xms512m
+          -Xmx512m
+          -XX:MaxDirectMemorySize=1024m
+        managedLedgerDefaultEnsembleSize: "1"
+        managedLedgerDefaultWriteQuorum: "1"
+        managedLedgerDefaultAckQuorum: "1"
     proxy:
       resources:
         requests:
@@ -67,6 +79,11 @@ helm_values:
         limits:
           cpu: "1"
           memory: 2Gi
+      configData:
+        PULSAR_MEM: >
+          -Xms256m
+          -Xmx512m
+          -XX:MaxDirectMemorySize=512m
   indexNode:
     enabled: false
   service:

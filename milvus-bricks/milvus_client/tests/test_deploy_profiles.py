@@ -119,10 +119,25 @@ def test_cluster_pulsar_profile_declares_2_6_compatible_message_queue():
     assert profile["helm_values"]["pulsar"]["enabled"] is False
     assert profile["helm_values"]["pulsarv3"]["enabled"] is True
     assert profile["helm_values"]["pulsarv3"]["persistence"] is False
+    assert profile["helm_values"]["pulsarv3"]["rbac"] == {
+        "enabled": False,
+        "psp": False,
+        "limit_to_namespace": True,
+    }
     assert profile["helm_values"]["pulsarv3"]["volumes"]["persistence"] is False
     assert profile["helm_values"]["pulsarv3"]["zookeeper"]["replicaCount"] == 1
     assert profile["helm_values"]["pulsarv3"]["bookkeeper"]["replicaCount"] == 1
     assert profile["helm_values"]["pulsarv3"]["broker"]["replicaCount"] == 1
+    assert profile["helm_values"]["pulsarv3"]["broker"]["configData"] == {
+        "PULSAR_MEM": "-Xms512m -Xmx512m -XX:MaxDirectMemorySize=1024m\n",
+        "managedLedgerDefaultEnsembleSize": "1",
+        "managedLedgerDefaultWriteQuorum": "1",
+        "managedLedgerDefaultAckQuorum": "1",
+    }
+    assert (
+        profile["helm_values"]["pulsarv3"]["proxy"]["configData"]["PULSAR_MEM"]
+        == "-Xms256m -Xmx512m -XX:MaxDirectMemorySize=512m\n"
+    )
     assert profile["dependencies"]["msgStreamType"] == "pulsar"
     assert required_components <= set(profile["components"])
     for component in required_components:
