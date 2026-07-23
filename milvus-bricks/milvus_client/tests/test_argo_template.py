@@ -65,10 +65,11 @@ def test_argo_template_runs_compatibility_bricks():
     assert "forward_schema_matrix" in command
 
 
-def test_standalone_pressure_results_exclude_rollout_connectivity_windows():
+def test_upgrade_rollback_pressure_results_exclude_rollout_connectivity_windows():
     for template_path in [
         ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
         ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
     ]:
         template = yaml.safe_load(template_path.read_text())
         templates = {item["name"]: item for item in template["spec"]["templates"]}
@@ -88,18 +89,6 @@ def test_standalone_pressure_results_exclude_rollout_connectivity_windows():
         assert "failed_all" in check_command
         assert "PRESSURE_ATTEMPT_PENDING" in check_command
         assert "PRESSURE_RESULT_MISSING" in check_command
-
-
-def test_cluster_pressure_results_do_not_exclude_rollout_connectivity_windows():
-    template = yaml.safe_load(
-        (ROOT / "argo" / "cluster-upgrade-rollback.yaml").read_text()
-    )
-    templates = {item["name"]: item for item in template["spec"]["templates"]}
-    check_command = templates["check-pressure-results"]["container"]["args"][0]
-
-    assert "maintenance_window_excluded" not in check_command
-    assert "excluded_failed_results" not in check_command
-    assert "failed_all" not in check_command
 
 
 def test_upgrade_rollback_templates_retry_repo_clone():
