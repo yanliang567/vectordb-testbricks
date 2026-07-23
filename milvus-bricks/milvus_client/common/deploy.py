@@ -351,6 +351,7 @@ def helm_deploy_topology_summary(
             "etcd": values.get("etcd", {}),
             "storage": values.get("minio", {}),
             "woodpecker": values.get("woodpecker", {}),
+            "pulsarv3": values.get("pulsarv3", {}),
         },
         "config": yaml.safe_load(
             values.get("extraConfigFiles", {}).get("user.yaml", "{}")

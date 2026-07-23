@@ -822,7 +822,10 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         parameter["name"]: parameter["value"]
         for parameter in template["spec"]["arguments"]["parameters"]
     }
-    assert parameter_values["scenario-id"] == "cluster-upgrade-rollback"
+    assert (
+        parameter_values["scenario-id"]
+        == "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline"
+    )
     assert (
         parameter_values["deploy-profile"]
         == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
@@ -831,6 +834,14 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         parameter_values["schema-matrix"]
         == "milvus_client/manifests/schema_matrix_3_0.yaml"
     )
+    assert parameter_values["collection-prefix"] == "qa_gate_cluster_30_to_30latest"
+    assert (
+        parameter_values["forward-collection-prefix"]
+        == "qa_gate_cluster_30_to_30latest_forward"
+    )
+    assert parameter_values["rows-per-collection"] == "5000"
+    assert parameter_values["pressure-fail-on-error"] == "true"
+    assert parameter_values["gate-allow-warning"] == "false"
     assert parameter_values["rollback-enabled"] == "true"
     assert parameter_values["schema-evolution-existing-enabled"] == "true"
 
@@ -927,7 +938,7 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         in cleanup_command
     )
     assert (
-        'delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets,serviceaccounts,poddisruptionbudgets -l release="{{workflow.name}}"'
+        'delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets,serviceaccounts,poddisruptionbudgets,jobs,roles,rolebindings -l release="{{workflow.name}}"'
         in cleanup_command
     )
     assert (
@@ -940,6 +951,13 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     assert 'labels.get("release") == release' in cleanup_command
     assert 'labels.get("app.kubernetes.io/instance") == release' in cleanup_command
     assert '[ "$cleanup_failed" = "false" ]' in cleanup_command
+    collect_command = templates["collect-artifacts"]["container"]["args"][0]
+    assert "release_resources.txt" in collect_command
+    assert (
+        'get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets,jobs,configmaps,secrets,serviceaccounts,roles,rolebindings -l release="{{workflow.name}}"'
+        in collect_command
+    )
+    assert "release_resources.txt" in cleanup_command
     final_command = templates["generate-final-report"]["container"]["args"][0]
     assert "--scenario-id" in final_command
     assert "--deploy-profile" in final_command
@@ -1100,3 +1118,53 @@ def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():
     assert "configmaps" in qa_resources
     assert "workflowtaskresults" in qa_resources
     assert "pod logs" not in milvus_resources
+
+
+def test_cluster_upgrade_rollback_rbac_allows_helm_pulsar_chart_resources():
+    docs = [
+        doc
+        for doc in yaml.safe_load_all(
+            (ROOT / "argo" / "cluster-upgrade-rollback-rbac.yaml").read_text()
+        )
+        if doc
+    ]
+    kinds = [doc["kind"] for doc in docs]
+    assert kinds == ["ServiceAccount", "Role", "RoleBinding", "Role", "RoleBinding"]
+
+    service_account = docs[0]
+    qa_role = docs[1]
+    milvus_role = docs[3]
+    milvus_binding = docs[4]
+
+    assert service_account["metadata"]["namespace"] == "qa"
+    assert service_account["metadata"]["name"] == "milvus-upgrade-rollback-runner"
+    assert qa_role["metadata"]["namespace"] == "qa"
+    assert milvus_role["metadata"]["namespace"] == "qa-milvus"
+    assert milvus_binding["subjects"][0] == {
+        "kind": "ServiceAccount",
+        "name": "milvus-upgrade-rollback-runner",
+        "namespace": "qa",
+    }
+
+    def has_verbs(api_group: str, resource: str, required_verbs: set[str]) -> bool:
+        for rule in milvus_role["rules"]:
+            if api_group in rule["apiGroups"] and resource in rule["resources"]:
+                if required_verbs <= set(rule["verbs"]):
+                    return True
+        return False
+
+    write_verbs = {"create", "patch", "update", "delete"}
+    read_write_verbs = {"get", "list", "watch", "create", "patch", "update", "delete"}
+    assert has_verbs("batch", "jobs", write_verbs)
+    assert has_verbs("rbac.authorization.k8s.io", "roles", write_verbs)
+    assert has_verbs("rbac.authorization.k8s.io", "rolebindings", write_verbs)
+    assert has_verbs("", "pods", write_verbs)
+    for api_group in {"", "extensions", "apps"}:
+        for resource in {"pods", "services", "deployments", "secrets", "statefulsets"}:
+            assert has_verbs(api_group, resource, read_write_verbs), (
+                api_group,
+                resource,
+            )
+    assert "pods/log" in {
+        resource for rule in milvus_role["rules"] for resource in rule["resources"]
+    }

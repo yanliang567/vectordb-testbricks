@@ -216,7 +216,8 @@ definitions from scenario composition:
   `milvus-2-6-18`, `milvus-3-0-baseline`, or `milvus-3-0-latest`.
 - `schema_matrices`: branch-level schema matrix paths.
 - `deploy_profiles`: code-managed deployment topology. Standalone profiles render
-  Milvus Operator CRs; cluster Woodpecker profiles render Helm chart values.
+  Milvus Operator CRs; cluster Pulsar/Woodpecker profiles render Helm chart
+  values.
 - `workflow_templates`: Argo WorkflowTemplate names.
 - `scenarios`: gate or negative scenario composition using the refs above.
 
@@ -323,16 +324,21 @@ suite:
 `argo/cluster-upgrade-rollback.yaml` is the cluster-mode counterpart. It reuses
 the same schema, seed, validation, pressure, serviceability, reporting, and
 cleanup bricks as the standalone templates, but deploys Milvus through the
-Milvus Helm chart from the code-managed `cluster-woodpecker-1cu` profile by
+Milvus Helm chart from the code-managed `cluster-pulsar-1cu` profile by
 default:
 
-- `deploy-profile=milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml`
+- `deploy-profile=milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml`
 - `deployer=helm`
 - `chart=zilliztech/milvus`
 - `chart_version=5.0.24`
 - `mode=cluster`
-- `msgStreamType=woodpecker`
+- `msgStreamType=pulsar`
 - `mixCoord/proxy/queryNode/dataNode/streamingNode` explicitly configured
+
+The 2.6 -> 3.0 -> 2.6 cluster gates use Pulsar because 2.6 does not support the
+external Woodpecker client topology used by current 3.0 Helm deployments. The
+3.0 -> 3.0 cluster gate still uses `cluster-woodpecker-1cu` to keep external
+Woodpecker covered on the branch that supports it.
 
 The deploy profiles are stored under
 `milvus_client/manifests/deploy_profiles/`. Cluster Workflow templates call

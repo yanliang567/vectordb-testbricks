@@ -3,7 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from milvus_client.common.gates import load_gate_manifest, resolve_gate_scenario, validate_gate_manifest
+from milvus_client.common.gates import (
+    load_gate_manifest,
+    resolve_gate_scenario,
+    validate_gate_manifest,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +20,10 @@ def _manifest() -> dict:
 
 def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
     manifest = _manifest()
-    scenarios = {scenario["id"]: resolve_gate_scenario(manifest, scenario["id"]) for scenario in manifest["scenarios"]}
+    scenarios = {
+        scenario["id"]: resolve_gate_scenario(manifest, scenario["id"])
+        for scenario in manifest["scenarios"]
+    }
 
     assert {
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-18",
@@ -38,7 +45,9 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         assert scenario["deploy_profile"].endswith(".yaml")
         assert scenario["schema_matrix"].endswith(".yaml")
         for phase in ["base", "target", "rollback"]:
-            assert scenario[phase]["image"].startswith("harbor.milvus.io/milvusdb/milvus:")
+            assert scenario[phase]["image"].startswith(
+                "harbor.milvus.io/milvusdb/milvus:"
+            )
             assert scenario[phase]["version"]
             assert "image_ref" in scenario[phase]
         assert scenario["validation_policy"]["data_integrity"] == "strict"
@@ -65,9 +74,39 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
     ]
 
     assert len(cluster_scenarios) == 2
+    by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
+    assert (
+        by_id["cluster-2-6-18-to-3-0-latest-rollback-2-6-latest"]["deploy_profile"]
+        == "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
+    )
+    assert (
+        by_id["cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline"][
+            "deploy_profile"
+        ]
+        == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+    )
     for scenario in cluster_scenarios:
         assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
-        assert scenario["deploy_profile"] == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+
+
+def test_cluster_2_6_diagnostic_and_gate_scenarios_use_pulsar_profile():
+    manifest = _manifest()
+    cluster_2_6_scenarios = [
+        resolve_gate_scenario(manifest, scenario["id"])
+        for scenario in manifest["scenarios"]
+        if scenario["mode"] == "cluster"
+        and scenario["id"].startswith("cluster-2-6-18-to-3-0-latest")
+    ]
+
+    assert {scenario["classification"] for scenario in cluster_2_6_scenarios} == {
+        "diagnostic",
+        "gate",
+    }
+    for scenario in cluster_2_6_scenarios:
+        assert (
+            scenario["deploy_profile"]
+            == "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
+        )
 
 
 def test_2_6_to_3_0_rollback_gate_scenarios_forbid_storage_v3_and_vortex():
@@ -134,7 +173,9 @@ def test_manifest_references_are_centralized():
 
 def test_negative_vortex_to_2_6_scenario_is_not_a_gate():
     manifest = _manifest()
-    negative = resolve_gate_scenario(manifest, "standalone-3-0-loon-vortex-to-2-6-negative")
+    negative = resolve_gate_scenario(
+        manifest, "standalone-3-0-loon-vortex-to-2-6-negative"
+    )
 
     assert negative["classification"] == "negative"
     assert negative["support_status"] == "unsupported"
@@ -148,7 +189,9 @@ def test_manifest_validator_rejects_string_bool_values():
     broken = deepcopy(manifest)
     broken["scenarios"][0]["target"]["loon_ffi_enabled"] = "false"
 
-    with pytest.raises(ValueError, match="target.loon_ffi_enabled must be a YAML boolean"):
+    with pytest.raises(
+        ValueError, match="target.loon_ffi_enabled must be a YAML boolean"
+    ):
         validate_gate_manifest(broken)
 
 

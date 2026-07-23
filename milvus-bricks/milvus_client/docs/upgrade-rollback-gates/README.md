@@ -10,7 +10,7 @@
 当前覆盖两类部署形态：
 
 - `standalone`：轻量兼容性 gate，适合快速验证数据和功能回归。
-- `cluster`：分布式组件形态 gate，覆盖 `mixCoord/proxy/queryNode/dataNode/streamingNode` 以及 Woodpecker MQ。
+- `cluster`：分布式组件形态 gate，覆盖 `mixCoord/proxy/queryNode/dataNode/streamingNode`；2.6 rollback gate 使用 Pulsar MQ，3.0 branch gate 使用 Woodpecker MQ。
 
 ## 当前 gate 场景
 
@@ -83,6 +83,7 @@ milvus-bricks/
       schema_matrix_3_0.yaml
       deploy_profiles/
         standalone-rocksmq.yaml
+        cluster-pulsar-1cu.yaml
         cluster-woodpecker-1cu.yaml
         cluster-woodpecker-2cu.yaml
 ```
@@ -91,7 +92,7 @@ milvus-bricks/
 
 - Argo YAML 负责编排流程。
 - `upgrade_rollback_gates.yaml` 负责维护场景、版本路径、schema/profile/workflow 引用。
-- deploy profile 负责维护部署 topology：standalone 渲染 Milvus Operator CR，cluster Woodpecker 渲染 Helm chart values。
+- deploy profile 负责维护部署 topology：standalone 渲染 Milvus Operator CR，cluster Pulsar/Woodpecker 渲染 Helm chart values。
 - cluster deploy profile 同时固定 Helm `repo_name` / `repo_url` / `chart` / `chart_version`；升级和回滚阶段都会复用这些字段，避免 gate 同时验证 Milvus image 和 mutable Helm chart。
 - schema matrix 负责维护字段、索引和 workload 数据覆盖。
 - renderer 负责把 manifest/profile 转成 Argo 参数、Milvus CR 或 Helm values。
@@ -245,11 +246,28 @@ argo submit -n qa \
   -p keep-milvus=false
 ```
 
+示例：cluster `2.6.18 -> 3.0 latest -> latest 2.6`
+
+```bash
+argo submit -n qa \
+  --from workflowtemplate/milvus-cluster-upgrade-rollback \
+  -p scenario-id=cluster-2-6-18-to-3-0-latest-rollback-2-6-latest \
+  -p deploy-profile=milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml \
+  -p base-milvus-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
+  -p base-version=2.6.18 \
+  -p target-milvus-image=harbor.milvus.io/milvusdb/milvus:3.0-YYYYMMDD-<sha> \
+  -p target-version=3.0.0 \
+  -p rollback-milvus-image=harbor.milvus.io/milvusdb/milvus:2.6-YYYYMMDD-<sha> \
+  -p rollback-version=2.6.0 \
+  -p rollback-enabled=true \
+  -p keep-milvus=false
+```
+
 ## Workflow 会做什么
 
 每个 promoted gate 的主流程：
 
-1. 部署 base Milvus。standalone 使用 Milvus Operator CR；cluster Woodpecker 使用 Milvus Helm chart。
+1. 部署 base Milvus。standalone 使用 Milvus Operator CR；cluster 使用 Milvus Helm chart，2.6 rollback gate 用 Pulsar profile，3.0 branch gate 用 Woodpecker profile。
 2. 等待 Milvus ready。
 3. 创建 schema matrix 中的集合。
 4. 写入 deterministic seed data，并保存 checkpoint。
@@ -446,7 +464,7 @@ python3 -m pytest \
 
 ### standalone 和 cluster 都要跑吗？
 
-需要。standalone 快速覆盖数据兼容性和功能回归；cluster 额外覆盖分布式组件滚动、serviceability 和 Woodpecker 拓扑。
+需要。standalone 快速覆盖数据兼容性和功能回归；cluster 额外覆盖分布式组件滚动和 serviceability。2.6 rollback path 使用 Pulsar 避开 2.6 不支持的 external Woodpecker client；3.0 branch path 继续覆盖 Woodpecker 拓扑。
 
 ### 什么时候设置 `keep-milvus=true`？
 
