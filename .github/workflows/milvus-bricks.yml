@@ -1,0 +1,57 @@
+name: Milvus Bricks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/milvus-bricks.yml"
+      - "milvus-bricks/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/milvus-bricks.yml"
+      - "milvus-bricks/**"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pyyaml numpy pymilvus==3.0.0 ruff==0.15.22
+
+      - name: Install Helm
+        run: |
+          curl -fsSL https://get.helm.sh/helm-v3.15.4-linux-amd64.tar.gz -o /tmp/helm.tgz
+          tar -xzf /tmp/helm.tgz -C /tmp
+          sudo install /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm version --short
+
+      - name: Run tests
+        working-directory: milvus-bricks
+        run: PYTHONPATH=. python -m pytest milvus_client/tests -q
+
+      - name: Ruff check
+        working-directory: milvus-bricks
+        run: |
+          ruff check \
+            milvus_client/common/deploy.py \
+            milvus_client/requests/render_milvus_helm_values.py \
+            milvus_client/tests/test_render_milvus_cr.py \
+            milvus_client/tests/test_argo_template.py
+
+      - name: Ruff format check
+        working-directory: milvus-bricks
+        run: |
+          ruff format --check \
+            milvus_client/common/deploy.py \
+            milvus_client/requests/render_milvus_helm_values.py \
+            milvus_client/tests/test_render_milvus_cr.py \
+            milvus_client/tests/test_argo_template.py

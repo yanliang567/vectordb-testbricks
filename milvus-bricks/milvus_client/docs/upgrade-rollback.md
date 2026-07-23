@@ -70,11 +70,12 @@ upgrade and rollback waits.
 
 `argo/standalone-2-6-upgrade-rollback.yaml` is the 4am workflow template for
 the v2.6.18 rollback compatibility lane. Client pods run in `qa` with the
-`milvus-upgrade-rollback-runner` ServiceAccount, while the Milvus Operator CR is
-created in `qa-milvus`. The template creates a standalone CR with parameterized
+`milvus-upgrade-rollback-runner` ServiceAccount, while Milvus resources are
+created in `qa-milvus`. The standalone templates create a Milvus Operator CR with parameterized
 2 CPU / 4 GiB requests and 4 CPU / 8 GiB limits, seeds only rollback-safe 2.6
 schemas, upgrades to a configured 2.6 or master/3.0 target image, validates
-existing data, rolls back to v2.6.18, and validates the same checkpoint again.
+existing data, rolls back to a latest 2.6 image that contains #50792, and
+validates the same checkpoint again.
 Client pods default to 1 CPU / 2 GiB requests and 2 CPU / 4 GiB limits.
 Set `rollback-milvus-image` and `rollback-version` explicitly when a scenario
 rolls back to a different 2.6 branch image, such as latest 2.6 instead of the
@@ -168,9 +169,10 @@ kubectl apply -f argo/standalone-2-6-upgrade-rollback-rbac.yaml
 argo submit -n qa --from workflowtemplate/milvus-standalone-2-6-upgrade-rollback \
   -p repo-revision=main \
   -p base-milvus-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
-  -p target-milvus-image=harbor.milvus.io/milvusdb/milvus:2.6-20260707-e9ee9a47 \
-  -p rollback-milvus-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
-  -p rollback-version=2.6.18 \
+  -p target-milvus-image=harbor.milvus.io/milvusdb/milvus:3.0-YYYYMMDD-<sha> \
+  -p target-version=3.0.0 \
+  -p rollback-milvus-image=harbor.milvus.io/milvusdb/milvus:2.6-YYYYMMDD-<sha> \
+  -p rollback-version=2.6.0 \
   -p base-json-shredding-enabled=true \
   -p target-json-shredding-enabled=true \
   -p rollback-json-shredding-enabled=true \
@@ -198,8 +200,10 @@ seed/validate steps use `/tmp/milvus-bricks/checkpoints/forward/seed_data.json`.
 This keeps forward-only checkpoints from overwriting the baseline checkpoint
 used by rollback validation.
 
-For `v2.6.18 -> master -> v2.6.18` runs, keep the 2.6 template and pass the
-master image as `target-milvus-image`. The schema matrix remains
+For `v2.6.18 -> master/3.0 -> latest 2.6` runs, keep the 2.6 template and pass
+the master/3.0 image as `target-milvus-image`. Use a rollback 2.6 build that
+contains #50792; `v2.6.18` is a diagnostic-only rollback target for #50694 and
+is not a positive gate target with recent 3.0 images. The schema matrix remains
 `schema_matrix_2_6.yaml` unless `forward-workload-enabled=true` is explicitly
 set for target-only 3.0 coverage.
 
@@ -211,7 +215,8 @@ definitions from scenario composition:
 - `image_aliases`: concrete image + operator `version` pairs, such as
   `milvus-2-6-18`, `milvus-3-0-baseline`, or `milvus-3-0-latest`.
 - `schema_matrices`: branch-level schema matrix paths.
-- `deploy_profiles`: standalone/cluster Milvus Operator CR profiles.
+- `deploy_profiles`: code-managed deployment topology. Standalone profiles render
+  Milvus Operator CRs; cluster Woodpecker profiles render Helm chart values.
 - `workflow_templates`: Argo WorkflowTemplate names.
 - `scenarios`: gate or negative scenario composition using the refs above.
 
@@ -223,7 +228,7 @@ resolving images instead of manually copying every `-p` flag:
 
 ```bash
 PYTHONPATH=. python -m milvus_client.requests.render_upgrade_rollback_params \
-  --scenario-id standalone-2-6-18-to-3-0-latest-rollback-2-6-18 \
+  --scenario-id standalone-2-6-18-to-3-0-latest-rollback-2-6-latest \
   --format argo-args
 ```
 
@@ -237,10 +242,10 @@ example:
 ```bash
 argo submit -n qa \
   --from workflowtemplate/milvus-standalone-2-6-upgrade-rollback \
-  -p scenario-id=standalone-2-6-18-to-3-0-latest-rollback-2-6-18 \
+  -p scenario-id=standalone-2-6-18-to-3-0-latest-rollback-2-6-latest \
   -p base-milvus-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
   -p target-milvus-image=harbor.milvus.io/milvusdb/milvus:3.0-YYYYMMDD-<sha> \
-  -p rollback-milvus-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
+  -p rollback-milvus-image=harbor.milvus.io/milvusdb/milvus:2.6-YYYYMMDD-<sha> \
   -p base-loon-ffi-enabled=false \
   -p target-loon-ffi-enabled=false \
   -p rollback-loon-ffi-enabled=false \
@@ -293,6 +298,7 @@ The 4am template runs these strict foreground bricks:
 - `create_schema_matrix`
 - `seed_data`
 - `validate_data_integrity` before upgrade
+- `wait_data_serviceability` after upgrade for cluster gates
 - `validate_data_integrity` after upgrade
 - `wait_data_serviceability` after rollback
 - `validate_data_integrity` after rollback
@@ -316,19 +322,27 @@ suite:
 
 `argo/cluster-upgrade-rollback.yaml` is the cluster-mode counterpart. It reuses
 the same schema, seed, validation, pressure, serviceability, reporting, and
-cleanup bricks as the standalone templates, but deploys Milvus from the
-code-managed `cluster-woodpecker-1cu` profile by default:
+cleanup bricks as the standalone templates, but deploys Milvus through the
+Milvus Helm chart from the code-managed `cluster-woodpecker-1cu` profile by
+default:
 
 - `deploy-profile=milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml`
+- `deployer=helm`
+- `chart=zilliztech/milvus`
+- `chart_version=5.0.24`
 - `mode=cluster`
 - `msgStreamType=woodpecker`
 - `mixCoord/proxy/queryNode/dataNode/streamingNode` explicitly configured
 
 The deploy profiles are stored under
-`milvus_client/manifests/deploy_profiles/`. Workflow templates call
-`milvus_client.requests.render_milvus_cr` to render the Milvus Operator CR and
-write `deploy_topology.json`, so reports include the actual mode, component
-replicas/resources, image, version, and dependency topology used for the run.
+`milvus_client/manifests/deploy_profiles/`. Cluster Workflow templates call
+`milvus_client.requests.render_milvus_helm_values` to render Helm values and
+write `deploy_topology.json`, so reports include the actual deployer, mode,
+component replicas/resources, Helm chart version, image, version, and dependency
+topology used for the run. Upgrade and rollback phases reuse the same
+profile-defined Helm repo/chart/version instead of resolving the latest chart at
+runtime. This avoids the current 4am Operator limitation where Woodpecker
+cluster dependencies can fail before Milvus is deployed.
 
 Use the cluster workflow when the test objective is rolling behavior under
 distributed Milvus components. Use standalone workflows for compact data
@@ -362,7 +376,11 @@ and snapshot paths into one comparable artifact. Background daemon pressure
 warnings do not hide failed foreground validations or foreground pressure
 suites; those steps fail before the final gate.
 `keep-milvus=false` is the default cleanup policy; set `keep-milvus=true` only
-when preserving the generated Milvus CR for debugging.
+when preserving the generated Milvus release for debugging. Cluster cleanup runs
+`helm uninstall`, deletes label-selected workflow resources, and explicitly
+deletes Helm StatefulSet PVCs named `data-<release>-etcd-N` and
+`woodpecker-storage-<release>-woodpecker-N` because these PVC templates may not
+carry the workflow labels.
 
 The current 2.6 schema matrix keeps the default workflow at three collections,
 but each collection is broader:
@@ -402,10 +420,10 @@ capability catalog treats `NullableVector` as a 3.0+ forward-only capability.
 
 | Scenario | Workflow | Hard gate | Notes |
 | --- | --- | --- | --- |
-| 2.6.18 -> latest 3.0 -> 2.6.18 | `milvus-standalone-2-6-upgrade-rollback` | 2.6 schema/data, serviceability, and pressure | Product-supported rollback gate only when storage v3 and vortex stay disabled after upgrade. |
-| 2.6.18 -> latest 3.0 -> latest 2.6 | `milvus-standalone-2-6-upgrade-rollback` | 2.6 schema/data, serviceability, and pressure | Product-supported rollback gate only when storage v3 and vortex stay disabled after upgrade. |
+| 2.6.18 -> latest 3.0 -> latest 2.6 | `milvus-standalone-2-6-upgrade-rollback` | 2.6 schema/data, serviceability, and pressure | Positive gate. Rollback target must contain #50792; storage v3 and vortex stay disabled after upgrade. |
 | 3.0 baseline -> latest 3.0 -> 3.0 baseline | `milvus-standalone-3-0-upgrade-rollback` | 3.0 schema/data, serviceability, and pressure | Strict 3.0 branch rollback gate. |
-| cluster 2.6.18 -> latest 3.0 -> 2.6.18 | `milvus-cluster-upgrade-rollback` | 2.6 schema/data, serviceability, pressure, and cluster topology | Same product constraint: storage v3 and vortex disabled after upgrade. |
-| cluster 2.6.18 -> latest 3.0 -> latest 2.6 | `milvus-cluster-upgrade-rollback` | 2.6 schema/data, serviceability, pressure, and cluster topology | Same product constraint: storage v3 and vortex disabled after upgrade. |
+| cluster 2.6.18 -> latest 3.0 -> latest 2.6 | `milvus-cluster-upgrade-rollback` | 2.6 schema/data, serviceability, pressure, and cluster topology | Positive cluster gate. Rollback target must contain #50792; storage v3 and vortex stay disabled after upgrade. |
 | cluster 3.0 baseline -> latest 3.0 -> 3.0 baseline | `milvus-cluster-upgrade-rollback` | 3.0 schema/data, serviceability, pressure, and cluster topology | Strict 3.0 branch rollback gate under distributed components. |
+| 2.6.18 -> latest 3.0 -> 2.6.18 | `milvus-standalone-2-6-upgrade-rollback` | Diagnostic-only | Expected to hit #50694 because `v2.6.18` lacks #50792. Not a promoted gate. |
+| cluster 2.6.18 -> latest 3.0 -> 2.6.18 | `milvus-cluster-upgrade-rollback` | Diagnostic-only | Expected to hit #50694 because `v2.6.18` lacks #50792. Not a promoted gate. |
 | 2.6.18 -> latest 3.0 LoonFFI/vortex -> latest 2.6 | `milvus-standalone-2-6-upgrade-rollback` | Negative/observe-only | Not a promoted gate. This documents the unsafe rollback boundary and must not be treated as supported. |
