@@ -1649,7 +1649,7 @@ spec:
             kubectl -n "$ns" get services -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/services.txt 2>&1 || true
             kubectl -n "$ns" get persistentvolumeclaims -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/pvcs.txt 2>&1 || true
             kubectl -n "$ns" get deployments,statefulsets,replicasets -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/workloads.txt 2>&1 || true
-            kubectl -n "$ns" get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets,jobs,roles,rolebindings -l release="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/release_resources.txt 2>&1 || true
+            kubectl -n "$ns" get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets,jobs,configmaps,secrets,serviceaccounts,roles,rolebindings -l release="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/release_resources.txt 2>&1 || true
             kubectl -n "$ns" get events --sort-by=.lastTimestamp > /tmp/milvus-bricks/k8s/events.txt 2>&1 || true
             kubectl -n "{{workflow.namespace}}" get configmaps -l zilliz.com/workflow-run-id="{{workflow.uid}}" -o wide > /tmp/milvus-bricks/k8s/workflow_configmaps.txt 2>&1 || true
         volumeMounts:
@@ -1861,7 +1861,7 @@ spec:
             workflow_ns="{{workflow.namespace}}"
             kubectl -n "$ns" get milvuses -l "$selector" -o wide > /tmp/milvus-bricks/k8s/owned_milvuses.txt 2>&1 || true
             kubectl -n "$ns" get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/instance_resources.txt 2>&1 || true
-            kubectl -n "$ns" get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets,jobs,roles,rolebindings -l release="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/release_resources.txt 2>&1 || true
+            kubectl -n "$ns" get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets,jobs,configmaps,secrets,serviceaccounts,roles,rolebindings -l release="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/release_resources.txt 2>&1 || true
             kubectl -n "$workflow_ns" get configmaps -l "$selector" -o wide > /tmp/milvus-bricks/k8s/workflow_configmaps.txt 2>&1 || true
             kubectl -n "$ns" get events --sort-by=.lastTimestamp > /tmp/milvus-bricks/k8s/events.txt 2>&1 || true
             cleanup_attempted=false

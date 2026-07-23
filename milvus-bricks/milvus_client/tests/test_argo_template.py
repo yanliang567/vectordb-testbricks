@@ -954,7 +954,7 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     collect_command = templates["collect-artifacts"]["container"]["args"][0]
     assert "release_resources.txt" in collect_command
     assert (
-        'get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets,jobs,roles,rolebindings -l release="{{workflow.name}}"'
+        'get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets,jobs,configmaps,secrets,serviceaccounts,roles,rolebindings -l release="{{workflow.name}}"'
         in collect_command
     )
     assert "release_resources.txt" in cleanup_command
@@ -1146,18 +1146,25 @@ def test_cluster_upgrade_rollback_rbac_allows_helm_pulsar_chart_resources():
         "namespace": "qa",
     }
 
-    def verbs_for(api_group: str, resource: str) -> set[str]:
-        verbs = set()
+    def has_verbs(api_group: str, resource: str, required_verbs: set[str]) -> bool:
         for rule in milvus_role["rules"]:
             if api_group in rule["apiGroups"] and resource in rule["resources"]:
-                verbs.update(rule["verbs"])
-        return verbs
+                if required_verbs <= set(rule["verbs"]):
+                    return True
+        return False
 
     write_verbs = {"create", "patch", "update", "delete"}
-    assert write_verbs <= verbs_for("batch", "jobs")
-    assert write_verbs <= verbs_for("rbac.authorization.k8s.io", "roles")
-    assert write_verbs <= verbs_for("rbac.authorization.k8s.io", "rolebindings")
-    assert write_verbs <= verbs_for("", "pods")
+    read_write_verbs = {"get", "list", "watch", "create", "patch", "update", "delete"}
+    assert has_verbs("batch", "jobs", write_verbs)
+    assert has_verbs("rbac.authorization.k8s.io", "roles", write_verbs)
+    assert has_verbs("rbac.authorization.k8s.io", "rolebindings", write_verbs)
+    assert has_verbs("", "pods", write_verbs)
+    for api_group in {"", "extensions", "apps"}:
+        for resource in {"pods", "services", "deployments", "secrets", "statefulsets"}:
+            assert has_verbs(api_group, resource, read_write_verbs), (
+                api_group,
+                resource,
+            )
     assert "pods/log" in {
         resource for rule in milvus_role["rules"] for resource in rule["resources"]
     }
