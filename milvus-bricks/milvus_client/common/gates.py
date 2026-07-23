@@ -161,7 +161,7 @@ def render_argo_parameters(
         "phase-new-collection-rows": str(
             scenario.get(
                 "phase_new_collection_rows",
-                defaults.get("phase_new_collection_rows", 1000),
+                defaults.get("phase_new_collection_rows", 3000),
             )
         ),
         "phase-existing-dml-rows": str(

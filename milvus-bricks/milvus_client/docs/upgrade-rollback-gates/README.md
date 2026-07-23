@@ -58,32 +58,32 @@ Milvus 3.0 的 StorageV3 有效开关是 `common.storage.useLoonFFI`，在 manif
 默认参数：
 
 - `rows-per-collection=5000`
-- `phase-new-collection-rows=1000`
+- `phase-new-collection-rows=3000`
 - `phase-existing-dml-rows=1000`
 - `phase-existing-delete-rows=100`
 
 升级后和回滚后都会运行 `validate_phase_dml_dql`：
 
-- 对 baseline 已存在 collection 执行 insert / upsert / delete，再做 query/search。
+- 对 baseline 已存在 collection 执行 insert / upsert / delete，再做 query/search。当前 upsert/delete 作用于本 phase 刚 insert 的 PK range，不会修改 baseline seed 的原始 5000 行。
 - 在当前 phase 新建一组 collection 并插入数据，再做 query/search。
-- 回滚后还会把升级后新建的 collection 当作 carried collection 继续执行 insert / upsert / delete 和 query/search。
+- 回滚后还会把升级后新建的 collection 当作 carried collection 继续执行 insert / upsert / delete 和 query/search；这里的 upsert/delete 同样作用于回滚 phase 新插入到 carried collection 的 PK range。
 
 2.6 gate 使用 `schema_matrix_2_6.yaml`，默认 3 个 collection：
 
 | 阶段 | Baseline 存量 collection | 升级后新建 collection | 回滚后新建 collection |
 | --- | --- | --- | --- |
 | 升级前 | `3 × 5000 = 15000` | `0` | `0` |
-| 升级后 phase 校验后 | `3 × (5000 + 1000 - 100) = 17700` | `3 × 1000 = 3000` | `0` |
-| 回滚后 phase 校验后 | `3 × (5000 + 900 + 900) = 20400` | `3 × (1000 + 1000 - 100) = 5700` | `3 × 1000 = 3000` |
+| 升级后 phase 校验后 | `3 × (5000 + 1000 - 100) = 17700` | `3 × 3000 = 9000` | `0` |
+| 回滚后 phase 校验后 | `3 × (5000 + 900 + 900) = 20400` | `3 × (3000 + 1000 - 100) = 11700` | `3 × 3000 = 9000` |
 
 3.0 gate 使用 `schema_matrix_3_0.yaml`，默认 4 个 collection：
 
 | 阶段 | Baseline 存量 collection | 升级后新建 collection | 回滚后新建 collection |
 | --- | --- | --- | --- |
 | 升级前 | `4 × 5000 = 20000` | `0` | `0` |
-| 升级后 phase 校验后 | `4 × (5000 + 1000 - 100) = 23600` | `4 × 1000 = 4000` | `0` |
-| 回滚前 schema evolution 后 | `23600 + 4 × 5000 = 43600` | `4000` | `0` |
-| 回滚后 phase 校验后 | `43600 + 4 × 900 = 47200` | `4 × (1000 + 1000 - 100) = 7600` | `4 × 1000 = 4000` |
+| 升级后 phase 校验后 | `4 × (5000 + 1000 - 100) = 23600` | `4 × 3000 = 12000` | `0` |
+| 回滚前 schema evolution 后 | `23600 + 4 × 5000 = 43600` | `12000` | `0` |
+| 回滚后 phase 校验后 | `43600 + 4 × 900 = 47200` | `4 × (3000 + 1000 - 100) = 15600` | `4 × 3000 = 12000` |
 
 说明：phase upsert 对显式主键 collection 使用同一批 PK，因此不增加净行数；auto-id
 collection 会跳过 upsert。3.0 branch gate 默认还会在回滚前对 baseline collection

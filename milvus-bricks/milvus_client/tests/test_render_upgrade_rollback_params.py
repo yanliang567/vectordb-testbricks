@@ -49,7 +49,7 @@ def test_render_standalone_2_6_to_3_0_gate_parameters():
     assert params["rollback-forward-validation-enabled"] == "false"
     assert params["index-compatibility-validation-enabled"] == "true"
     assert params["phase-dml-dql-validation-enabled"] == "true"
-    assert params["phase-new-collection-rows"] == "1000"
+    assert params["phase-new-collection-rows"] == "3000"
     assert params["phase-existing-dml-rows"] == "1000"
     assert params["phase-existing-delete-rows"] == "100"
     assert params["schema-evolution-existing-enabled"] == "false"

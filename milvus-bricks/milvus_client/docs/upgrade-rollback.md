@@ -182,18 +182,20 @@ active request compatibility at both phase boundaries:
 
 - after upgrade: run insert/upsert/delete on baseline collections, create one
   `${collection-prefix}_after_upgrade` collection per schema, then query/search
-  both old and new collections;
+  both old and new collections. The upsert/delete operations target the PK range
+  inserted by this phase, not the original baseline seed rows;
 - after rollback: run insert/upsert/delete on baseline collections again, carry
   the upgrade-created collections forward for another DML/DQL round, create one
   `${collection-prefix}_after_rollback` collection per schema, then query/search
-  all of them.
+  all of them. The carried collection upsert/delete operations also target rows
+  inserted during the rollback phase.
 
 Default deterministic data scale:
 
 | Gate family | Schema count | Before upgrade baseline | After-upgrade phase validation | Before rollback after schema evolution | After-rollback phase validation |
 | --- | --- | --- | --- | --- | --- |
-| 2.6 rollback gate | 3 | baseline `15000` | baseline `17700`, upgrade-new `3000` | same as after-upgrade; schema evolution disabled | baseline `20400`, upgrade-new/carried `5700`, rollback-new `3000` |
-| 3.0 branch gate | 4 | baseline `20000` | baseline `23600`, upgrade-new `4000` | baseline `43600`, upgrade-new `4000`; schema evolution adds `4 × 5000` | baseline `47200`, upgrade-new/carried `7600`, rollback-new `4000` |
+| 2.6 rollback gate | 3 | baseline `15000` | baseline `17700`, upgrade-new `9000` | same as after-upgrade; schema evolution disabled | baseline `20400`, upgrade-new/carried `11700`, rollback-new `9000` |
+| 3.0 branch gate | 4 | baseline `20000` | baseline `23600`, upgrade-new `12000` | baseline `43600`, upgrade-new `12000`; schema evolution adds `4 × 5000` | baseline `47200`, upgrade-new/carried `15600`, rollback-new `12000` |
 
 Per collection, phase DML inserts `1000` rows, upserts the same PK range when
 the schema has explicit PK, and deletes `100` rows, so the net row increase is

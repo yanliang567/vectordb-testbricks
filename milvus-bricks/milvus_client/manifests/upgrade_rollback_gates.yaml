@@ -17,7 +17,7 @@ defaults:
   rollback_serviceability_interval_sec: 10
   index_compatibility_validation_enabled: true
   phase_dml_dql_validation_enabled: true
-  phase_new_collection_rows: 1000
+  phase_new_collection_rows: 3000
   phase_existing_dml_rows: 1000
   phase_existing_delete_rows: 100
 

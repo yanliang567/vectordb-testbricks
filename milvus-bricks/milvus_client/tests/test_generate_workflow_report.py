@@ -120,7 +120,7 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "--phase-dml-dql-validation-enabled",
         "true",
         "--phase-new-collection-rows",
-        "1000",
+        "3000",
         "--phase-existing-dml-rows",
         "1000",
         "--phase-existing-delete-rows",
@@ -314,7 +314,7 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
         "rollback_forward_validation_enabled": False,
         "index_compatibility_validation_enabled": True,
         "phase_dml_dql_validation_enabled": True,
-        "phase_new_collection_rows": 1000,
+        "phase_new_collection_rows": 3000,
         "phase_existing_dml_rows": 1000,
         "phase_existing_delete_rows": 100,
         "schema_evolution_existing_enabled": True,
@@ -335,7 +335,7 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert "- rollback enabled: `True`" in markdown
     assert "- index compatibility validation: `True`" in markdown
     assert "- phase DML/DQL validation: `True`" in markdown
-    assert "- phase new collection rows/schema: `1000`" in markdown
+    assert "- phase new collection rows/schema: `3000`" in markdown
     assert "- base jsonShredding: `True`" in markdown
     assert "- target LoonFFI/storage v3: `False`" in markdown
     assert "- target vortex: `False`" in markdown

@@ -22,7 +22,7 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
     manifest = _manifest()
     assert manifest["defaults"]["index_compatibility_validation_enabled"] is True
     assert manifest["defaults"]["phase_dml_dql_validation_enabled"] is True
-    assert manifest["defaults"]["phase_new_collection_rows"] == 1000
+    assert manifest["defaults"]["phase_new_collection_rows"] == 3000
     assert manifest["defaults"]["phase_existing_dml_rows"] == 1000
     assert manifest["defaults"]["phase_existing_delete_rows"] == 100
     scenarios = {

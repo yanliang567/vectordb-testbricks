@@ -74,7 +74,7 @@ PYTHONPATH=. pytest milvus_client/tests/test_upgrade_rollback_gates_manifest.py 
 
 默认数据规模：
 
-- phase 新 collection：每个 schema 1000 rows。
+- phase 新 collection：每个 schema 3000 rows。
 - 老 collection DML：每个 schema insert 1000 rows，upsert 同一批 PK，delete 100 rows。
 
 ---
@@ -90,7 +90,7 @@ PYTHONPATH=. pytest milvus_client/tests/test_upgrade_rollback_gates_manifest.py 
 **步骤 1: 新增 workflow 参数**
 
 - `phase-dml-dql-validation-enabled`: `"true"`
-- `phase-new-collection-rows`: `"1000"`
+- `phase-new-collection-rows`: `"3000"`
 - `phase-existing-dml-rows`: `"1000"`
 - `phase-existing-delete-rows`: `"100"`
 
@@ -129,7 +129,7 @@ PYTHONPATH=. pytest milvus_client/tests/test_upgrade_rollback_gates_manifest.py 
 defaults 增加：
 
 - `phase_dml_dql_validation_enabled: true`
-- `phase_new_collection_rows: 1000`
+- `phase_new_collection_rows: 3000`
 - `phase_existing_dml_rows: 1000`
 - `phase_existing_delete_rows: 100`
 

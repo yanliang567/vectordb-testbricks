@@ -51,7 +51,7 @@ def add_args(parser):
     parser.add_argument("--phase", required=True)
     parser.add_argument("--new-collection-prefix", required=True)
     parser.add_argument("--carried-collection-prefix", default="")
-    parser.add_argument("--new-collection-rows", type=int, default=1000)
+    parser.add_argument("--new-collection-rows", type=int, default=3000)
     parser.add_argument("--existing-dml-rows", type=int, default=1000)
     parser.add_argument("--existing-delete-rows", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=100)
