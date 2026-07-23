@@ -115,6 +115,8 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "true",
         "--rollback-forward-validation-enabled",
         "false",
+        "--index-compatibility-validation-enabled",
+        "true",
         "--schema-evolution-existing-enabled",
         "true",
         "--schema-evolution-forward-enabled",
@@ -123,32 +125,82 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
 
 
 def _write_successful_validation(tmp_path: Path) -> None:
-    _write_json(tmp_path / "results" / "validate_before_upgrade.json", {"status": "passed"})
-    _write_json(tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"})
-    _write_json(tmp_path / "results" / "validate_forward_after_upgrade.json", {"status": "skipped"})
-    _write_json(tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"})
+    _write_json(
+        tmp_path / "results" / "validate_before_upgrade.json", {"status": "passed"}
+    )
+    _write_json(
+        tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"}
+    )
+    _write_json(
+        tmp_path / "results" / "validate_index_compatibility_after_upgrade.json",
+        {"status": "passed"},
+    )
+    _write_json(
+        tmp_path / "results" / "validate_forward_after_upgrade.json",
+        {"status": "skipped"},
+    )
+    _write_json(
+        tmp_path / "results" / "validate_index_compatibility_after_rollback.json",
+        {"status": "passed"},
+    )
+    _write_json(
+        tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
+    )
     _write_json(
         tmp_path / "results" / "wait_rollback_serviceability.json",
         {
             "brick": "wait_data_serviceability",
             "status": "passed",
-            "metrics": {"recovered": True, "recovery_duration_sec": 37.5, "attempts": 5},
+            "metrics": {
+                "recovered": True,
+                "recovery_duration_sec": 37.5,
+                "attempts": 5,
+            },
         },
     )
 
 
 def _write_successful_upgrade_only_validation(tmp_path: Path) -> None:
-    _write_json(tmp_path / "results" / "validate_before_upgrade.json", {"status": "passed"})
-    _write_json(tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"})
-    _write_json(tmp_path / "results" / "validate_forward_after_upgrade.json", {"status": "passed"})
+    _write_json(
+        tmp_path / "results" / "validate_before_upgrade.json", {"status": "passed"}
+    )
+    _write_json(
+        tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"}
+    )
+    _write_json(
+        tmp_path / "results" / "validate_forward_after_upgrade.json",
+        {"status": "passed"},
+    )
 
 
 def _write_successful_upgrade_validation(tmp_path: Path) -> None:
-    _write_json(tmp_path / "results" / "validate_before_upgrade.json", {"status": "passed"})
-    _write_json(tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"})
+    _write_json(
+        tmp_path / "results" / "validate_before_upgrade.json", {"status": "passed"}
+    )
+    _write_json(
+        tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"}
+    )
 
 
-def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_strict(tmp_path):
+def _write_successful_index_compatibility_validation(
+    tmp_path: Path,
+    *,
+    after_rollback: bool,
+) -> None:
+    _write_json(
+        tmp_path / "results" / "validate_index_compatibility_after_upgrade.json",
+        {"status": "passed"},
+    )
+    if after_rollback:
+        _write_json(
+            tmp_path / "results" / "validate_index_compatibility_after_rollback.json",
+            {"status": "passed"},
+        )
+
+
+def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_strict(
+    tmp_path,
+):
     _write_successful_validation(tmp_path)
     _write_json(
         tmp_path / "pressure-summary.json",
@@ -157,19 +209,33 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
             "passed": 2,
             "failed": 1,
             "fail_on_error": False,
-            "failed_results": [{"file": "search_pressure_2.json", "brick": "search_pressure", "status": "failed"}],
+            "failed_results": [
+                {
+                    "file": "search_pressure_2.json",
+                    "brick": "search_pressure",
+                    "status": "failed",
+                }
+            ],
         },
     )
     _write_json(tmp_path / "reports" / "env_snapshot.json", {"client_namespace": "qa"})
-    _write_json(tmp_path / "reports" / "flow_summary.json", {"cleanup_status": "pending"})
+    _write_json(
+        tmp_path / "reports" / "flow_summary.json", {"cleanup_status": "pending"}
+    )
     _write_json(
         tmp_path / "reports" / "deploy_topology.json",
-        {"profile": "standalone-rocksmq", "mode": "standalone", "components": {"standalone": {"replicas": 1}}},
+        {
+            "profile": "standalone-rocksmq",
+            "mode": "standalone",
+            "components": {"standalone": {"replicas": 1}},
+        },
     )
     (tmp_path / "k8s").mkdir()
     (tmp_path / "k8s" / "pods.txt").write_text("pods")
 
-    rc = generate_workflow_report.main(_base_args(tmp_path, pressure_fail_on_error="false"))
+    rc = generate_workflow_report.main(
+        _base_args(tmp_path, pressure_fail_on_error="false")
+    )
 
     report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
     markdown = (tmp_path / "reports" / "final_report.md").read_text()
@@ -178,8 +244,14 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert report["validation"]["passed"] is True
     assert report["pressure"]["failed"] == 1
     assert report["parameters"]["pressure_fail_on_error"] is False
-    assert report["parameters"]["scenario_id"] == "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest"
-    assert report["parameters"]["deploy_profile"] == "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
+    assert (
+        report["parameters"]["scenario_id"]
+        == "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest"
+    )
+    assert (
+        report["parameters"]["deploy_profile"]
+        == "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
+    )
     assert report["deploy_topology"]["profile"] == "standalone-rocksmq"
     assert report["deploy_topology"]["mode"] == "standalone"
     assert report["parameters"]["observe_before_upgrade_sec"] == 300
@@ -187,7 +259,10 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert report["parameters"]["rollback_serviceability_timeout_sec"] == 900
     assert report["parameters"]["rollback_serviceability_interval_sec"] == 10
     assert report["parameters"]["forward_collection_prefix"] == "qa_upgrade_forward"
-    assert report["target"]["rollback_milvus_image"] == "harbor.milvus.io/milvusdb/milvus:2.6-latest"
+    assert (
+        report["target"]["rollback_milvus_image"]
+        == "harbor.milvus.io/milvusdb/milvus:2.6-latest"
+    )
     assert report["target"]["rollback_version"] == "2.6.0"
     assert report["parameters"]["config_matrix"] == {
         "base_json_shredding_enabled": True,
@@ -205,23 +280,33 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
         "forward_schema_matrix": "milvus_client/manifests/schema_matrix_3_0.yaml",
         "rollback_enabled": True,
         "rollback_forward_validation_enabled": False,
+        "index_compatibility_validation_enabled": True,
         "schema_evolution_existing_enabled": True,
         "schema_evolution_forward_enabled": False,
     }
     assert report["k8s_snapshot"]["pods.txt"] == str(tmp_path / "k8s" / "pods.txt")
     assert "## Config Matrix" in markdown
     assert "- rollback version: `2.6.0`" in markdown
-    assert "- scenario: `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest`" in markdown
-    assert "- deploy profile: `milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml`" in markdown
+    assert (
+        "- scenario: `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest`" in markdown
+    )
+    assert (
+        "- deploy profile: `milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml`"
+        in markdown
+    )
     assert "- rollback image: `harbor.milvus.io/milvusdb/milvus:2.6-latest`" in markdown
     assert "- forward collection prefix: `qa_upgrade_forward`" in markdown
     assert "- rollback enabled: `True`" in markdown
+    assert "- index compatibility validation: `True`" in markdown
     assert "- base jsonShredding: `True`" in markdown
     assert "- target LoonFFI/storage v3: `False`" in markdown
     assert "- target vortex: `False`" in markdown
     assert "## Validation" in markdown
     assert "## Serviceability Recovery" in markdown
-    assert "`wait_rollback_serviceability`: passed, recovered=`True`, recovery_duration_sec=`37.5`, attempts=`5`" in markdown
+    assert (
+        "`wait_rollback_serviceability`: passed, recovered=`True`, recovery_duration_sec=`37.5`, attempts=`5`"
+        in markdown
+    )
     assert "## Pressure" in markdown
     assert "warning `search_pressure_2.json` `search_pressure`: failed" in markdown
 
@@ -235,12 +320,20 @@ def test_generate_workflow_report_fails_pressure_failures_in_strict_mode(tmp_pat
             "passed": 0,
             "failed": 1,
             "fail_on_error": True,
-            "failed_results": [{"file": "query_pressure_1.json", "brick": "query_pressure", "status": "failed"}],
+            "failed_results": [
+                {
+                    "file": "query_pressure_1.json",
+                    "brick": "query_pressure",
+                    "status": "failed",
+                }
+            ],
         },
     )
     (tmp_path / "k8s").mkdir()
 
-    rc = generate_workflow_report.main(_base_args(tmp_path, pressure_fail_on_error="true"))
+    rc = generate_workflow_report.main(
+        _base_args(tmp_path, pressure_fail_on_error="true")
+    )
 
     report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
     assert rc == 1
@@ -249,59 +342,196 @@ def test_generate_workflow_report_fails_pressure_failures_in_strict_mode(tmp_pat
     assert report["parameters"]["pressure_fail_on_error"] is True
 
 
-def test_generate_workflow_report_fails_when_required_rollback_validation_is_missing(tmp_path):
+def test_generate_workflow_report_fails_when_required_rollback_validation_is_missing(
+    tmp_path,
+):
     _write_successful_upgrade_validation(tmp_path)
+    _write_successful_index_compatibility_validation(tmp_path, after_rollback=True)
     _write_json(
         tmp_path / "results" / "wait_rollback_serviceability.json",
         {"brick": "wait_data_serviceability", "status": "passed"},
     )
     _write_json(
         tmp_path / "pressure-summary.json",
-        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
     )
     (tmp_path / "k8s").mkdir()
 
-    rc = generate_workflow_report.main(_base_args(tmp_path, pressure_fail_on_error="true"))
+    rc = generate_workflow_report.main(
+        _base_args(tmp_path, pressure_fail_on_error="true")
+    )
 
     report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
     assert rc == 1
     assert report["status"] == "failed"
     assert report["validation"]["passed"] is False
-    assert report["validation"]["results"]["validate_after_rollback"]["status"] == "missing"
-    assert report["failed_results"]["validate_after_rollback"]["failures"][0]["type"] == "VALIDATION_RESULT_MISSING"
+    assert (
+        report["validation"]["results"]["validate_after_rollback"]["status"]
+        == "missing"
+    )
+    assert (
+        report["failed_results"]["validate_after_rollback"]["failures"][0]["type"]
+        == "VALIDATION_RESULT_MISSING"
+    )
 
 
-def test_generate_workflow_report_fails_when_required_serviceability_result_is_missing(tmp_path):
+def test_generate_workflow_report_fails_when_required_serviceability_result_is_missing(
+    tmp_path,
+):
     _write_successful_upgrade_validation(tmp_path)
-    _write_json(tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"})
+    _write_successful_index_compatibility_validation(tmp_path, after_rollback=True)
+    _write_json(
+        tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
+    )
     _write_json(
         tmp_path / "pressure-summary.json",
-        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
     )
     (tmp_path / "k8s").mkdir()
 
-    rc = generate_workflow_report.main(_base_args(tmp_path, pressure_fail_on_error="true"))
+    rc = generate_workflow_report.main(
+        _base_args(tmp_path, pressure_fail_on_error="true")
+    )
 
     report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
     assert rc == 1
     assert report["status"] == "failed"
-    assert report["serviceability"]["results"]["wait_rollback_serviceability"]["status"] == "missing"
+    assert (
+        report["serviceability"]["results"]["wait_rollback_serviceability"]["status"]
+        == "missing"
+    )
     assert (
         report["failed_results"]["wait_rollback_serviceability"]["failures"][0]["type"]
         == "SERVICEABILITY_RESULT_MISSING"
     )
 
 
-def test_generate_workflow_report_fails_when_required_forward_validation_is_missing(tmp_path):
+def test_generate_workflow_report_fails_when_index_compatibility_result_is_missing(
+    tmp_path,
+):
     _write_successful_upgrade_validation(tmp_path)
-    _write_json(tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"})
+    _write_json(
+        tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
+    )
     _write_json(
         tmp_path / "results" / "wait_rollback_serviceability.json",
         {"brick": "wait_data_serviceability", "status": "passed"},
     )
     _write_json(
         tmp_path / "pressure-summary.json",
-        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        _base_args(tmp_path, pressure_fail_on_error="true")
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 1
+    assert report["status"] == "failed"
+    assert report["validation"]["passed"] is False
+    assert (
+        report["validation"]["results"]["validate_index_compatibility_after_upgrade"][
+            "status"
+        ]
+        == "missing"
+    )
+    assert (
+        report["validation"]["results"]["validate_index_compatibility_after_rollback"][
+            "status"
+        ]
+        == "missing"
+    )
+
+
+def test_generate_workflow_report_does_not_require_index_compatibility_when_disabled(
+    tmp_path,
+):
+    _write_successful_upgrade_validation(tmp_path)
+    _write_json(
+        tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
+    )
+    _write_json(
+        tmp_path / "results" / "wait_rollback_serviceability.json",
+        {"brick": "wait_data_serviceability", "status": "passed"},
+    )
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        [
+            *_base_args(tmp_path, pressure_fail_on_error="true"),
+            "--index-compatibility-validation-enabled",
+            "false",
+        ]
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 0
+    assert report["status"] == "passed"
+    assert (
+        report["parameters"]["config_matrix"]["index_compatibility_validation_enabled"]
+        is False
+    )
+    assert (
+        "validate_index_compatibility_after_upgrade"
+        not in report["validation"]["results"]
+    )
+    assert (
+        "validate_index_compatibility_after_rollback"
+        not in report["validation"]["results"]
+    )
+
+
+def test_generate_workflow_report_fails_when_required_forward_validation_is_missing(
+    tmp_path,
+):
+    _write_successful_upgrade_validation(tmp_path)
+    _write_successful_index_compatibility_validation(tmp_path, after_rollback=True)
+    _write_json(
+        tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
+    )
+    _write_json(
+        tmp_path / "results" / "wait_rollback_serviceability.json",
+        {"brick": "wait_data_serviceability", "status": "passed"},
+    )
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
     )
     (tmp_path / "k8s").mkdir()
 
@@ -316,14 +546,25 @@ def test_generate_workflow_report_fails_when_required_forward_validation_is_miss
     report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
     assert rc == 1
     assert report["status"] == "failed"
-    assert report["validation"]["results"]["validate_forward_after_upgrade"]["status"] == "missing"
+    assert (
+        report["validation"]["results"]["validate_forward_after_upgrade"]["status"]
+        == "missing"
+    )
 
 
-def test_generate_workflow_report_fails_when_required_forward_rollback_validation_is_missing(tmp_path):
+def test_generate_workflow_report_fails_when_required_forward_rollback_validation_is_missing(
+    tmp_path,
+):
     _write_successful_validation(tmp_path)
     _write_json(
         tmp_path / "pressure-summary.json",
-        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
     )
     (tmp_path / "k8s").mkdir()
 
@@ -340,14 +581,25 @@ def test_generate_workflow_report_fails_when_required_forward_rollback_validatio
     report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
     assert rc == 1
     assert report["status"] == "failed"
-    assert report["validation"]["results"]["validate_forward_after_rollback"]["status"] == "missing"
+    assert (
+        report["validation"]["results"]["validate_forward_after_rollback"]["status"]
+        == "missing"
+    )
 
 
-def test_generate_workflow_report_does_not_require_forward_rollback_without_forward_workload(tmp_path):
+def test_generate_workflow_report_does_not_require_forward_rollback_without_forward_workload(
+    tmp_path,
+):
     _write_successful_validation(tmp_path)
     _write_json(
         tmp_path / "pressure-summary.json",
-        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
     )
     (tmp_path / "k8s").mkdir()
 
@@ -365,11 +617,19 @@ def test_generate_workflow_report_does_not_require_forward_rollback_without_forw
     assert "validate_forward_after_rollback" not in report["validation"]["results"]
 
 
-def test_generate_workflow_report_allows_strict_upgrade_only_gate_without_rollback_validation(tmp_path):
+def test_generate_workflow_report_allows_strict_upgrade_only_gate_without_rollback_validation(
+    tmp_path,
+):
     _write_successful_upgrade_only_validation(tmp_path)
     _write_json(
         tmp_path / "pressure-summary.json",
-        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
     )
     (tmp_path / "k8s").mkdir()
 
@@ -392,11 +652,19 @@ def test_generate_workflow_report_allows_strict_upgrade_only_gate_without_rollba
     assert "validate_after_rollback" not in report["validation"]["results"]
 
 
-def test_generate_workflow_report_ignores_forward_rollback_when_rollback_disabled(tmp_path):
+def test_generate_workflow_report_ignores_forward_rollback_when_rollback_disabled(
+    tmp_path,
+):
     _write_successful_upgrade_only_validation(tmp_path)
     _write_json(
         tmp_path / "pressure-summary.json",
-        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True, "failed_results": []},
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
     )
     (tmp_path / "k8s").mkdir()
 
@@ -427,12 +695,20 @@ def test_generate_workflow_report_can_soft_fail_after_writing_failed_report(tmp_
             "passed": 0,
             "failed": 1,
             "fail_on_error": True,
-            "failed_results": [{"file": "query_pressure_1.json", "brick": "query_pressure", "status": "failed"}],
+            "failed_results": [
+                {
+                    "file": "query_pressure_1.json",
+                    "brick": "query_pressure",
+                    "status": "failed",
+                }
+            ],
         },
     )
     (tmp_path / "k8s").mkdir()
 
-    rc = generate_workflow_report.main([*_base_args(tmp_path, pressure_fail_on_error="true"), "--soft-fail"])
+    rc = generate_workflow_report.main(
+        [*_base_args(tmp_path, pressure_fail_on_error="true"), "--soft-fail"]
+    )
 
     report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
     assert rc == 0
@@ -442,11 +718,19 @@ def test_generate_workflow_report_can_soft_fail_after_writing_failed_report(tmp_
 def test_generate_workflow_report_fails_when_validation_is_missing(tmp_path):
     _write_json(
         tmp_path / "pressure-summary.json",
-        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": False, "failed_results": []},
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": False,
+            "failed_results": [],
+        },
     )
     (tmp_path / "k8s").mkdir()
 
-    rc = generate_workflow_report.main(_base_args(tmp_path, pressure_fail_on_error="false"))
+    rc = generate_workflow_report.main(
+        _base_args(tmp_path, pressure_fail_on_error="false")
+    )
 
     report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
     assert rc == 1

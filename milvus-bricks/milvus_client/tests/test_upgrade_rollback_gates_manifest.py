@@ -20,6 +20,7 @@ def _manifest() -> dict:
 
 def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
     manifest = _manifest()
+    assert manifest["defaults"]["index_compatibility_validation_enabled"] is True
     scenarios = {
         scenario["id"]: resolve_gate_scenario(manifest, scenario["id"])
         for scenario in manifest["scenarios"]
@@ -54,6 +55,7 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         assert scenario["validation_policy"]["serviceability"] == "strict"
         assert scenario["validation_policy"]["pressure_fail_on_error"] is True
         assert scenario["validation_policy"]["gate_allow_warning"] is False
+        assert scenario["index_compatibility_validation_enabled"] is True
 
     for scenario_id in [
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-18",
@@ -191,6 +193,18 @@ def test_manifest_validator_rejects_string_bool_values():
 
     with pytest.raises(
         ValueError, match="target.loon_ffi_enabled must be a YAML boolean"
+    ):
+        validate_gate_manifest(broken)
+
+
+def test_manifest_validator_rejects_string_bool_values_in_defaults():
+    manifest = _manifest()
+    broken = deepcopy(manifest)
+    broken["defaults"]["index_compatibility_validation_enabled"] = "false"
+
+    with pytest.raises(
+        ValueError,
+        match="index_compatibility_validation_enabled must be a YAML boolean",
     ):
         validate_gate_manifest(broken)
 

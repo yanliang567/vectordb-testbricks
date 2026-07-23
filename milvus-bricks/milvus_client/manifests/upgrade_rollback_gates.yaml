@@ -15,6 +15,7 @@ defaults:
     - mixed_rw_pressure
   rollback_serviceability_timeout_sec: 900
   rollback_serviceability_interval_sec: 10
+  index_compatibility_validation_enabled: true
 
 workflow_templates:
   standalone_2_6: milvus-standalone-2-6-upgrade-rollback

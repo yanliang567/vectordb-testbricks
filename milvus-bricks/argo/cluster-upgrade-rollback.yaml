@@ -67,6 +67,8 @@ spec:
         value: "true"
       - name: rollback-forward-validation-enabled
         value: "true"
+      - name: index-compatibility-validation-enabled
+        value: "true"
       - name: schema-evolution-existing-enabled
         value: "true"
       - name: schema-evolution-forward-enabled
@@ -342,7 +344,7 @@ spec:
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
 
           - name: strict-pressure-after-upgrade
-            dependencies: [validate-after-upgrade, pressure-daemon]
+            dependencies: [validate-index-compatibility-after-upgrade, pressure-daemon]
             template: run-pressure-suite
             arguments:
               parameters:
@@ -352,6 +354,28 @@ spec:
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: schema-matrix
                   value: "{{workflow.parameters.schema-matrix}}"
+
+          - name: validate-index-compatibility-after-upgrade
+            dependencies: [validate-after-upgrade, pressure-daemon]
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.index-compatibility-validation-enabled}}"
+                - name: brick-name
+                  value: validate_index_compatibility_after_upgrade
+                - name: module
+                  value: milvus_client.requests.validate_index_compatibility
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json
+                    --phase after-upgrade
+                    --rebuild-index true
+                    --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
 
           - name: schema-evolution-existing
             dependencies: [strict-pressure-after-upgrade, pressure-daemon]
@@ -566,7 +590,7 @@ spec:
                   value: ""
 
           - name: validate-after-rollback
-            dependencies: [observe-after-rollback, pressure-daemon]
+            dependencies: [validate-index-compatibility-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: run-brick
             arguments:
@@ -581,6 +605,29 @@ spec:
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+
+          - name: validate-index-compatibility-after-rollback
+            dependencies: [observe-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.index-compatibility-validation-enabled}}"
+                - name: brick-name
+                  value: validate_index_compatibility_after_rollback
+                - name: module
+                  value: milvus_client.requests.validate_index_compatibility
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --index-checkpoint-file /tmp/milvus-bricks/checkpoints/index_compatibility.json
+                    --phase after-rollback
+                    --rebuild-index false
+                    --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
 
           - name: wait-rollback-serviceability
             dependencies: [precheck-after-rollback, pressure-daemon]
@@ -776,6 +823,7 @@ spec:
               "forward_schema_matrix": "{{workflow.parameters.forward-schema-matrix}}",
               "rollback_enabled": "{{workflow.parameters.rollback-enabled}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
+              "index_compatibility_validation_enabled": "{{workflow.parameters.index-compatibility-validation-enabled}}",
               "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
               "schema_evolution_forward_enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}",
               "collection_prefix": "{{workflow.parameters.collection-prefix}}",
@@ -830,6 +878,7 @@ spec:
               "collection_prefix": "{{workflow.parameters.collection-prefix}}",
               "forward_collection_prefix": "{{workflow.parameters.forward-collection-prefix}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
+              "index_compatibility_validation_enabled": "{{workflow.parameters.index-compatibility-validation-enabled}}",
               "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
               "schema_evolution_forward_enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}",
               "rows_per_collection": "{{workflow.parameters.rows-per-collection}}",
@@ -1770,6 +1819,7 @@ spec:
               --forward-schema-matrix "{{workflow.parameters.forward-schema-matrix}}" \
               --rollback-enabled "{{workflow.parameters.rollback-enabled}}" \
               --rollback-forward-validation-enabled "{{workflow.parameters.rollback-forward-validation-enabled}}" \
+              --index-compatibility-validation-enabled "{{workflow.parameters.index-compatibility-validation-enabled}}" \
               --schema-evolution-existing-enabled "{{workflow.parameters.schema-evolution-existing-enabled}}" \
               --schema-evolution-forward-enabled "{{workflow.parameters.schema-evolution-forward-enabled}}" \
               --soft-fail
@@ -1981,6 +2031,7 @@ spec:
               "collection_prefix": "{{workflow.parameters.collection-prefix}}",
               "forward_collection_prefix": "{{workflow.parameters.forward-collection-prefix}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
+              "index_compatibility_validation_enabled": "{{workflow.parameters.index-compatibility-validation-enabled}}",
               "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
               "schema_evolution_forward_enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}"
             }

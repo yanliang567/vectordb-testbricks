@@ -274,13 +274,16 @@ argo submit -n qa \
 5. 升级前做数据完整性校验。
 6. 启动 background pressure daemon。
 7. 升级到 target image。
-8. 升级后做 precheck；cluster gate 会先等待 checkpoint 数据 serviceability 恢复，再做数据完整性校验和 foreground pressure。
-9. 按场景决定是否执行 schema evolution / forward workload。
-10. 回滚到 rollback image。
-11. 回滚后等待数据 serviceability 恢复。
-12. 回滚后做数据完整性校验和 foreground pressure。
-13. 收集 K8s snapshot、pressure result、checkpoint、最终报告。
-14. 按 `keep-milvus` 决定是否清理 Milvus CR/Helm release 和依赖资源。
+8. 升级后做 precheck；cluster gate 会先等待 checkpoint 数据 serviceability 恢复，再做数据完整性校验。
+9. 默认执行 index compatibility validation：用 target 版本 drop/recreate baseline 集合索引、load、search/query，并写出 index checkpoint。
+10. 执行 foreground pressure。
+11. 按场景决定是否执行 schema evolution / forward workload。
+12. 回滚到 rollback image。
+13. 回滚后等待数据 serviceability 恢复。
+14. 默认再次执行 index compatibility validation：不重建索引，只用 rollback 版本 load/search/query 第 9 步重建过索引的集合。
+15. 回滚后做数据完整性校验和 foreground pressure。
+16. 收集 K8s snapshot、pressure result、checkpoint、最终报告。
+17. 按 `keep-milvus` 决定是否清理 Milvus CR/Helm release 和依赖资源。
 
 ## 报告和 artifacts
 
@@ -307,6 +310,7 @@ workflow 会导出这些核心 artifact：
 - schema matrix
 - storage/jsonShredding/LoonFFI 参数
 - upgrade/rollback serviceability 恢复耗时
+- index compatibility validation 结果
 - pressure 和 data integrity 结果
 
 ## 如何新增 3.1、4.0 或改版本

@@ -119,6 +119,7 @@ Both templates expose the same configuration matrix parameters:
 - `rollback-enabled`
 - `rollback-version`
 - `rollback-forward-validation-enabled`
+- `index-compatibility-validation-enabled`
 - `allow-unsafe-negative-coverage` (negative scenario only; default `false`)
 - `observe-before-upgrade-sec`
 - `observe-after-upgrade-sec`
@@ -161,6 +162,16 @@ responses. If the data becomes queryable again, the brick records
 `transient_failure_attempts`; if the timeout expires, the workflow fails before
 checksum validation. The default timeout is 900 seconds with a 10 second
 interval.
+
+When `index-compatibility-validation-enabled=true`, rollback workflows also
+exercise index-version compatibility explicitly. After upgrade, the workflow
+flushes baseline collections, releases them best-effort, drops and recreates the
+schema-matrix indexes with the target Milvus image, loads the collections, runs
+indexed vector search plus checkpoint count/PK queries, and writes
+`/tmp/milvus-bricks/checkpoints/index_compatibility.json`. After rollback, the
+workflow reads that checkpoint and validates load/search/query again without
+dropping or recreating indexes. This catches cases where a newer target version
+rewrites sealed index metadata that the rollback version can no longer load.
 
 Submit example:
 

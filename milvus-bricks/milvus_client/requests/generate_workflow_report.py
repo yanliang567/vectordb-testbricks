@@ -25,8 +25,18 @@ def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
     required = ["validate_before_upgrade", "validate_after_upgrade"]
     if config_matrix["forward_workload_enabled"]:
         required.append("validate_forward_after_upgrade")
+    if (
+        config_matrix["rollback_enabled"]
+        and config_matrix["index_compatibility_validation_enabled"]
+    ):
+        required.append("validate_index_compatibility_after_upgrade")
     if config_matrix["rollback_enabled"]:
         required.append("validate_after_rollback")
+    if (
+        config_matrix["rollback_enabled"]
+        and config_matrix["index_compatibility_validation_enabled"]
+    ):
+        required.append("validate_index_compatibility_after_rollback")
     if (
         config_matrix["rollback_enabled"]
         and config_matrix["forward_workload_enabled"]
@@ -54,30 +64,49 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     pressure = _load_json(Path(args.pressure_summary), {})
     env = _load_json(Path(args.env_snapshot), {})
     flow = _load_json(Path(args.flow_summary), {})
-    deploy_topology = _load_json(Path(args.deploy_topology), {}) if args.deploy_topology else {}
+    deploy_topology = (
+        _load_json(Path(args.deploy_topology), {}) if args.deploy_topology else {}
+    )
 
     results = {}
     for path in sorted(results_dir.glob("*.json")):
-        results[path.stem] = _load_json(path, {"status": "unreadable", "file": path.name})
+        results[path.stem] = _load_json(
+            path, {"status": "unreadable", "file": path.name}
+        )
 
     config_matrix = {
         "base_json_shredding_enabled": parse_bool(args.base_json_shredding_enabled),
         "target_json_shredding_enabled": parse_bool(args.target_json_shredding_enabled),
-        "rollback_json_shredding_enabled": parse_bool(args.rollback_json_shredding_enabled),
+        "rollback_json_shredding_enabled": parse_bool(
+            args.rollback_json_shredding_enabled
+        ),
         "base_loon_ffi_enabled": parse_bool(args.base_loon_ffi_enabled),
         "target_loon_ffi_enabled": parse_bool(args.target_loon_ffi_enabled),
         "rollback_loon_ffi_enabled": parse_bool(args.rollback_loon_ffi_enabled),
         "base_vortex_enabled": parse_bool(args.base_vortex_enabled),
         "target_vortex_enabled": parse_bool(args.target_vortex_enabled),
         "rollback_vortex_enabled": parse_bool(args.rollback_vortex_enabled),
-        "post_upgrade_config_toggle_enabled": parse_bool(args.post_upgrade_config_toggle_enabled),
-        "post_upgrade_json_shredding_enabled": parse_bool(args.post_upgrade_json_shredding_enabled),
+        "post_upgrade_config_toggle_enabled": parse_bool(
+            args.post_upgrade_config_toggle_enabled
+        ),
+        "post_upgrade_json_shredding_enabled": parse_bool(
+            args.post_upgrade_json_shredding_enabled
+        ),
         "forward_workload_enabled": parse_bool(args.forward_workload_enabled),
         "forward_schema_matrix": args.forward_schema_matrix,
         "rollback_enabled": parse_bool(args.rollback_enabled),
-        "rollback_forward_validation_enabled": parse_bool(args.rollback_forward_validation_enabled),
-        "schema_evolution_existing_enabled": parse_bool(args.schema_evolution_existing_enabled),
-        "schema_evolution_forward_enabled": parse_bool(args.schema_evolution_forward_enabled),
+        "rollback_forward_validation_enabled": parse_bool(
+            args.rollback_forward_validation_enabled
+        ),
+        "index_compatibility_validation_enabled": parse_bool(
+            args.index_compatibility_validation_enabled
+        ),
+        "schema_evolution_existing_enabled": parse_bool(
+            args.schema_evolution_existing_enabled
+        ),
+        "schema_evolution_forward_enabled": parse_bool(
+            args.schema_evolution_forward_enabled
+        ),
     }
     validation = {
         name: payload
@@ -85,7 +114,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         if name.startswith("validate_")
     }
     missing_validations = [
-        name for name in _required_validation_names(config_matrix) if name not in validation
+        name
+        for name in _required_validation_names(config_matrix)
+        if name not in validation
     ]
     for name in missing_validations:
         validation[name] = {
@@ -101,10 +132,13 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     serviceability = {
         name: payload
         for name, payload in results.items()
-        if payload.get("brick") == "wait_data_serviceability" or name.endswith("_serviceability")
+        if payload.get("brick") == "wait_data_serviceability"
+        or name.endswith("_serviceability")
     }
     missing_serviceability = [
-        name for name in _required_serviceability_names(config_matrix) if name not in serviceability
+        name
+        for name in _required_serviceability_names(config_matrix)
+        if name not in serviceability
     ]
     for name in missing_serviceability:
         serviceability[name] = {
@@ -123,21 +157,24 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         if payload.get("status") not in {"passed", "skipped"}
     }
     validation_passed = bool(validation) and all(
-        payload.get("status") in {"passed", "skipped"} for payload in validation.values()
+        payload.get("status") in {"passed", "skipped"}
+        for payload in validation.values()
     )
     pressure_failed = int(pressure.get("failed", 0) or 0)
     pressure_fail_on_error = parse_bool(args.pressure_fail_on_error)
 
     status = "passed"
-    if failed_results or not validation_passed or (pressure_fail_on_error and pressure_failed):
+    if (
+        failed_results
+        or not validation_passed
+        or (pressure_fail_on_error and pressure_failed)
+    ):
         status = "failed"
     elif pressure_failed:
         status = "warning"
 
     k8s_files = {
-        path.name: str(path)
-        for path in sorted(k8s_dir.glob("*"))
-        if path.is_file()
+        path.name: str(path) for path in sorted(k8s_dir.glob("*")) if path.is_file()
     }
 
     return {
@@ -264,6 +301,7 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- forward schema matrix: `{config_matrix.get('forward_schema_matrix')}`",
         f"- rollback enabled: `{config_matrix.get('rollback_enabled')}`",
         f"- rollback forward validation: `{config_matrix.get('rollback_forward_validation_enabled')}`",
+        f"- index compatibility validation: `{config_matrix.get('index_compatibility_validation_enabled')}`",
         f"- schema evolution existing: `{config_matrix.get('schema_evolution_existing_enabled')}`",
         f"- schema evolution forward: `{config_matrix.get('schema_evolution_forward_enabled')}`",
         f"- rollback serviceability timeout sec: `{params.get('rollback_serviceability_timeout_sec')}`",
@@ -344,8 +382,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--observe-after-upgrade-sec", type=int, required=True)
     parser.add_argument("--observe-before-rollback-sec", type=int, required=True)
     parser.add_argument("--observe-after-rollback-sec", type=int, required=True)
-    parser.add_argument("--rollback-serviceability-timeout-sec", type=int, required=True)
-    parser.add_argument("--rollback-serviceability-interval-sec", type=int, required=True)
+    parser.add_argument(
+        "--rollback-serviceability-timeout-sec", type=int, required=True
+    )
+    parser.add_argument(
+        "--rollback-serviceability-interval-sec", type=int, required=True
+    )
     parser.add_argument("--base-json-shredding-enabled", default="false")
     parser.add_argument("--target-json-shredding-enabled", default="false")
     parser.add_argument("--rollback-json-shredding-enabled", default="false")
@@ -361,9 +403,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--forward-schema-matrix", default="")
     parser.add_argument("--rollback-enabled", default="true")
     parser.add_argument("--rollback-forward-validation-enabled", default="false")
+    parser.add_argument("--index-compatibility-validation-enabled", default="false")
     parser.add_argument("--schema-evolution-existing-enabled", default="false")
     parser.add_argument("--schema-evolution-forward-enabled", default="false")
-    parser.add_argument("--soft-fail", action="store_true", help="Write failed report status but exit 0")
+    parser.add_argument(
+        "--soft-fail", action="store_true", help="Write failed report status but exit 0"
+    )
     return parser
 
 
