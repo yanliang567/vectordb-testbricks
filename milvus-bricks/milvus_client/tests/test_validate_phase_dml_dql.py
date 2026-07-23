@@ -64,6 +64,10 @@ class PhaseClient:
             self.rows.get(collection, {}).pop(int(value), None)
         return {"delete_count": 1}
 
+    def drop_pk_range(self, collection_name, start_id, rows):
+        for pk in range(start_id, start_id + rows):
+            self.rows.get(collection_name, {}).pop(pk, None)
+
     def _store_rows(self, collection_name, rows):
         target = self.rows.setdefault(collection_name, {})
         for row in rows:
@@ -79,21 +83,34 @@ class PhaseClient:
             rows.append({field: row.get(field) for field in output_fields})
         return rows
 
+    def _rows_matching_filter(self, collection_name, filter_expr):
+        rows_by_pk = self.rows.get(collection_name, {})
+        if not filter_expr:
+            return list(rows_by_pk.values())
+        range_match = re.search(r"id\s*>=\s*(\d+)\s*&&\s*id\s*<=\s*(\d+)", filter_expr)
+        if range_match:
+            min_pk = int(range_match.group(1))
+            max_pk = int(range_match.group(2))
+            return [row for pk, row in rows_by_pk.items() if min_pk <= pk <= max_pk]
+        equality = re.search(r"id\s*==\s*(\d+)", filter_expr)
+        if equality:
+            row = rows_by_pk.get(int(equality.group(1)))
+            return [row] if row else []
+        return list(rows_by_pk.values())
+
     def query(self, **kwargs):
         self.calls.append(("query", kwargs))
         collection_name = kwargs.get("collection_name", "")
         output_fields = kwargs.get("output_fields", [])
         filter_expr = kwargs.get("filter", "")
         if output_fields == ["count(*)"]:
-            if collection_name == "qa_dense":
-                return [{"count(*)": 3}]
-            if collection_name == "qa_after_upgrade_dense" and "8000000" in filter_expr:
-                return [{"count(*)": 3}]
-            if collection_name in {"qa_after_rollback_dense", "qa_after_upgrade_dense"}:
-                return [{"count(*)": 4}]
-            if "6000000" in filter_expr or not filter_expr:
-                return [{"count(*)": 4}]
-            return [{"count(*)": 1}]
+            return [
+                {
+                    "count(*)": len(
+                        self._rows_matching_filter(collection_name, filter_expr)
+                    )
+                }
+            ]
         if " in [" in filter_expr:
             pks = [int(value) for value in re.findall(r"\d+", filter_expr)]
             rows = self._project_rows(collection_name, pks, output_fields)
@@ -240,6 +257,105 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
     assert "upsert" in call_names
     assert "delete" in call_names
     assert "search" in call_names
+
+
+def test_phase_dml_dql_writes_after_upgrade_phase_checkpoint(monkeypatch, tmp_path):
+    checkpoint = _checkpoint(tmp_path)
+    phase_checkpoint = tmp_path / "phase_dml_dql_after_upgrade.json"
+    client = PhaseClient()
+    _patch_schema_helpers(monkeypatch, _dense_spec())
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_phase_dml_dql.main(
+        [
+            *_args(tmp_path, checkpoint),
+            "--phase-checkpoint-file",
+            str(phase_checkpoint),
+        ]
+    )
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    checkpoint_payload = json.loads(phase_checkpoint.read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+    assert checkpoint_payload["phase"] == "after-upgrade"
+    assert (
+        checkpoint_payload["existing_collections"]["qa_dense"]["start_id"] == 50000000
+    )
+    assert (
+        checkpoint_payload["existing_collections"]["qa_dense"]["remaining_count"] == 3
+    )
+    assert checkpoint_payload["existing_collections"]["qa_dense"]["deleted_values"] == [
+        50000000
+    ]
+    assert checkpoint_payload["existing_collections"]["qa_dense"]["upsert_samples"]
+    assert (
+        checkpoint_payload["new_collections"]["qa_after_upgrade_dense"]["inserted"] == 4
+    )
+    assert checkpoint_payload["new_collections"]["qa_after_upgrade_dense"][
+        "sample_values"
+    ] == [60000000, 60000003]
+
+
+def test_after_rollback_validates_after_upgrade_phase_checkpoint_before_new_dml(
+    monkeypatch, tmp_path
+):
+    checkpoint = _checkpoint(tmp_path)
+    phase_checkpoint = tmp_path / "phase_dml_dql_after_upgrade.json"
+    client = PhaseClient()
+    _patch_schema_helpers(monkeypatch, _dense_spec())
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+    assert (
+        validate_phase_dml_dql.main(
+            [
+                *_args(tmp_path, checkpoint),
+                "--phase-checkpoint-file",
+                str(phase_checkpoint),
+            ]
+        )
+        == 0
+    )
+    client.drop_pk_range("qa_dense", 50000000, 4)
+    client.drop_pk_range("qa_after_upgrade_dense", 60000000, 4)
+    calls_before_rollback = len(client.calls)
+
+    code = validate_phase_dml_dql.main(
+        [
+            *_args(tmp_path, checkpoint),
+            "--phase",
+            "after-rollback",
+            "--new-collection-prefix",
+            "qa_after_rollback",
+            "--carried-collection-prefix",
+            "qa_after_upgrade",
+            "--existing-start-id",
+            "70000000",
+            "--new-start-id",
+            "80000000",
+            "--phase-checkpoint-file",
+            str(phase_checkpoint),
+            "--validate-phase-checkpoint",
+            "true",
+        ]
+    )
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    rollback_calls = client.calls[calls_before_rollback:]
+    assert code == 1
+    assert result["status"] == "failed"
+    assert any(
+        failure["type"] in {"COUNT_DRIFT", "MISSING_PK", "PHASE_UPSERT_NOT_APPLIED"}
+        for failure in result["failures"]
+    )
+    assert not any(call[0] == "insert" for call in rollback_calls)
 
 
 def test_phase_dml_dql_fails_when_upsert_does_not_update_values(monkeypatch, tmp_path):

@@ -384,6 +384,7 @@ spec:
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --phase-checkpoint-file /tmp/milvus-bricks/checkpoints/phase_dml_dql_after_upgrade.json
                     --phase after-upgrade
                     --new-collection-prefix {{workflow.parameters.collection-prefix}}_after_upgrade
                     --new-collection-rows {{workflow.parameters.phase-new-collection-rows}}
@@ -664,6 +665,8 @@ spec:
                   value: >-
                     --schema-matrix {{workflow.parameters.schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --phase-checkpoint-file /tmp/milvus-bricks/checkpoints/phase_dml_dql_after_upgrade.json
+                    --validate-phase-checkpoint true
                     --phase after-rollback
                     --new-collection-prefix {{workflow.parameters.collection-prefix}}_after_rollback
                     --carried-collection-prefix {{workflow.parameters.collection-prefix}}_after_upgrade

@@ -66,7 +66,8 @@ Milvus 3.0 的 StorageV3 有效开关是 `common.storage.useLoonFFI`，在 manif
 
 - 对 baseline 已存在 collection 执行 insert / upsert / delete，再做 query/search。当前 upsert/delete 作用于本 phase 刚 insert 的 PK range，不会修改 baseline seed 的原始 5000 行。
 - 在当前 phase 新建一组 collection 并插入数据，再做 query/search。
-- 回滚后还会把升级后新建的 collection 当作 carried collection 继续执行 insert / upsert / delete 和 query/search；这里的 upsert/delete 同样作用于回滚 phase 新插入到 carried collection 的 PK range。
+- 升级后会保存 `phase_dml_dql_after_upgrade.json`，记录 baseline `50000000` 区间 DML 结果、新建 collection `60000000` 区间行数、删除 PK 和 upsert 样本值。
+- 回滚后会先验证这个 checkpoint，确认升级后写入的数据仍可 query/search，再把升级后新建的 collection 当作 carried collection 继续执行 insert / upsert / delete 和 query/search；这里的 upsert/delete 同样作用于回滚 phase 新插入到 carried collection 的 PK range。
 
 2.6 gate 使用 `schema_matrix_2_6.yaml`，默认 3 个 collection：
 
@@ -87,7 +88,9 @@ Milvus 3.0 的 StorageV3 有效开关是 `common.storage.useLoonFFI`，在 manif
 
 说明：phase upsert 对显式主键 collection 使用同一批 PK，因此不增加净行数；校验会查询样本
 PK 并比较 `seed + 101` 生成的更新字段值，no-op upsert 会失败。auto-id collection 会跳过
-upsert。3.0 branch gate 默认还会在回滚前对 baseline collection 执行 schema evolution，并用
+upsert。回滚后的 phase validation 会在写入 `70000000` / `80000000` 新区间前，先验证升级后
+checkpoint；因此如果升级阶段写入的 `50000000` / `60000000` 数据在 rollback 过程中丢失，
+gate 会提前失败。3.0 branch gate 默认还会在回滚前对 baseline collection 执行 schema evolution，并用
 `rows-per-collection=5000` upsert 新 PK range。上表不包含 pressure workload 可能产生的非确定性写入。
 
 ## 目录结构
@@ -308,14 +311,14 @@ argo submit -n qa \
 6. 启动 background pressure daemon。
 7. 升级到 target image。
 8. 升级后做 precheck；cluster gate 会先等待 checkpoint 数据 serviceability 恢复，再做数据完整性校验。
-9. 默认执行 index compatibility validation：用 target 版本 flush/load baseline 集合，记录实际 index metadata，执行向量 search、标量索引过滤 query 和 checkpoint query，并写出 index checkpoint。
-10. 默认执行 phase DML/DQL validation：老 collection 做 insert/upsert/delete/query/search，同时新建 after-upgrade collection 并做 query/search。
+9. 默认执行 index compatibility validation：用 target 版本 flush/load baseline 集合，记录实际 index metadata，执行向量 search、标量索引过滤 query 和 checkpoint query，并写出 index checkpoint；标量 query 和确定性向量 search 会校验返回的预期 PK。
+10. 默认执行 phase DML/DQL validation：老 collection 做 insert/upsert/delete/query/search，同时新建 after-upgrade collection 并做 query/search，然后写出 after-upgrade phase checkpoint。
 11. 执行 foreground pressure。
 12. 按场景决定是否执行 schema evolution / forward workload。
 13. 回滚到 rollback image。
 14. 回滚后等待数据 serviceability 恢复。
-15. 默认再次执行 index compatibility validation：不重建索引，用 rollback 版本重新枚举实际 index metadata 并与第 9 步 checkpoint 对比，再执行 load/search/query。
-16. 默认再次执行 phase DML/DQL validation：老 collection、升级后新 collection、回滚后新 collection 都要覆盖 DML/DQL。
+15. 默认再次执行 index compatibility validation：不重建索引，用 rollback 版本重新枚举实际 index metadata 并与第 9 步 checkpoint 对比，再执行 load/search/query，并校验命中结果。
+16. 默认再次执行 phase DML/DQL validation：先验证第 10 步 checkpoint，再让老 collection、升级后新 collection、回滚后新 collection 都覆盖 DML/DQL。
 17. 回滚后做数据完整性校验和 foreground pressure。
 18. 收集 K8s snapshot、pressure result、checkpoint、最终报告。
 19. 按 `keep-milvus` 决定是否清理 Milvus CR/Helm release 和依赖资源。

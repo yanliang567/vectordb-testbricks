@@ -175,6 +175,9 @@ filter queries, and checkpoint count/PK queries, and writes
 `/tmp/milvus-bricks/checkpoints/index_compatibility.json`. After rollback, the
 workflow reads that checkpoint, re-enumerates the actual indexes, compares
 index name/field/type/metric metadata, and validates load/search/query again.
+Scalar index queries must return the expected target PK; deterministic vector
+self-search must return the expected PK and a sane self-match distance/score
+when the metric supports that assertion.
 Promoted gates do not drop/recreate baseline indexes while the pressure daemon
 is running; `--rebuild-index=true` remains available only for manual diagnostic
 runs outside strict pressure.
@@ -185,12 +188,17 @@ active request compatibility at both phase boundaries:
 - after upgrade: run insert/upsert/delete on baseline collections, create one
   `${collection-prefix}_after_upgrade` collection per schema, then query/search
   both old and new collections. The upsert/delete operations target the PK range
-  inserted by this phase, not the original baseline seed rows;
-- after rollback: run insert/upsert/delete on baseline collections again, carry
-  the upgrade-created collections forward for another DML/DQL round, create one
-  `${collection-prefix}_after_rollback` collection per schema, then query/search
-  all of them. The carried collection upsert/delete operations also target rows
-  inserted during the rollback phase.
+  inserted by this phase, not the original baseline seed rows. The workflow
+  persists `/tmp/milvus-bricks/checkpoints/phase_dml_dql_after_upgrade.json`
+  with the inserted PK ranges, deleted PKs, upsert sample values, and new
+  collection row counts;
+- after rollback: first validate the after-upgrade phase checkpoint, proving the
+  baseline `50000000` range and upgrade-created `60000000` collections survived
+  rollback. Only after that succeeds does the workflow run insert/upsert/delete
+  on baseline collections again, carry the upgrade-created collections forward
+  for another DML/DQL round, create one `${collection-prefix}_after_rollback`
+  collection per schema, then query/search all of them. The carried collection
+  upsert/delete operations also target rows inserted during the rollback phase.
 
 Default deterministic data scale:
 
@@ -204,6 +212,9 @@ the schema has explicit PK, and deletes `100` rows, so the net row increase is
 `900`. Auto-id collections skip upsert and still net `900` after delete. The
 upsert check queries sample PKs and compares the updated field value generated
 with `seed + 101`, so a no-op upsert is reported as a validation failure. The
+rollback phase validates the after-upgrade phase checkpoint before any new
+rollback writes, so losing all `50000000` / `60000000` phase data is reported
+before the `70000000` / `80000000` ranges are inserted. The
 table excludes background/foreground pressure workload writes because those are
 not a stable row-count contract.
 

@@ -356,21 +356,142 @@ def _create_indexes_for_spec(
     )
 
 
+def _expected_primary_value(
+    spec: SchemaSpec,
+    meta: dict[str, Any],
+    pk_number: int,
+) -> Any:
+    primary = _primary_field(spec)
+    if primary is not None:
+        return generate_primary_key_value(primary, pk_number)
+    pk_values = meta.get("pk_values") or meta.get("pk_samples") or []
+    if pk_values:
+        return pk_values[0]
+    return pk_number
+
+
+def _hit_value(hit: Any, key: str) -> Any:
+    if isinstance(hit, dict):
+        if key in hit:
+            return hit[key]
+        entity = hit.get("entity")
+        if isinstance(entity, dict) and key in entity:
+            return entity[key]
+    if hasattr(hit, key):
+        return getattr(hit, key)
+    if hasattr(hit, "get"):
+        try:
+            return hit.get(key)
+        except Exception:
+            return None
+    return None
+
+
+def _hit_primary_key(hit: Any, primary_name: str) -> Any:
+    for key in ("id", "pk", primary_name):
+        value = _hit_value(hit, key)
+        if value is not None:
+            return value
+    entity = _hit_value(hit, "entity")
+    if isinstance(entity, dict):
+        return entity.get(primary_name)
+    return None
+
+
+def _hit_distance(hit: Any) -> float | None:
+    for key in ("distance", "score"):
+        value = _hit_value(hit, key)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _validate_vector_search_hit(
+    response: Any,
+    collection: str,
+    field_name: str,
+    primary_name: str,
+    expected_pk: Any,
+    metric_type: str,
+    report: ValidationReport,
+) -> None:
+    assert_search_result(response, collection, field_name)
+    hits = response[0]
+    expected_hit = None
+    hit_pks = []
+    for hit in hits:
+        hit_pk = _hit_primary_key(hit, primary_name)
+        hit_pks.append(hit_pk)
+        if hit_pk == expected_pk:
+            expected_hit = hit
+            break
+    if expected_hit is None:
+        report.fail(
+            INDEX_SEARCH_FAILED,
+            "indexed vector search did not return expected primary key",
+            collection=collection,
+            field=field_name,
+            expected_pk=expected_pk,
+            actual_pks=hit_pks,
+        )
+        return
+
+    distance = _hit_distance(expected_hit)
+    if distance is None:
+        return
+    metric = metric_type.upper()
+    if metric in {"L2", "COSINE", "HAMMING", "JACCARD"} and distance > 1e-3:
+        report.fail(
+            INDEX_SEARCH_FAILED,
+            "indexed vector self-search distance is higher than expected",
+            collection=collection,
+            field=field_name,
+            metric_type=metric_type,
+            expected_pk=expected_pk,
+            distance=distance,
+            max_distance=1e-3,
+        )
+    if metric == "IP" and distance < 0.9:
+        report.fail(
+            INDEX_SEARCH_FAILED,
+            "indexed vector self-search score is lower than expected",
+            collection=collection,
+            field=field_name,
+            metric_type=metric_type,
+            expected_pk=expected_pk,
+            distance=distance,
+            min_score=0.9,
+        )
+
+
 def _validate_index_searches(
     client: Any,
     collection: str,
     spec: SchemaSpec,
+    meta: dict[str, Any],
     seed: int,
     report: ValidationReport,
 ) -> int:
     searches = 0
+    primary = _primary_field(spec)
+    primary_name = meta.get("primary_field") or (
+        primary.name if primary is not None else "id"
+    )
+    pk_number = int(meta["min_pk"])
+    expected_pk = _expected_primary_value(spec, meta, pk_number)
     function_outputs = function_output_fields(spec)
     for vector_field in _indexed_vector_fields(spec):
         metric_type = metric_type_for_field(spec, vector_field.name)
         if vector_field.name in function_outputs and metric_type == "BM25":
-            query_vector = "milvus compatibility upgrade rollback token_1"
+            query_vector = (
+                f"milvus compatibility upgrade rollback token_{pk_number % 16}"
+            )
         else:
-            query_vector = stable_vector_value(vector_field, 1, seed)
+            query_vector = stable_vector_value(vector_field, pk_number, seed)
         try:
             response = client.search(
                 collection_name=collection,
@@ -382,7 +503,18 @@ def _validate_index_searches(
                     "params": search_params_for_field(spec, vector_field.name),
                 },
             )
-            assert_search_result(response, collection, vector_field.name)
+            if vector_field.name in function_outputs and metric_type == "BM25":
+                assert_search_result(response, collection, vector_field.name)
+            else:
+                _validate_vector_search_hit(
+                    response,
+                    collection,
+                    vector_field.name,
+                    primary_name,
+                    expected_pk,
+                    metric_type,
+                    report,
+                )
             searches += 1
         except Exception as exc:
             report.fail(
@@ -426,18 +558,30 @@ def _validate_scalar_index_queries(
         primary.name if primary is not None else "id"
     )
     pk = int(meta["min_pk"])
+    expected_pk = _expected_primary_value(spec, meta, pk)
     queries = 0
     for field in _indexed_scalar_fields(spec):
         filter_expr = _scalar_index_filter(field, pk, seed)
         if not filter_expr:
             continue
         try:
-            client.query(
+            rows = client.query(
                 collection_name=collection,
                 filter=filter_expr,
                 output_fields=[primary_name],
                 limit=5,
             )
+            actual_pks = [row.get(primary_name) for row in rows]
+            if expected_pk not in actual_pks:
+                report.fail(
+                    INDEX_SCALAR_QUERY_FAILED,
+                    "indexed scalar filter query did not return expected primary key",
+                    collection=collection,
+                    field=field.name,
+                    filter=filter_expr,
+                    expected_pk=expected_pk,
+                    actual_pks=actual_pks,
+                )
             queries += 1
         except Exception as exc:
             report.fail(
@@ -646,6 +790,7 @@ def main(argv: list[str] | None = None) -> int:
                     client,
                     collection,
                     spec,
+                    meta,
                     args.seed,
                     report,
                 )

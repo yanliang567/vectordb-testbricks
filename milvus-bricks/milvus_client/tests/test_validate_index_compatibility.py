@@ -6,10 +6,19 @@ from milvus_client.requests import validate_index_compatibility
 
 class IndexCompatibilityClient:
     def __init__(
-        self, *, search_fails: bool = False, category_index_type: str = "INVERTED"
+        self,
+        *,
+        search_fails: bool = False,
+        category_index_type: str = "INVERTED",
+        scalar_query_pk=0,
+        search_pk=0,
+        search_distance=0.0,
     ):
         self.calls = []
         self.search_fails = search_fails
+        self.scalar_query_pk = scalar_query_pk
+        self.search_pk = search_pk
+        self.search_distance = search_distance
         self.indexes = {
             "embedding": {
                 "index_name": "embedding_idx",
@@ -78,13 +87,17 @@ class IndexCompatibilityClient:
         self.calls.append(("query", kwargs))
         if kwargs.get("output_fields") == ["count(*)"]:
             return [{"count(*)": 3}]
-        return [{"id": 0}]
+        if self.scalar_query_pk is None:
+            return []
+        return [{"id": self.scalar_query_pk}]
 
     def search(self, **kwargs):
         self.calls.append(("search", kwargs))
         if self.search_fails:
             raise RuntimeError("load index failed: missing SLICE_META")
-        return [[{"id": 0, "distance": 0.1}]]
+        if self.search_pk is None:
+            return [[]]
+        return [[{"id": self.search_pk, "distance": self.search_distance}]]
 
 
 class MissingScalarIndexClient(IndexCompatibilityClient):
@@ -463,3 +476,183 @@ def test_search_failure_is_reported_as_index_search_failed(monkeypatch, tmp_path
     assert code == 1
     assert result["status"] == "failed"
     assert result["failures"][-1]["type"] == "INDEX_SEARCH_FAILED"
+
+
+def test_index_search_fails_when_expected_pk_is_not_returned(monkeypatch, tmp_path):
+    seed_checkpoint = _seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = IndexCompatibilityClient(search_pk=999)
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 1
+    assert result["status"] == "failed"
+    assert any(
+        failure["type"] == "INDEX_SEARCH_FAILED" and failure["expected_pk"] == 0
+        for failure in result["failures"]
+    )
+
+
+def test_index_search_fails_when_result_is_empty(monkeypatch, tmp_path):
+    seed_checkpoint = _seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = IndexCompatibilityClient(search_pk=None)
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 1
+    assert result["status"] == "failed"
+    assert any(
+        failure["type"] == "INDEX_SEARCH_FAILED" for failure in result["failures"]
+    )
+
+
+def test_index_search_fails_when_self_search_distance_is_invalid(monkeypatch, tmp_path):
+    seed_checkpoint = _seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = IndexCompatibilityClient(search_pk=0, search_distance=0.5)
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 1
+    assert result["status"] == "failed"
+    assert any(
+        failure["type"] == "INDEX_SEARCH_FAILED" and failure["distance"] == 0.5
+        for failure in result["failures"]
+    )
+
+
+def test_scalar_index_query_fails_when_expected_pk_is_not_returned(
+    monkeypatch, tmp_path
+):
+    seed_checkpoint = _seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = IndexCompatibilityClient(scalar_query_pk=999)
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 1
+    assert result["status"] == "failed"
+    assert any(
+        failure["type"] == "INDEX_SCALAR_QUERY_FAILED" and failure["expected_pk"] == 0
+        for failure in result["failures"]
+    )
+
+
+def test_scalar_index_query_fails_when_result_is_empty(monkeypatch, tmp_path):
+    seed_checkpoint = _seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = IndexCompatibilityClient(scalar_query_pk=None)
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 1
+    assert result["status"] == "failed"
+    assert any(
+        failure["type"] == "INDEX_SCALAR_QUERY_FAILED" for failure in result["failures"]
+    )
