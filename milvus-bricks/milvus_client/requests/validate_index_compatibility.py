@@ -10,7 +10,6 @@ from milvus_client.common.client import create_client
 from milvus_client.common.data import (
     generate_field_value,
     generate_primary_key_value,
-    stable_vector_value,
 )
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import (
@@ -377,12 +376,6 @@ def _expected_primary_value(
     return data_pk_number
 
 
-def _data_pk_number(spec: SchemaSpec, meta: dict[str, Any]) -> int:
-    if auto_id_enabled(spec):
-        return int(meta.get("data_min_pk", 0))
-    return int(meta["min_pk"])
-
-
 def _data_pk_range(meta: dict[str, Any]) -> tuple[int, int]:
     min_pk = int(meta.get("data_min_pk", meta["min_pk"]))
     max_pk = int(meta.get("data_max_pk", meta["max_pk"]))
@@ -487,6 +480,28 @@ def _validate_vector_search_hit(
         )
 
 
+def _vector_index_probe(
+    spec: SchemaSpec,
+    meta: dict[str, Any],
+    vector_field: FieldSpec,
+    seed: int,
+) -> tuple[int, Any, Any] | None:
+    function_outputs = function_output_fields(spec)
+    data_min_pk, data_max_pk = _data_pk_range(meta)
+    for data_pk_number in range(data_min_pk, data_max_pk + 1):
+        expected_pk = _expected_primary_value(spec, meta, data_pk_number)
+        if vector_field.name in function_outputs:
+            return (
+                data_pk_number,
+                expected_pk,
+                f"milvus compatibility upgrade rollback token_{data_pk_number % 16}",
+            )
+        value = generate_field_value(vector_field, data_pk_number, seed)
+        if value is not None:
+            return data_pk_number, expected_pk, value
+    return None
+
+
 def _validate_index_searches(
     client: Any,
     collection: str,
@@ -500,22 +515,26 @@ def _validate_index_searches(
     primary_name = meta.get("primary_field") or (
         primary.name if primary is not None else "id"
     )
-    data_pk_number = _data_pk_number(spec, meta)
-    expected_pk = _expected_primary_value(spec, meta, data_pk_number)
     function_outputs = function_output_fields(spec)
     for vector_field in _indexed_vector_fields(spec):
         metric_type = metric_type_for_field(spec, vector_field.name)
-        if vector_field.name in function_outputs and metric_type == "BM25":
-            query_vector = (
-                f"milvus compatibility upgrade rollback token_{data_pk_number % 16}"
+        probe = _vector_index_probe(spec, meta, vector_field, seed)
+        if probe is None:
+            report.fail(
+                INDEX_SEARCH_FAILED,
+                "could not build deterministic vector index probe",
+                collection=collection,
+                field=vector_field.name,
             )
-        else:
-            query_vector = stable_vector_value(vector_field, data_pk_number, seed)
+            continue
+        data_pk_number, expected_pk, query_vector = probe
+        filter_expr = f"{primary_name} == {format_filter_value(expected_pk)}"
         try:
             response = client.search(
                 collection_name=collection,
                 data=[query_vector],
                 anns_field=vector_field.name,
+                filter=filter_expr,
                 limit=5,
                 search_params={
                     "metric_type": metric_type,
@@ -542,6 +561,9 @@ def _validate_index_searches(
                 collection=collection,
                 field=vector_field.name,
                 metric_type=metric_type,
+                data_pk=data_pk_number,
+                expected_pk=expected_pk,
+                filter=filter_expr,
                 error=str(exc),
             )
     return searches
@@ -557,6 +579,12 @@ def _scalar_index_filter(field: FieldSpec, pk: int, seed: int) -> str | None:
         value = generate_field_value(field, pk, seed)
         if isinstance(value, list) and value:
             return f"ARRAY_CONTAINS({field.name}, {format_filter_value(value[0])})"
+        return None
+    if field.dtype == "GEOMETRY":
+        value = generate_field_value(field, pk, seed)
+        if isinstance(value, str) and value:
+            escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+            return f"ST_EQUALS({field.name}, '{escaped}')"
         return None
     value = generate_field_value(field, pk, seed)
     if value is None:

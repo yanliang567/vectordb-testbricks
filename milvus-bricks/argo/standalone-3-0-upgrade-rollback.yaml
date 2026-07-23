@@ -970,7 +970,15 @@ spec:
             set -eux
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/reports
             PYTHONPATH=. python3 -m milvus_client.requests.render_milvus_cr \
@@ -1225,7 +1233,15 @@ spec:
             fi
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
               --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
@@ -1268,7 +1284,15 @@ spec:
             set -eux
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/results /tmp/milvus-bricks/checkpoints
             PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
@@ -1305,7 +1329,15 @@ spec:
             trap 'echo "stopping pressure daemon"; exit 0' TERM INT
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/pressure-results /tmp/pressure-checkpoints
             stop_cm="{{workflow.name}}-pressure-stop"
@@ -1410,7 +1442,15 @@ spec:
             set -eu
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/strict-pressure-results /tmp/strict-pressure-checkpoints
             phase="{{inputs.parameters.phase}}"
@@ -1491,6 +1531,7 @@ spec:
             python3 - <<'PY'
             import json
             import subprocess
+            from datetime import datetime, timedelta
             from pathlib import Path
 
             root = Path("/tmp/milvus-bricks")
@@ -1508,6 +1549,123 @@ spec:
             if completed.returncode != 0:
                 raise SystemExit(completed.stderr or completed.stdout)
             payload = json.loads(completed.stdout or '{"items":[]}')
+
+            def _parse_time(value):
+                if not value:
+                    return None
+                try:
+                    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                except ValueError:
+                    return None
+
+            def _workflow_nodes():
+                completed = subprocess.run(
+                    ["kubectl", "-n", "{{workflow.namespace}}", "get", "workflow", "{{workflow.name}}", "-o", "json"],
+                    check=False,
+                    text=True,
+                    capture_output=True,
+                )
+                if completed.returncode != 0:
+                    raise SystemExit(completed.stderr or completed.stdout)
+                workflow = json.loads(completed.stdout or "{}")
+                return list(workflow.get("status", {}).get("nodes", {}).values())
+
+            def _node_by_display(nodes, display_name):
+                for node in nodes:
+                    if node.get("displayName") == display_name:
+                        return node
+                return None
+
+            def _maintenance_windows():
+                nodes = _workflow_nodes()
+                windows = []
+                for label, start_name, end_name in (
+                    ("upgrade-rollout", "patch-upgrade", "wait-upgrade-ready"),
+                    ("schema-evolution-existing", "schema-evolution-existing", "schema-evolution-existing"),
+                    ("post-upgrade-config-rollout", "patch-post-upgrade-config", "wait-post-upgrade-config-ready"),
+                    ("schema-evolution-forward", "schema-evolution-forward", "schema-evolution-forward"),
+                    ("rollback-rollout", "patch-rollback", "wait-rollback-ready"),
+                ):
+                    start_node = _node_by_display(nodes, start_name)
+                    end_node = _node_by_display(nodes, end_name)
+                    start = _parse_time((start_node or {}).get("startedAt"))
+                    end = _parse_time((end_node or {}).get("finishedAt"))
+                    if start is None or end is None:
+                        continue
+                    windows.append(
+                        {
+                            "label": label,
+                            "started_at": start.isoformat(),
+                            "finished_at": end.isoformat(),
+                            "started_at_ts": start,
+                            "finished_at_ts": end,
+                        }
+                    )
+                return windows
+
+            maintenance_windows = _maintenance_windows()
+
+            def _result_interval(result):
+                start = _parse_time(result.get("started_at"))
+                end = _parse_time(result.get("finished_at"))
+                if start is None and end is not None:
+                    start = end
+                if end is None and start is not None:
+                    end = start
+                return start, end
+
+            def _overlap_window(result):
+                start, end = _result_interval(result)
+                if start is None or end is None:
+                    return None
+                for window in maintenance_windows:
+                    window_start = window["started_at_ts"] - timedelta(seconds=5)
+                    window_end = window["finished_at_ts"] + timedelta(seconds=5)
+                    if start <= window_end and end >= window_start:
+                        return window
+                return None
+
+            def _is_transient_connectivity_failure(result):
+                if result.get("status") == "passed":
+                    return False
+                failures = result.get("failures") or []
+                metrics = result.get("metrics") or {}
+                if failures:
+                    text = json.dumps(failures, sort_keys=True).lower()
+                    return any(
+                        pattern in text
+                        for pattern in (
+                            "fail connecting to server",
+                            "server unavailable",
+                            "connection refused",
+                            "connection reset",
+                            "deadline exceeded",
+                            "unavailable",
+                        )
+                    )
+                return any(
+                    int(metrics.get(key, 0) or 0) > 0
+                    for key in (
+                        "requests_failed",
+                        "failed_search",
+                        "failed_query",
+                        "failed_insert",
+                        "failed_upsert",
+                        "failed_delete",
+                    )
+                )
+
+            def _failure_entry(path, result):
+                return {
+                    "file": path.name,
+                    "brick": result.get("brick"),
+                    "status": result.get("status"),
+                    "failures": result.get("failures", []),
+                    "metrics": result.get("metrics", {}),
+                    "started_at": result.get("started_at"),
+                    "finished_at": result.get("finished_at"),
+                }
+
             result_dir = Path("/tmp/milvus-bricks/pressure-results")
             attempts_path = Path("/tmp/milvus-bricks/pressure-attempts.jsonl")
             attempts = []
@@ -1528,6 +1686,7 @@ spec:
             attempts_path.write_text("\n".join(json.dumps(attempt, sort_keys=True) for attempt in attempts) + ("\n" if attempts else ""))
             files = sorted(result_dir.glob("*.json"))
             failed = []
+            excluded_failed = []
             passed = 0
             attempt_files = [attempt["result_file"] for attempt in attempts if attempt.get("result_file")]
             if not files:
@@ -1561,22 +1720,23 @@ spec:
                     )
             for path in files:
                 try:
-                    payload = json.loads(path.read_text())
+                    result = json.loads(path.read_text())
                 except Exception as exc:
                     failed.append({"file": path.name, "status": "unreadable", "error": str(exc)})
                     continue
-                if payload.get("status") == "passed":
+                if result.get("status") == "passed":
                     passed += 1
+                elif (window := _overlap_window(result)) and _is_transient_connectivity_failure(result):
+                    entry = _failure_entry(path, result)
+                    entry["maintenance_window"] = {
+                        "label": window["label"],
+                        "started_at": window["started_at"],
+                        "finished_at": window["finished_at"],
+                    }
+                    entry["status"] = "maintenance_window_excluded"
+                    excluded_failed.append(entry)
                 else:
-                    failed.append(
-                        {
-                            "file": path.name,
-                            "brick": payload.get("brick"),
-                            "status": payload.get("status"),
-                            "failures": payload.get("failures", []),
-                            "metrics": payload.get("metrics", {}),
-                        }
-                    )
+                    failed.append(_failure_entry(path, result))
             existing_files = {path.name for path in files}
             for result_file in attempt_files:
                 if result_file not in existing_files:
@@ -1597,7 +1757,18 @@ spec:
                 "attempts": len(attempt_files),
                 "passed": passed,
                 "failed": len(failed),
+                "failed_all": len(failed) + len(excluded_failed),
                 "failed_results": failed,
+                "excluded_failed": len(excluded_failed),
+                "excluded_failed_results": excluded_failed,
+                "maintenance_windows": [
+                    {
+                        "label": window["label"],
+                        "started_at": window["started_at"],
+                        "finished_at": window["finished_at"],
+                    }
+                    for window in maintenance_windows
+                ],
                 "fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}" == "true",
             }
             Path("/tmp/milvus-bricks/pressure-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
@@ -1674,7 +1845,15 @@ spec:
             set -eux
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/reports
             if [ ! -f /tmp/milvus-bricks/reports/env_snapshot.json ]; then

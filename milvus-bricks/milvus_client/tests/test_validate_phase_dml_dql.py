@@ -162,6 +162,25 @@ def _dense_spec(auto_id: bool = False) -> SchemaSpec:
     )
 
 
+def _explicit_partition_spec() -> SchemaSpec:
+    return SchemaSpec(
+        name="explicit_partition",
+        version="test",
+        partitions=["p0", "p1"],
+        fields=[
+            FieldSpec(
+                name="pk",
+                dtype="VARCHAR",
+                primary=True,
+                auto_id=False,
+                max_length=64,
+            ),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+        ],
+        indexes=[IndexSpec(field="embedding", index_type="HNSW", metric_type="COSINE")],
+    )
+
+
 def _checkpoint(tmp_path):
     path = tmp_path / "seed_data.json"
     path.write_text(
@@ -257,6 +276,22 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
     assert "upsert" in call_names
     assert "delete" in call_names
     assert "search" in call_names
+
+
+def test_phase_dml_dql_upserts_explicit_partition_rows_in_original_partitions():
+    client = PhaseClient()
+    spec = _explicit_partition_spec()
+    rows = [
+        {"pk": "pk_00000000000000000000", "embedding": [0.1] * 4},
+        {"pk": "pk_00000000000000000001", "embedding": [0.2] * 4},
+        {"pk": "pk_00000000000000000002", "embedding": [0.3] * 4},
+    ]
+
+    validate_phase_dml_dql._upsert_rows(client, spec, "qa_partitioned", rows, 0)
+
+    upsert_calls = [payload for name, payload in client.calls if name == "upsert"]
+    assert [call["partition_name"] for call in upsert_calls] == ["p0", "p1"]
+    assert [len(call["data"]) for call in upsert_calls] == [2, 1]
 
 
 def test_phase_dml_dql_writes_after_upgrade_phase_checkpoint(monkeypatch, tmp_path):

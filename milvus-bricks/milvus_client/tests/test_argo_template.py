@@ -65,6 +65,62 @@ def test_argo_template_runs_compatibility_bricks():
     assert "forward_schema_matrix" in command
 
 
+def test_standalone_pressure_results_exclude_rollout_connectivity_windows():
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+    ]:
+        template = yaml.safe_load(template_path.read_text())
+        templates = {item["name"]: item for item in template["spec"]["templates"]}
+        check_command = templates["check-pressure-results"]["container"]["args"][0]
+
+        assert "_maintenance_windows" in check_command
+        assert "patch-upgrade" in check_command
+        assert "wait-upgrade-ready" in check_command
+        assert "schema-evolution-existing" in check_command
+        assert "patch-post-upgrade-config" in check_command
+        assert "wait-post-upgrade-config-ready" in check_command
+        assert "schema-evolution-forward" in check_command
+        assert "patch-rollback" in check_command
+        assert "wait-rollback-ready" in check_command
+        assert "maintenance_window_excluded" in check_command
+        assert "excluded_failed_results" in check_command
+        assert "failed_all" in check_command
+        assert "PRESSURE_ATTEMPT_PENDING" in check_command
+        assert "PRESSURE_RESULT_MISSING" in check_command
+
+
+def test_cluster_pressure_results_do_not_exclude_rollout_connectivity_windows():
+    template = yaml.safe_load(
+        (ROOT / "argo" / "cluster-upgrade-rollback.yaml").read_text()
+    )
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    check_command = templates["check-pressure-results"]["container"]["args"][0]
+
+    assert "maintenance_window_excluded" not in check_command
+    assert "excluded_failed_results" not in check_command
+    assert "failed_all" not in check_command
+
+
+def test_upgrade_rollback_templates_retry_repo_clone():
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
+    ]:
+        template = yaml.safe_load(template_path.read_text())
+        for template_item in template["spec"]["templates"]:
+            container = template_item.get("container")
+            if not container:
+                continue
+            command = "\n".join(str(arg) for arg in container.get("args", []))
+            if "git clone --depth 1 --branch" not in command:
+                continue
+            assert "for attempt in 1 2 3 4 5; do" in command
+            assert 'if [ "$attempt" = "5" ]; then' in command
+            assert "sleep $((attempt * 5))" in command
+
+
 def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     template = yaml.safe_load(
         (ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml").read_text()
@@ -1406,6 +1462,7 @@ def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():
     } <= milvus_resources
     assert "configmaps" in qa_resources
     assert "workflowtaskresults" in qa_resources
+    assert "workflows" in qa_resources
     assert "pod logs" not in milvus_resources
 
 
@@ -1428,6 +1485,9 @@ def test_cluster_upgrade_rollback_rbac_allows_helm_pulsar_chart_resources():
     assert service_account["metadata"]["namespace"] == "qa"
     assert service_account["metadata"]["name"] == "milvus-upgrade-rollback-runner"
     assert qa_role["metadata"]["namespace"] == "qa"
+    assert "workflows" in {
+        resource for rule in qa_role["rules"] for resource in rule["resources"]
+    }
     assert milvus_role["metadata"]["namespace"] == "qa-milvus"
     assert milvus_binding["subjects"][0] == {
         "kind": "ServiceAccount",

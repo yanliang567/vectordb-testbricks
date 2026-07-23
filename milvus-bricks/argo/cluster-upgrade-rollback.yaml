@@ -988,7 +988,15 @@ spec:
             set -eux
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/reports
             PYTHONPATH=. python3 -m milvus_client.requests.render_milvus_helm_values \
@@ -1119,7 +1127,15 @@ spec:
             repository="${image%:*}"
             tag="${image##*:}"
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             python3 - <<'PY'
             from pathlib import Path
@@ -1193,7 +1209,15 @@ spec:
             fi
             python3 -m pip install --disable-pip-version-check -q pyyaml
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             python3 - <<'PY'
             from pathlib import Path
@@ -1356,7 +1380,15 @@ spec:
             fi
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
               --uri "http://{{workflow.name}}.{{workflow.parameters.milvus-namespace}}.svc:19530" \
@@ -1399,7 +1431,15 @@ spec:
             set -eux
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/results /tmp/milvus-bricks/checkpoints
             PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
@@ -1436,7 +1476,15 @@ spec:
             trap 'echo "stopping pressure daemon"; exit 0' TERM INT
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/pressure-results /tmp/pressure-checkpoints
             stop_cm="{{workflow.name}}-pressure-stop"
@@ -1541,7 +1589,15 @@ spec:
             set -eu
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/strict-pressure-results /tmp/strict-pressure-checkpoints
             phase="{{inputs.parameters.phase}}"
@@ -1806,7 +1862,15 @@ spec:
             set -eux
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
-            git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/reports
             if [ ! -f /tmp/milvus-bricks/reports/env_snapshot.json ]; then
