@@ -1,3 +1,8 @@
+import ast
+import json
+import re
+import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -98,6 +103,184 @@ def test_upgrade_rollback_pressure_results_exclude_rollout_connectivity_windows(
         )
         assert "cd /tmp/repo/milvus-bricks" in check_command
         assert "PYTHONPATH=. python3 - <<'PY'" in check_command
+
+
+def test_upgrade_rollback_templates_assert_storage_config_before_phase_validation():
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
+    ]:
+        template = yaml.safe_load(template_path.read_text())
+        templates = {item["name"]: item for item in template["spec"]["templates"]}
+        dag = next(item for item in templates.values() if "dag" in item)
+        tasks = {task["name"]: task for task in dag["dag"]["tasks"]}
+
+        assert "assert-milvus-storage-config" in templates
+        assert tasks["assert-base-storage-config"]["dependencies"] == [
+            "snapshot-base-config"
+        ]
+        assert tasks["assert-base-storage-config"]["arguments"]["parameters"] == [
+            {"name": "phase", "value": "base"},
+            {
+                "name": "expected-loon-ffi-enabled",
+                "value": "{{workflow.parameters.base-loon-ffi-enabled}}",
+            },
+            {
+                "name": "expected-vortex-enabled",
+                "value": "{{workflow.parameters.base-vortex-enabled}}",
+            },
+        ]
+        assert tasks["precheck-base"]["dependencies"] == ["assert-base-storage-config"]
+        assert tasks["assert-after-upgrade-storage-config"]["dependencies"] == [
+            "snapshot-after-upgrade-config",
+            "pressure-daemon",
+        ]
+        assert tasks["assert-after-rollback-storage-config"]["dependencies"] == [
+            "snapshot-after-rollback-config",
+            "pressure-daemon",
+        ]
+        assert (
+            "assert-after-upgrade-storage-config"
+            in tasks["precheck-after-upgrade"]["dependencies"]
+        )
+        assert (
+            "assert-after-rollback-storage-config"
+            in tasks["precheck-after-rollback"]["dependencies"]
+        )
+
+        command = templates["assert-milvus-storage-config"]["container"]["args"][0]
+        assert "python3 -m pip install --disable-pip-version-check -q pyyaml" in command
+        assert "common.storage.useLoonFFI" in command
+        assert "dataNode.storage.format" in command
+        assert "expected YAML boolean or absent" in command
+        assert "/milvus/configs/milvus.yaml" in command
+        assert "/milvus/configs/user.yaml" in command
+        assert "cat /milvus/configs/user.yaml 2>/dev/null || true" in command
+        assert "runtime-milvus-${phase}.yaml" in command
+        assert "runtime-user-${phase}.yaml" in command
+        assert "deep_merge(runtime_milvus_config, runtime_user_config)" in command
+        assert "runtime_config, missing_loon_as_false=True" in command
+        assert "kubectl -n" in command
+        assert " exec " in command
+        assert "declared_actual" in command
+        assert "runtime_actual" in command
+        assert "expected-loon-ffi-enabled" in command
+        assert "expected-vortex-enabled" in command
+        if template_path.name.startswith("cluster-"):
+            assert "helm get values" in command
+            assert "extraConfigFiles" in command
+            assert 'labels.get("component") == "datanode"' in command
+        else:
+            assert "kubectl -n" in command
+            assert "get mi" in command
+
+
+def _run_storage_assertion_heredoc(
+    template_path: Path, tmp_path: Path, *, runtime_format: str
+) -> subprocess.CompletedProcess[str]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    template = yaml.safe_load(template_path.read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    command = templates["assert-milvus-storage-config"]["container"]["args"][0]
+    heredocs = re.findall(
+        r"python3 - <<'PY'\n(.*?)\n\s*PY",
+        command,
+        flags=re.DOTALL,
+    )
+    code = heredocs[-1]
+    code = code.replace("{{inputs.parameters.phase}}", "base")
+    code = code.replace("{{inputs.parameters.expected-loon-ffi-enabled}}", "false")
+    code = code.replace("{{inputs.parameters.expected-vortex-enabled}}", "false")
+    code = code.replace("/tmp/milvus-bricks/k8s", str(tmp_path))
+
+    if template_path.name.startswith("cluster-"):
+        (tmp_path / "helm-values-base-storage-config-source.yaml").write_text(
+            yaml.safe_dump({"extraConfigFiles": {"user.yaml": "{}"}})
+        )
+    else:
+        (tmp_path / "milvus-base-storage-config-source.json").write_text(
+            json.dumps({"spec": {"config": {}}})
+        )
+    (tmp_path / "runtime-milvus-base.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "common": {"storage": {"useLoonFFI": False}},
+                "dataNode": {"storage": {"format": runtime_format}},
+            }
+        )
+    )
+    (tmp_path / "runtime-user-base.yaml").write_text("{}")
+    (tmp_path / "runtime-config-pod-base.txt").write_text("milvus-pod-0")
+
+    return subprocess.run(
+        [sys.executable, "-c", code],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_storage_config_assertion_accepts_parquet_for_non_vortex_runtime(tmp_path):
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
+    ]:
+        result = _run_storage_assertion_heredoc(
+            template_path, tmp_path / template_path.stem, runtime_format="parquet"
+        )
+
+        assert result.returncode == 0, result.stderr
+        report = json.loads(
+            (
+                tmp_path / template_path.stem / "storage-config-assertion-base.json"
+            ).read_text()
+        )
+        assert report["status"] == "passed"
+        assert report["runtime_actual"]["dataNode.storage.format"] == "parquet"
+
+
+def test_storage_config_assertion_rejects_vortex_for_non_vortex_runtime(tmp_path):
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
+    ]:
+        result = _run_storage_assertion_heredoc(
+            template_path, tmp_path / template_path.stem, runtime_format="vortex"
+        )
+
+        assert result.returncode != 0
+        report = json.loads(
+            (
+                tmp_path / template_path.stem / "storage-config-assertion-base.json"
+            ).read_text()
+        )
+        assert report["status"] == "failed"
+        assert "runtime dataNode.storage.format expected non-vortex" in "\n".join(
+            report["failures"]
+        )
+
+
+def test_upgrade_rollback_embedded_python_heredocs_parse():
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
+    ]:
+        heredocs = re.findall(
+            r"python3 - <<'PY'\n(.*?)\n\s*PY",
+            template_path.read_text(),
+            flags=re.DOTALL,
+        )
+
+        assert heredocs
+        for index, heredoc in enumerate(heredocs, start=1):
+            code = "\n".join(
+                line.removeprefix("            ") for line in heredoc.splitlines()
+            )
+            ast.parse(code, filename=f"{template_path.name}:python-heredoc:{index}")
 
 
 def test_pressure_maintenance_classifier_excludes_only_window_connectivity_failure():
@@ -486,7 +669,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "observe-before-upgrade",
         "pressure-daemon",
     ]
-    assert tasks["precheck-base"]["dependencies"] == ["snapshot-base-config"]
+    assert tasks["assert-base-storage-config"]["dependencies"] == [
+        "snapshot-base-config"
+    ]
+    assert tasks["precheck-base"]["dependencies"] == ["assert-base-storage-config"]
     assert tasks["snapshot-after-upgrade-config"]["dependencies"] == [
         "wait-upgrade-ready",
         "pressure-daemon",
@@ -584,6 +770,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     ]
     assert tasks["observe-after-rollback"]["dependencies"] == [
         "wait-forward-rollback-serviceability",
+        "assert-after-rollback-storage-config",
         "pressure-daemon",
     ]
     assert tasks["validate-index-compatibility-after-rollback"]["dependencies"] == [
@@ -1507,6 +1694,7 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     ]
     assert tasks["observe-after-rollback"]["dependencies"] == [
         "wait-forward-rollback-serviceability",
+        "assert-after-rollback-storage-config",
         "pressure-daemon",
     ]
     assert tasks["validate-index-compatibility-after-rollback"]["dependencies"] == [
@@ -1660,6 +1848,12 @@ def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():
     assert "workflowtaskresults" in qa_resources
     assert "workflows" in qa_resources
     assert "pod logs" not in milvus_resources
+    assert any(
+        "" in rule["apiGroups"]
+        and "pods/exec" in rule["resources"]
+        and {"create"} <= set(rule["verbs"])
+        for rule in milvus_role["rules"]
+    )
 
 
 def test_cluster_upgrade_rollback_rbac_allows_helm_pulsar_chart_resources():
@@ -1716,3 +1910,9 @@ def test_cluster_upgrade_rollback_rbac_allows_helm_pulsar_chart_resources():
     assert "pods/log" in {
         resource for rule in milvus_role["rules"] for resource in rule["resources"]
     }
+    assert any(
+        "" in rule["apiGroups"]
+        and "pods/exec" in rule["resources"]
+        and {"create"} <= set(rule["verbs"])
+        for rule in milvus_role["rules"]
+    )

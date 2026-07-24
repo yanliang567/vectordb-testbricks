@@ -44,7 +44,7 @@ image_aliases:
     image: harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder
     version: "2.6.0"
   milvus-3-0-baseline:
-    image: harbor.milvus.io/milvusdb/milvus:3.0-baseline-placeholder
+    image: harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50
     version: "3.0.0"
   milvus-3-0-latest:
     image: harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder
@@ -118,6 +118,39 @@ scenarios:
       pressure_fail_on_error: true
       gate_allow_warning: false
 
+  - id: standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline
+    description: "3.0 branch storage-feature gate: baseline to latest 3.0 with LoonFFI/storage v3 and Vortex enabled, then rollback to the same 3.0 baseline image with those storage features still enabled."
+    mode: standalone
+    classification: gate
+    support_status: supported
+    workflow_template_ref: standalone_3_0
+    deploy_profile_ref: standalone
+    schema_matrix_ref: "3.0"
+    collection_prefix: qa_gate_30_to_30latest_lv
+    forward_workload_enabled: false
+    schema_evolution_existing_enabled: true
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-latest
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    rollback:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
   - id: cluster-2-6-18-to-3-0-latest-rollback-2-6-latest
     description: "Cluster-mode coverage for the supported 2.6.18 to 3.0 latest then rollback to latest 2.6 path; storage v3/vortex must stay disabled."
     mode: cluster
@@ -180,6 +213,39 @@ scenarios:
       image_ref: milvus-3-0-baseline
       json_shredding_enabled: false
       vortex_enabled: false
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline
+    description: "Cluster-mode 3.0 branch storage-feature gate: baseline to latest 3.0 with LoonFFI/storage v3 and Vortex enabled, then rollback to the same 3.0 baseline image with those storage features still enabled."
+    mode: cluster
+    classification: gate
+    support_status: supported
+    workflow_template_ref: cluster
+    deploy_profile_ref: cluster_woodpecker_1cu
+    schema_matrix_ref: "3.0"
+    collection_prefix: qa_gate_cluster_30_to_30latest_lv
+    forward_workload_enabled: false
+    schema_evolution_existing_enabled: true
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-latest
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    rollback:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
     validation_policy:
       data_integrity: strict
       serviceability: strict

@@ -156,7 +156,10 @@ creates and validates forward-only schema after upgrade, validates compat schema
 after rollback, and performs a final compat validation.
 
 See `docs/upgrade-rollback.md` for design details and
-`docs/upgrade-rollback-gates/README.md` for the gate execution guide.
+`../docs/upgrade-rollback-gates/README.md` for the gate execution guide. The
+code-managed gate manifest currently contains 6 promoted gate scenarios and 1
+negative coverage scenario, including standalone and cluster coverage for
+`3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline`.
 
 ## 4am 2.6 Standalone Upgrade/Rollback
 
