@@ -95,6 +95,65 @@ def overlap_window(
     return None
 
 
+def maintenance_windows_from_workflow_nodes(
+    nodes: list[dict[str, Any]],
+    *,
+    schema_evolution_existing_enabled: bool,
+    schema_evolution_forward_enabled: bool,
+) -> list[dict[str, Any]]:
+    def node_by_display(display_name: str) -> dict[str, Any] | None:
+        return next(
+            (node for node in nodes if node.get("displayName") == display_name), None
+        )
+
+    windows = []
+    for label, start_name, end_name, enabled in (
+        ("upgrade-rollout", "patch-upgrade", "wait-upgrade-ready", True),
+        (
+            "schema-evolution-existing",
+            "schema-evolution-existing",
+            "schema-evolution-existing",
+            schema_evolution_existing_enabled,
+        ),
+        (
+            "post-upgrade-config-rollout",
+            "patch-post-upgrade-config",
+            "wait-post-upgrade-config-ready",
+            True,
+        ),
+        (
+            "schema-evolution-forward",
+            "schema-evolution-forward",
+            "schema-evolution-forward",
+            schema_evolution_forward_enabled,
+        ),
+        ("rollback-rollout", "patch-rollback", "wait-rollback-ready", True),
+    ):
+        if not enabled:
+            continue
+        start_node = node_by_display(start_name)
+        end_node = node_by_display(end_name)
+        if (start_node or {}).get("phase") != "Succeeded" or (end_node or {}).get(
+            "phase"
+        ) != "Succeeded":
+            continue
+        start = parse_time((start_node or {}).get("startedAt"))
+        end = parse_time((end_node or {}).get("finishedAt"))
+        if start is None or end is None:
+            continue
+        windows.append(
+            {
+                "label": label,
+                "started_at": start.isoformat(),
+                "finished_at": end.isoformat(),
+                "duration_sec": max(0.0, (end - start).total_seconds()),
+                "started_at_ts": start,
+                "finished_at_ts": end,
+            }
+        )
+    return windows
+
+
 def has_failed_metrics(result: dict[str, Any]) -> bool:
     metrics = result.get("metrics") or {}
     return any(int(metrics.get(key, 0) or 0) > 0 for key in FAILED_METRIC_KEYS)
@@ -118,6 +177,21 @@ def is_connectivity_failure(failure: dict[str, Any]) -> bool:
         return False
     text = json.dumps(failure, sort_keys=True).lower()
     return any(pattern in text for pattern in CONNECTIVITY_PATTERNS)
+
+
+def is_schema_evolution_schema_mismatch(
+    failure: dict[str, Any], window: dict[str, Any]
+) -> bool:
+    label = str(window.get("label") or "")
+    if not label.startswith("schema-evolution-"):
+        return False
+    error_type = str(failure.get("error_type") or "")
+    text = json.dumps(failure, sort_keys=True).lower()
+    if error_type != "SchemaMismatchRetryableException" and (
+        "schemamismatchretryableexception" not in text
+    ):
+        return False
+    return "schema mismatch" in text
 
 
 def failure_entry(path: Path | str, result: dict[str, Any]) -> dict[str, Any]:
@@ -164,9 +238,29 @@ def classify_pressure_result(
     for failure in failures:
         start, end = failure_interval(failure, result)
         window = overlap_window(start, end, maintenance_windows)
-        if window is not None and is_connectivity_failure(failure):
+        failure_start = parse_time(failure.get("started_at"))
+        failure_end = parse_time(failure.get("finished_at"))
+        schema_window = (
+            overlap_window(failure_start, failure_end, maintenance_windows)
+            if failure_start is not None and failure_end is not None
+            else None
+        )
+        connectivity_window = (
+            window if window is not None and is_connectivity_failure(failure) else None
+        )
+        schema_mismatch_window = (
+            schema_window
+            if schema_window is not None
+            and is_schema_evolution_schema_mismatch(failure, schema_window)
+            else None
+        )
+        if connectivity_window is not None or schema_mismatch_window is not None:
+            matched_window = (
+                connectivity_window
+                if connectivity_window is not None
+                else schema_mismatch_window
+            )
             excluded_failures.append(failure)
-            matched_window = window
         else:
             remaining_failures.append(failure)
 

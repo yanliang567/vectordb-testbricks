@@ -1922,7 +1922,7 @@ spec:
             import subprocess
             from pathlib import Path
             from milvus_client.common.pressure_maintenance import classify_pressure_result
-            from milvus_client.common.pressure_maintenance import parse_time as _parse_time
+            from milvus_client.common.pressure_maintenance import maintenance_windows_from_workflow_nodes
 
             root = Path("/tmp/milvus-bricks")
             result_dir = root / "pressure-results"
@@ -1952,38 +1952,13 @@ spec:
                 workflow = json.loads(completed.stdout or "{}")
                 return list(workflow.get("status", {}).get("nodes", {}).values())
 
-            def _node_by_display(nodes, display_name):
-                for node in nodes:
-                    if node.get("displayName") == display_name:
-                        return node
-                return None
-
             def _maintenance_windows():
                 nodes = _workflow_nodes()
-                windows = []
-                for label, start_name, end_name in (
-                    ("upgrade-rollout", "patch-upgrade", "wait-upgrade-ready"),
-                    ("schema-evolution-existing", "schema-evolution-existing", "schema-evolution-existing"),
-                    ("post-upgrade-config-rollout", "patch-post-upgrade-config", "wait-post-upgrade-config-ready"),
-                    ("schema-evolution-forward", "schema-evolution-forward", "schema-evolution-forward"),
-                    ("rollback-rollout", "patch-rollback", "wait-rollback-ready"),
-                ):
-                    start_node = _node_by_display(nodes, start_name)
-                    end_node = _node_by_display(nodes, end_name)
-                    start = _parse_time((start_node or {}).get("startedAt"))
-                    end = _parse_time((end_node or {}).get("finishedAt"))
-                    if start is None or end is None:
-                        continue
-                    windows.append(
-                        {
-                            "label": label,
-                            "started_at": start.isoformat(),
-                            "finished_at": end.isoformat(),
-                            "started_at_ts": start,
-                            "finished_at_ts": end,
-                        }
-                    )
-                return windows
+                return maintenance_windows_from_workflow_nodes(
+                    nodes,
+                    schema_evolution_existing_enabled="{{workflow.parameters.schema-evolution-existing-enabled}}" == "true",
+                    schema_evolution_forward_enabled="{{workflow.parameters.schema-evolution-forward-enabled}}" == "true",
+                )
 
             maintenance_windows = _maintenance_windows()
 
@@ -2082,6 +2057,7 @@ spec:
                         "label": window["label"],
                         "started_at": window["started_at"],
                         "finished_at": window["finished_at"],
+                        "duration_sec": window["duration_sec"],
                     }
                     for window in maintenance_windows
                 ],
