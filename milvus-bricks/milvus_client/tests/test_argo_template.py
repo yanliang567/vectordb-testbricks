@@ -91,6 +91,13 @@ def test_upgrade_rollback_pressure_results_exclude_rollout_connectivity_windows(
         assert "PRESSURE_RESULT_MISSING" in check_command
         assert "classify_pressure_result" in check_command
         assert "metrics_only_failure_without_error_details" not in check_command
+        assert "rm -rf /tmp/repo" in check_command
+        assert (
+            'git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}"'
+            in check_command
+        )
+        assert "cd /tmp/repo/milvus-bricks" in check_command
+        assert "PYTHONPATH=. python3 - <<'PY'" in check_command
 
 
 def test_pressure_maintenance_classifier_excludes_only_window_connectivity_failure():
@@ -149,6 +156,40 @@ def test_pressure_maintenance_classifier_keeps_metrics_only_failure_strict():
     assert (
         entry["classification_reason"] == "metrics_only_failure_without_error_details"
     )
+
+
+def test_pressure_maintenance_classifier_keeps_partially_explained_metrics_strict():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:41:59+00:00",
+        "finished_at": "2026-07-23T20:42:01+00:00",
+        "metrics": {"requests_failed": 2, "failed_query": 2},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "query",
+                "started_at": "2026-07-23T20:42:00+00:00",
+                "finished_at": "2026-07-23T20:42:00+00:00",
+                "error": "connection reset by peer",
+                "connectivity_transient": True,
+            }
+        ],
+    }
+    windows = [
+        {
+            "label": "rollback-rollout",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["classification_reason"] == "failed_metrics_exceed_failure_details"
+    assert entry["failure_detail_count"] == 1
+    assert entry["failed_metric_count"] == 2
 
 
 def test_pressure_maintenance_classifier_keeps_correctness_failure_strict_inside_window():

@@ -100,6 +100,17 @@ def has_failed_metrics(result: dict[str, Any]) -> bool:
     return any(int(metrics.get(key, 0) or 0) > 0 for key in FAILED_METRIC_KEYS)
 
 
+def failed_metric_count(result: dict[str, Any]) -> int:
+    metrics = result.get("metrics") or {}
+    requests_failed = int(metrics.get("requests_failed", 0) or 0)
+    operation_failures = sum(
+        int(metrics.get(key, 0) or 0)
+        for key in FAILED_METRIC_KEYS
+        if key != "requests_failed"
+    )
+    return max(requests_failed, operation_failures)
+
+
 def is_connectivity_failure(failure: dict[str, Any]) -> bool:
     if failure.get("connectivity_transient") is True:
         return True
@@ -137,6 +148,13 @@ def classify_pressure_result(
             entry["classification_reason"] = (
                 "metrics_only_failure_without_error_details"
             )
+        return ("failed", entry)
+
+    metric_failure_count = failed_metric_count(result)
+    if metric_failure_count > len(failures):
+        entry["classification_reason"] = "failed_metrics_exceed_failure_details"
+        entry["failure_detail_count"] = len(failures)
+        entry["failed_metric_count"] = metric_failure_count
         return ("failed", entry)
 
     remaining_failures: list[dict[str, Any]] = []

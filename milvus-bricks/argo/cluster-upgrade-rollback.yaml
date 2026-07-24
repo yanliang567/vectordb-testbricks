@@ -1675,7 +1675,18 @@ spec:
         args:
           - |
             set -eu
-            python3 - <<'PY'
+            rm -rf /tmp/repo
+            for attempt in 1 2 3 4 5; do
+            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+              break
+            fi
+            if [ "$attempt" = "5" ]; then
+              exit 128
+            fi
+            sleep $((attempt * 5))
+            done
+            cd /tmp/repo/milvus-bricks
+            PYTHONPATH=. python3 - <<'PY'
             import json
             import subprocess
             from pathlib import Path
