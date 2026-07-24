@@ -286,11 +286,18 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- total result files: {pressure.get('total', 0)}",
         f"- passed result files: {pressure.get('passed', 0)}",
         f"- failed/warning result files: {pressure.get('failed', 0)}",
+        f"- maintenance-window excluded failures: {pressure.get('excluded_failed', 0)}",
         f"- fail_on_error: {pressure.get('fail_on_error')}",
     ]
     for failed in pressure.get("failed_results", []):
         pressure_lines.append(
             f"- warning `{failed.get('file')}` `{failed.get('brick')}`: {failed.get('status')}"
+        )
+    for excluded in pressure.get("excluded_failed_results", []):
+        window = excluded.get("maintenance_window", {})
+        pressure_lines.append(
+            f"- excluded `{excluded.get('file')}` `{excluded.get('brick')}`: "
+            f"{excluded.get('status')} during `{window.get('label')}`"
         )
     serviceability_lines = []
     for name, payload in sorted(serviceability.items()):

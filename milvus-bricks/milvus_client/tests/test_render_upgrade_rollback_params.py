@@ -111,6 +111,7 @@ def test_render_cluster_2_6_to_3_0_gate_uses_pulsar_profile():
     params = submission["parameters"]
 
     assert submission["workflow_template"] == "milvus-cluster-upgrade-rollback"
+    assert submission["submit_generate_name"] == "c26rb-"
     assert (
         params["deploy-profile"]
         == "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
@@ -222,6 +223,31 @@ def test_render_params_cli_writes_argo_args(tmp_path):
         "-p target-milvus-image=harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
         in args
     )
+
+
+def test_render_params_cli_writes_short_generate_name_for_cluster_pulsar_gate(
+    tmp_path,
+):
+    output = tmp_path / "params.args"
+
+    rc = render_cli.main(
+        [
+            "--manifest",
+            str(GATES),
+            "--scenario-id",
+            "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
+            "--format",
+            "argo-args",
+            "--allow-placeholder",
+            "--output",
+            str(output),
+        ]
+    )
+
+    args = output.read_text()
+    assert rc == 0
+    assert "--generate-name c26rb-" in args
+    assert "--from workflowtemplate/milvus-cluster-upgrade-rollback" in args
 
 
 def test_render_params_cli_rejects_placeholder_images_for_promoted_gate(tmp_path):

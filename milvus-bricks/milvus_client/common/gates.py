@@ -40,6 +40,8 @@ def resolve_gate_scenario(
     resolved["schema_matrix"] = _resolve_ref(
         manifest, "schema_matrices", scenario, "schema_matrix"
     )
+    if scenario.get("submit_generate_name") is not None:
+        resolved["submit_generate_name"] = str(scenario["submit_generate_name"])
     if "forward_schema_matrix_ref" in scenario or "forward_schema_matrix" in scenario:
         resolved["forward_schema_matrix"] = _resolve_ref(
             manifest, "schema_matrices", scenario, "forward_schema_matrix"
@@ -210,13 +212,16 @@ def render_submission(
     *,
     allow_placeholder: bool = False,
 ) -> dict[str, Any]:
-    return {
+    submission = {
         "scenario_id": scenario["id"],
         "workflow_template": scenario["workflow_template"],
         "parameters": render_argo_parameters(
             scenario, manifest, allow_placeholder=allow_placeholder
         ),
     }
+    if scenario.get("submit_generate_name"):
+        submission["submit_generate_name"] = scenario["submit_generate_name"]
+    return submission
 
 
 def validate_gate_manifest(
@@ -259,6 +264,11 @@ def validate_gate_manifest(
         for key in ("mode", "classification", "support_status", "collection_prefix"):
             if key not in scenario:
                 raise ValueError(f"{source}: scenario {scenario_id} missing {key}")
+        _validate_submit_generate_name(
+            scenario.get("submit_generate_name"),
+            source=source,
+            scenario_id=str(scenario_id),
+        )
         _validate_scenario_bool_fields(scenario, source=source)
         if (
             scenario.get("allow_unsafe_negative_coverage") is True
@@ -425,6 +435,34 @@ def _validate_scenario_bool_fields(scenario: dict[str, Any], *, source: str) -> 
             source=source,
             scenario_id=scenario_id,
             prefix="validation_policy",
+        )
+
+
+def _validate_submit_generate_name(
+    value: Any, *, source: str, scenario_id: str
+) -> None:
+    if value is None:
+        return
+    if not isinstance(value, str):
+        raise ValueError(
+            f"{source}: scenario {scenario_id} submit_generate_name must be a string"
+        )
+    if not value:
+        raise ValueError(
+            f"{source}: scenario {scenario_id} submit_generate_name must not be empty"
+        )
+    if len(value) > 20:
+        raise ValueError(
+            f"{source}: scenario {scenario_id} submit_generate_name must be at most 20 chars"
+        )
+    if not value.endswith("-"):
+        raise ValueError(
+            f"{source}: scenario {scenario_id} submit_generate_name must end with '-'"
+        )
+    allowed = set("abcdefghijklmnopqrstuvwxyz0123456789-")
+    if any(ch not in allowed for ch in value) or value[0] == "-":
+        raise ValueError(
+            f"{source}: scenario {scenario_id} submit_generate_name must be a DNS-label prefix"
         )
 
 

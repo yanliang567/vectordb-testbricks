@@ -193,6 +193,80 @@ class NullableJsonIndexClient(IndexCompatibilityClient):
         return []
 
 
+class NullableVectorIndexClient(IndexCompatibilityClient):
+    def __init__(self):
+        super().__init__(scalar_query_pk=None, search_pk=None, search_distance=1.0)
+        self.indexes = {
+            "embedding": {
+                "index_name": "embedding_idx",
+                "field_name": "embedding",
+                "index_type": "HNSW",
+                "metric_type": "COSINE",
+                "params": {"M": 8, "efConstruction": 32},
+            }
+        }
+        self.expected_query_vector = stable_vector_value(
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4, nullable=True),
+            1,
+            0,
+        )
+
+    def query(self, **kwargs):
+        self.calls.append(("query", kwargs))
+        if kwargs.get("output_fields") == ["count(*)"]:
+            return [{"count(*)": 3}]
+        if kwargs.get("filter") in {"id == 0", "id == 1", "id == 2"}:
+            pk = int(kwargs["filter"].rsplit(" ", 1)[-1])
+            return [{"id": pk}]
+        return []
+
+    def search(self, **kwargs):
+        self.calls.append(("search", kwargs))
+        if (
+            kwargs.get("data") == [self.expected_query_vector]
+            and kwargs.get("filter") == "id == 1"
+        ):
+            return [[{"id": 1, "distance": 1.0}]]
+        return [[{"id": 9999, "distance": 0.1}]]
+
+
+class GeometryIndexClient(IndexCompatibilityClient):
+    def __init__(self):
+        super().__init__(scalar_query_pk=0, search_pk=0, search_distance=1.0)
+        self.indexes = {
+            "embedding": {
+                "index_name": "embedding_idx",
+                "field_name": "embedding",
+                "index_type": "HNSW",
+                "metric_type": "COSINE",
+                "params": {"M": 8, "efConstruction": 32},
+            },
+            "location": {
+                "index_name": "location_idx",
+                "field_name": "location",
+                "index_type": "RTREE",
+                "metric_type": None,
+                "params": {},
+            },
+        }
+
+    def query(self, **kwargs):
+        self.calls.append(("query", kwargs))
+        if kwargs.get("output_fields") == ["count(*)"]:
+            return [{"count(*)": 3}]
+        if kwargs.get("filter") in {"id == 0", "id == 1", "id == 2"}:
+            pk = int(kwargs["filter"].rsplit(" ", 1)[-1])
+            return [{"id": pk}]
+        if kwargs.get("filter") == "ST_EQUALS(location, 'POINT (-122 37)')":
+            return [{"id": 10}]
+        if (
+            kwargs.get("filter")
+            == "(ST_EQUALS(location, 'POINT (-122 37)')) && id == 0"
+        ):
+            return [{"id": 0}]
+        return []
+
+
 def _spec():
     return SchemaSpec(
         name="dense",
@@ -210,6 +284,47 @@ def _spec():
                 params={"M": 8, "efConstruction": 32},
             ),
             IndexSpec(field="category", index_type="INVERTED"),
+        ],
+    )
+
+
+def _geometry_spec():
+    return SchemaSpec(
+        name="geometry_rtree",
+        version="test",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="location", dtype="GEOMETRY"),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+        ],
+        indexes=[
+            IndexSpec(field="location", index_type="RTREE"),
+            IndexSpec(
+                field="embedding",
+                index_type="HNSW",
+                metric_type="COSINE",
+                params={"M": 8, "efConstruction": 32},
+            ),
+        ],
+    )
+
+
+def _nullable_vector_spec():
+    return SchemaSpec(
+        name="nullable_vector",
+        version="test",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="category", dtype="INT64"),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4, nullable=True),
+        ],
+        indexes=[
+            IndexSpec(
+                field="embedding",
+                index_type="HNSW",
+                metric_type="COSINE",
+                params={"M": 8, "efConstruction": 32},
+            )
         ],
     )
 
@@ -264,6 +379,48 @@ def _seed_checkpoint(tmp_path):
                 "collections": {
                     "qa_dense": {
                         "schema_name": "dense",
+                        "expected_count": 3,
+                        "primary_field": "id",
+                        "min_pk": 0,
+                        "max_pk": 2,
+                        "pk_samples": [0, 1, 2],
+                    }
+                }
+            }
+        )
+    )
+    return checkpoint
+
+
+def _geometry_seed_checkpoint(tmp_path):
+    checkpoint = tmp_path / "seed_data.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "collections": {
+                    "qa_geometry_rtree": {
+                        "schema_name": "geometry_rtree",
+                        "expected_count": 3,
+                        "primary_field": "id",
+                        "min_pk": 0,
+                        "max_pk": 2,
+                        "pk_samples": [0, 1, 2],
+                    }
+                }
+            }
+        )
+    )
+    return checkpoint
+
+
+def _nullable_vector_seed_checkpoint(tmp_path):
+    checkpoint = tmp_path / "seed_data.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "collections": {
+                    "qa_nullable_vector": {
+                        "schema_name": "nullable_vector",
                         "expected_count": 3,
                         "primary_field": "id",
                         "min_pk": 0,
@@ -556,6 +713,88 @@ def test_nullable_json_index_selects_non_null_probe_row(monkeypatch, tmp_path):
     assert any(
         call[0] == "query"
         and call[1].get("filter") == "(json_profile['bucket'] == 1) && id == 1"
+        for call in client.calls
+    )
+
+
+def test_nullable_vector_search_uses_non_null_probe_and_pk_filter(
+    monkeypatch, tmp_path
+):
+    seed_checkpoint = _nullable_vector_seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = NullableVectorIndexClient()
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_nullable_vector_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+    assert any(
+        call[0] == "search"
+        and call[1].get("data") == [client.expected_query_vector]
+        and call[1].get("filter") == "id == 1"
+        for call in client.calls
+    )
+
+
+def test_geometry_index_query_uses_spatial_predicate(monkeypatch, tmp_path):
+    seed_checkpoint = _geometry_seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = GeometryIndexClient()
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_geometry_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+    assert any(
+        call[0] == "query"
+        and call[1].get("filter")
+        == "(ST_EQUALS(location, 'POINT (-122 37)')) && id == 0"
+        for call in client.calls
+    )
+    assert not any(
+        call[0] == "query" and call[1].get("filter") == 'location == "POINT (-122 37)"'
         for call in client.calls
     )
 

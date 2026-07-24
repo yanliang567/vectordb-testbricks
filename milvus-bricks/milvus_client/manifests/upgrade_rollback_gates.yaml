@@ -123,6 +123,7 @@ scenarios:
     mode: cluster
     classification: gate
     support_status: supported_with_config_constraints
+    submit_generate_name: c26rb-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_pulsar_1cu
     schema_matrix_ref: "2.6"

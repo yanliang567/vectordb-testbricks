@@ -2,6 +2,7 @@ from pathlib import Path
 
 import yaml
 
+from milvus_client.common.pressure_maintenance import classify_pressure_result
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -63,6 +64,257 @@ def test_argo_template_runs_compatibility_bricks():
     command = scenario_runner["container"]["args"][0]
     assert "milvus_client.scenarios.upgrade_rollback_compatibility" in command
     assert "forward_schema_matrix" in command
+
+
+def test_upgrade_rollback_pressure_results_exclude_rollout_connectivity_windows():
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
+    ]:
+        template = yaml.safe_load(template_path.read_text())
+        templates = {item["name"]: item for item in template["spec"]["templates"]}
+        check_command = templates["check-pressure-results"]["container"]["args"][0]
+
+        assert "_maintenance_windows" in check_command
+        assert "patch-upgrade" in check_command
+        assert "wait-upgrade-ready" in check_command
+        assert "schema-evolution-existing" in check_command
+        assert "patch-post-upgrade-config" in check_command
+        assert "wait-post-upgrade-config-ready" in check_command
+        assert "schema-evolution-forward" in check_command
+        assert "patch-rollback" in check_command
+        assert "wait-rollback-ready" in check_command
+        assert "excluded_failed_results" in check_command
+        assert "failed_all" in check_command
+        assert "PRESSURE_ATTEMPT_PENDING" in check_command
+        assert "PRESSURE_RESULT_MISSING" in check_command
+        assert "classify_pressure_result" in check_command
+        assert "metrics_only_failure_without_error_details" not in check_command
+        assert "rm -rf /tmp/repo" in check_command
+        assert (
+            'git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}"'
+            in check_command
+        )
+        assert "cd /tmp/repo/milvus-bricks" in check_command
+        assert "PYTHONPATH=. python3 - <<'PY'" in check_command
+
+
+def test_pressure_maintenance_classifier_excludes_only_window_connectivity_failure():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:41:59+00:00",
+        "finished_at": "2026-07-23T20:42:01+00:00",
+        "metrics": {"requests_failed": 1, "failed_query": 1},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "query",
+                "started_at": "2026-07-23T20:42:00+00:00",
+                "finished_at": "2026-07-23T20:42:00+00:00",
+                "error": "connection reset by peer",
+                "connectivity_transient": True,
+            }
+        ],
+    }
+    windows = [
+        {
+            "label": "rollback-rollout",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "excluded"
+    assert entry["status"] == "maintenance_window_excluded"
+    assert entry["maintenance_window"]["label"] == "rollback-rollout"
+
+
+def test_pressure_maintenance_classifier_keeps_metrics_only_failure_strict():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:41:59+00:00",
+        "finished_at": "2026-07-23T20:42:01+00:00",
+        "metrics": {"requests_failed": 1, "failed_search": 1},
+        "failures": [],
+    }
+    windows = [
+        {
+            "label": "rollback-rollout",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert (
+        entry["classification_reason"] == "metrics_only_failure_without_error_details"
+    )
+
+
+def test_pressure_maintenance_classifier_keeps_partially_explained_metrics_strict():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:41:59+00:00",
+        "finished_at": "2026-07-23T20:42:01+00:00",
+        "metrics": {"requests_failed": 2, "failed_query": 2},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "query",
+                "started_at": "2026-07-23T20:42:00+00:00",
+                "finished_at": "2026-07-23T20:42:00+00:00",
+                "error": "connection reset by peer",
+                "connectivity_transient": True,
+            }
+        ],
+    }
+    windows = [
+        {
+            "label": "rollback-rollout",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["classification_reason"] == "failed_metrics_exceed_failure_details"
+    assert entry["failure_detail_count"] == 1
+    assert entry["failed_metric_count"] == 2
+
+
+def test_pressure_maintenance_classifier_keeps_correctness_failure_strict_inside_window():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:41:59+00:00",
+        "finished_at": "2026-07-23T20:42:01+00:00",
+        "metrics": {"requests_failed": 1, "failed_search": 1},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "search",
+                "started_at": "2026-07-23T20:42:00+00:00",
+                "finished_at": "2026-07-23T20:42:00+00:00",
+                "error_type": "AssertionError",
+                "error": "qa_dense.embedding: search returned no hits",
+                "connectivity_transient": False,
+            }
+        ],
+    }
+    windows = [
+        {
+            "label": "rollback-rollout",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"][0]["operation"] == "search"
+
+
+def test_pressure_maintenance_classifier_keeps_connectivity_failure_outside_window():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:50:00+00:00",
+        "finished_at": "2026-07-23T20:50:01+00:00",
+        "metrics": {"requests_failed": 1, "failed_query": 1},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "query",
+                "started_at": "2026-07-23T20:50:00+00:00",
+                "finished_at": "2026-07-23T20:50:00+00:00",
+                "error": "connection refused",
+                "connectivity_transient": True,
+            }
+        ],
+    }
+    windows = [
+        {
+            "label": "rollback-rollout",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"][0]["operation"] == "query"
+
+
+def test_pressure_maintenance_classifier_keeps_mixed_failure_strict():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:41:59+00:00",
+        "finished_at": "2026-07-23T20:42:01+00:00",
+        "metrics": {"requests_failed": 2, "failed_query": 1, "failed_search": 1},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "query",
+                "started_at": "2026-07-23T20:42:00+00:00",
+                "finished_at": "2026-07-23T20:42:00+00:00",
+                "error": "deadline exceeded",
+                "connectivity_transient": True,
+            },
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "search",
+                "started_at": "2026-07-23T20:42:00+00:00",
+                "finished_at": "2026-07-23T20:42:00+00:00",
+                "error": "search returned no hits",
+                "connectivity_transient": False,
+            },
+        ],
+    }
+    windows = [
+        {
+            "label": "rollback-rollout",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert [failure["operation"] for failure in entry["failures"]] == ["search"]
+    assert [failure["operation"] for failure in entry["excluded_failures"]] == ["query"]
+
+
+def test_upgrade_rollback_templates_retry_repo_clone():
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
+    ]:
+        template = yaml.safe_load(template_path.read_text())
+        for template_item in template["spec"]["templates"]:
+            container = template_item.get("container")
+            if not container:
+                continue
+            command = "\n".join(str(arg) for arg in container.get("args", []))
+            if "git clone --depth 1 --branch" not in command:
+                continue
+            assert "for attempt in 1 2 3 4 5; do" in command
+            assert 'if [ "$attempt" = "5" ]; then' in command
+            assert "sleep $((attempt * 5))" in command
 
 
 def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
@@ -1406,6 +1658,7 @@ def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():
     } <= milvus_resources
     assert "configmaps" in qa_resources
     assert "workflowtaskresults" in qa_resources
+    assert "workflows" in qa_resources
     assert "pod logs" not in milvus_resources
 
 
@@ -1428,6 +1681,9 @@ def test_cluster_upgrade_rollback_rbac_allows_helm_pulsar_chart_resources():
     assert service_account["metadata"]["namespace"] == "qa"
     assert service_account["metadata"]["name"] == "milvus-upgrade-rollback-runner"
     assert qa_role["metadata"]["namespace"] == "qa"
+    assert "workflows" in {
+        resource for rule in qa_role["rules"] for resource in rule["resources"]
+    }
     assert milvus_role["metadata"]["namespace"] == "qa-milvus"
     assert milvus_binding["subjects"][0] == {
         "kind": "ServiceAccount",
@@ -1437,9 +1693,12 @@ def test_cluster_upgrade_rollback_rbac_allows_helm_pulsar_chart_resources():
 
     def has_verbs(api_group: str, resource: str, required_verbs: set[str]) -> bool:
         for rule in milvus_role["rules"]:
-            if api_group in rule["apiGroups"] and resource in rule["resources"]:
-                if required_verbs <= set(rule["verbs"]):
-                    return True
+            if (
+                api_group in rule["apiGroups"]
+                and resource in rule["resources"]
+                and required_verbs <= set(rule["verbs"])
+            ):
+                return True
         return False
 
     write_verbs = {"create", "patch", "update", "delete"}
@@ -1448,8 +1707,8 @@ def test_cluster_upgrade_rollback_rbac_allows_helm_pulsar_chart_resources():
     assert has_verbs("rbac.authorization.k8s.io", "roles", write_verbs)
     assert has_verbs("rbac.authorization.k8s.io", "rolebindings", write_verbs)
     assert has_verbs("", "pods", write_verbs)
-    for api_group in {"", "extensions", "apps"}:
-        for resource in {"pods", "services", "deployments", "secrets", "statefulsets"}:
+    for api_group in ("", "extensions", "apps"):
+        for resource in ("pods", "services", "deployments", "secrets", "statefulsets"):
             assert has_verbs(api_group, resource, read_write_verbs), (
                 api_group,
                 resource,

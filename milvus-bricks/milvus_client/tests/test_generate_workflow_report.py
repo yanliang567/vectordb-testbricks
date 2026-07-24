@@ -380,6 +380,50 @@ def test_generate_workflow_report_fails_pressure_failures_in_strict_mode(tmp_pat
     assert report["parameters"]["pressure_fail_on_error"] is True
 
 
+def test_generate_workflow_report_reports_excluded_pressure_failures_without_failing(
+    tmp_path,
+):
+    _write_successful_validation(tmp_path)
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 3,
+            "passed": 2,
+            "failed": 0,
+            "failed_all": 1,
+            "fail_on_error": True,
+            "failed_results": [],
+            "excluded_failed": 1,
+            "excluded_failed_results": [
+                {
+                    "file": "mixed_rw_pressure_105.json",
+                    "brick": "mixed_rw_pressure",
+                    "status": "maintenance_window_excluded",
+                    "maintenance_window": {"label": "rollback-rollout"},
+                }
+            ],
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        _base_args(tmp_path, pressure_fail_on_error="true")
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    markdown = (tmp_path / "reports" / "final_report.md").read_text()
+    assert rc == 0
+    assert report["status"] == "passed"
+    assert report["pressure"]["failed"] == 0
+    assert report["pressure"]["failed_all"] == 1
+    assert report["pressure"]["excluded_failed"] == 1
+    assert "- maintenance-window excluded failures: 1" in markdown
+    assert (
+        "excluded `mixed_rw_pressure_105.json` `mixed_rw_pressure`: "
+        "maintenance_window_excluded during `rollback-rollout`" in markdown
+    )
+
+
 def test_generate_workflow_report_fails_when_required_rollback_validation_is_missing(
     tmp_path,
 ):

@@ -138,6 +138,28 @@ def _insert_rows(
     return ids
 
 
+def _upsert_rows(
+    client: Any,
+    spec: SchemaSpec,
+    target_collection: str,
+    rows: list[dict[str, Any]],
+    start_id: int,
+) -> None:
+    if spec.partitions:
+        partition_rows: dict[str, list[dict[str, Any]]] = {}
+        for offset, row in enumerate(rows):
+            partition = _partition_for_id(spec.partitions, start_id + offset)
+            partition_rows.setdefault(partition or "", []).append(row)
+        for partition, batch in partition_rows.items():
+            client.upsert(
+                collection_name=target_collection,
+                data=batch,
+                partition_name=partition or None,
+            )
+        return
+    client.upsert(collection_name=target_collection, data=rows)
+
+
 def _call_best_effort(method: Any, *args, **kwargs) -> str:
     if method is None:
         return "not_available"
@@ -578,7 +600,7 @@ def _run_existing_collection_dml_dql(
                 batch = generate_rows(
                     spec, start_id=start, count=count, seed=seed + 101
                 )
-                client.upsert(collection_name=target_collection, data=batch)
+                _upsert_rows(client, spec, target_collection, batch, start)
                 metrics["upserted"] += len(batch)
 
         if auto_id_enabled(spec):
