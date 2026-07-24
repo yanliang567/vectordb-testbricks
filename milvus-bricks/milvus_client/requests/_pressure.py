@@ -23,19 +23,23 @@ def create_client_with_retry(uri: str, token: str, db_name: str, retry_sec: floa
     while True:
         try:
             return create_client(uri, token, db_name)
-        except Exception as exc:
+        except Exception:
             if time.time() >= deadline:
                 raise
             time.sleep(1.0)
 
 
-def run_pressure_brick(argv: list[str] | None, brick_name: str, operations: list[str]) -> int:
+def run_pressure_brick(
+    argv: list[str] | None, brick_name: str, operations: list[str]
+) -> int:
     parser = build_common_parser(f"Run {brick_name} against schema matrix collections")
     add_pressure_args(parser)
     args = parser.parse_args(argv)
     result = result_from_args(args, brick_name)
     try:
-        client = create_client_with_retry(args.uri, args.token, args.db_name, args.startup_retry_sec)
+        client = create_client_with_retry(
+            args.uri, args.token, args.db_name, args.startup_retry_sec
+        )
         summary = run_pressure_workload(
             client,
             args.schema_matrix,
@@ -49,13 +53,16 @@ def run_pressure_brick(argv: list[str] | None, brick_name: str, operations: list
             baseline_start_id=args.baseline_start_id,
             baseline_rows_per_collection=args.baseline_rows_per_collection,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - pressure startup/runtime errors are reported as structured results.
         result.status = FAILED
-        result.mark_failed("PRESSURE_BRICK_FAILED", "pressure brick failed", error=str(exc))
+        result.mark_failed(
+            "PRESSURE_BRICK_FAILED", "pressure brick failed", error=str(exc)
+        )
         result.write(args.output_json)
         return 4
 
     result.status = FAILED if summary.failed else PASSED
     result.metrics = summary.metrics()
+    result.failures = summary.failure_details
     result.write(args.output_json)
     return 1 if result.status == FAILED else 0

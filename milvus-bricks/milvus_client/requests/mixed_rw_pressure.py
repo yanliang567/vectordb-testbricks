@@ -19,17 +19,23 @@ def add_args(parser):
 
 
 def _run_operation(client, spec, collection, operation, seed, batch_size, op_index):
-    return run_operation(client, spec, collection, operation, seed, batch_size, op_index)
+    return run_operation(
+        client, spec, collection, operation, seed, batch_size, op_index
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_common_parser("Run mixed read/write pressure against schema matrix collections")
+    parser = build_common_parser(
+        "Run mixed read/write pressure against schema matrix collections"
+    )
     add_args(parser)
     args = parser.parse_args(argv)
     result = result_from_args(args, "mixed_rw_pressure")
 
     try:
-        client = create_client_with_retry(args.uri, args.token, args.db_name, args.startup_retry_sec)
+        client = create_client_with_retry(
+            args.uri, args.token, args.db_name, args.startup_retry_sec
+        )
         summary = run_pressure_workload(
             client,
             args.schema_matrix,
@@ -43,14 +49,17 @@ def main(argv: list[str] | None = None) -> int:
             baseline_start_id=args.baseline_start_id,
             baseline_rows_per_collection=args.baseline_rows_per_collection,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - pressure startup/runtime errors are reported as structured results.
         result.status = FAILED
-        result.mark_failed("MIXED_RW_FAILED", "mixed read/write operation failed", error=str(exc))
+        result.mark_failed(
+            "MIXED_RW_FAILED", "mixed read/write operation failed", error=str(exc)
+        )
         result.write(args.output_json)
         return 1
 
     result.status = FAILED if summary.failed else PASSED
     result.metrics = summary.metrics()
+    result.failures = summary.failure_details
     result.write(args.output_json)
     return 1 if result.status == FAILED else 0
 

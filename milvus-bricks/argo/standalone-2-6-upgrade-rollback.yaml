@@ -1533,8 +1533,9 @@ spec:
             python3 - <<'PY'
             import json
             import subprocess
-            from datetime import datetime, timedelta
             from pathlib import Path
+            from milvus_client.common.pressure_maintenance import classify_pressure_result
+            from milvus_client.common.pressure_maintenance import parse_time as _parse_time
 
             root = Path("/tmp/milvus-bricks")
             result_dir = root / "pressure-results"
@@ -1551,14 +1552,6 @@ spec:
             if completed.returncode != 0:
                 raise SystemExit(completed.stderr or completed.stdout)
             payload = json.loads(completed.stdout or '{"items":[]}')
-
-            def _parse_time(value):
-                if not value:
-                    return None
-                try:
-                    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-                except ValueError:
-                    return None
 
             def _workflow_nodes():
                 completed = subprocess.run(
@@ -1606,67 +1599,6 @@ spec:
                 return windows
 
             maintenance_windows = _maintenance_windows()
-
-            def _result_interval(result):
-                start = _parse_time(result.get("started_at"))
-                end = _parse_time(result.get("finished_at"))
-                if start is None and end is not None:
-                    start = end
-                if end is None and start is not None:
-                    end = start
-                return start, end
-
-            def _overlap_window(result):
-                start, end = _result_interval(result)
-                if start is None or end is None:
-                    return None
-                for window in maintenance_windows:
-                    window_start = window["started_at_ts"] - timedelta(seconds=5)
-                    window_end = window["finished_at_ts"] + timedelta(seconds=5)
-                    if start <= window_end and end >= window_start:
-                        return window
-                return None
-
-            def _is_transient_connectivity_failure(result):
-                if result.get("status") == "passed":
-                    return False
-                failures = result.get("failures") or []
-                metrics = result.get("metrics") or {}
-                if failures:
-                    text = json.dumps(failures, sort_keys=True).lower()
-                    return any(
-                        pattern in text
-                        for pattern in (
-                            "fail connecting to server",
-                            "server unavailable",
-                            "connection refused",
-                            "connection reset",
-                            "deadline exceeded",
-                            "unavailable",
-                        )
-                    )
-                return any(
-                    int(metrics.get(key, 0) or 0) > 0
-                    for key in (
-                        "requests_failed",
-                        "failed_search",
-                        "failed_query",
-                        "failed_insert",
-                        "failed_upsert",
-                        "failed_delete",
-                    )
-                )
-
-            def _failure_entry(path, result):
-                return {
-                    "file": path.name,
-                    "brick": result.get("brick"),
-                    "status": result.get("status"),
-                    "failures": result.get("failures", []),
-                    "metrics": result.get("metrics", {}),
-                    "started_at": result.get("started_at"),
-                    "finished_at": result.get("finished_at"),
-                }
 
             result_dir = Path("/tmp/milvus-bricks/pressure-results")
             attempts_path = Path("/tmp/milvus-bricks/pressure-attempts.jsonl")
@@ -1728,17 +1660,12 @@ spec:
                     continue
                 if result.get("status") == "passed":
                     passed += 1
-                elif (window := _overlap_window(result)) and _is_transient_connectivity_failure(result):
-                    entry = _failure_entry(path, result)
-                    entry["maintenance_window"] = {
-                        "label": window["label"],
-                        "started_at": window["started_at"],
-                        "finished_at": window["finished_at"],
-                    }
-                    entry["status"] = "maintenance_window_excluded"
+                    continue
+                classification, entry = classify_pressure_result(path, result, maintenance_windows)
+                if classification == "excluded" and entry is not None:
                     excluded_failed.append(entry)
-                else:
-                    failed.append(_failure_entry(path, result))
+                elif classification == "failed" and entry is not None:
+                    failed.append(entry)
             existing_files = {path.name for path in files}
             for result_file in attempt_files:
                 if result_file not in existing_files:

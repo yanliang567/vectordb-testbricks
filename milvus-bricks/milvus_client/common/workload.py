@@ -1,15 +1,30 @@
 from __future__ import annotations
 
+import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from random import Random
-import time
 from typing import Any
 
-from milvus_client.common.data import generate_primary_key_value, generate_rows, stable_vector_value, vector_fields
-from milvus_client.common.schema import SchemaSpec, auto_id_enabled, collection_name, function_output_fields, load_schema_matrix
-from milvus_client.common.validators import format_filter_value, pk_range_filter, query_count
-
+from milvus_client.common.data import (
+    generate_primary_key_value,
+    generate_rows,
+    stable_vector_value,
+    vector_fields,
+)
+from milvus_client.common.schema import (
+    SchemaSpec,
+    auto_id_enabled,
+    collection_name,
+    function_output_fields,
+    load_schema_matrix,
+)
+from milvus_client.common.validators import (
+    format_filter_value,
+    pk_range_filter,
+    query_count,
+)
 
 PRESSURE_INSERT_BASE = 10_000_000
 PRESSURE_UPSERT_BASE = 20_000_000
@@ -19,6 +34,7 @@ PRESSURE_DELETE_BASE = 30_000_000
 @dataclass
 class WorkloadSummary:
     counts: dict[str, int] = field(default_factory=dict)
+    failure_details: list[dict[str, Any]] = field(default_factory=list)
     operations_total: int = 0
     started_at: float = field(default_factory=time.time)
     finished_at: float | None = None
@@ -27,23 +43,83 @@ class WorkloadSummary:
     def failed(self) -> bool:
         return any(key.startswith("failed_") for key in self.counts)
 
-    def record(self, operation: str, count: int) -> None:
+    def record(
+        self, operation: str, count: int, failure_detail: dict[str, Any] | None = None
+    ) -> None:
         self.counts[operation] = self.counts.get(operation, 0) + count
         self.operations_total += 1
+        if failure_detail is not None:
+            self.failure_details.append(failure_detail)
 
     def metrics(self) -> dict[str, Any]:
         finished_at = self.finished_at if self.finished_at is not None else time.time()
         metrics: dict[str, Any] = dict(self.counts)
         metrics["operations_total"] = self.operations_total
         metrics["duration_sec"] = max(0.0, finished_at - self.started_at)
-        metrics["requests_failed"] = sum(count for key, count in self.counts.items() if key.startswith("failed_"))
+        metrics["requests_failed"] = sum(
+            count for key, count in self.counts.items() if key.startswith("failed_")
+        )
         return metrics
 
 
+@dataclass(frozen=True)
+class OperationOutcome:
+    operation: str
+    count: int
+    failure_detail: dict[str, Any] | None = None
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _is_connectivity_exception(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(
+        pattern in text
+        for pattern in (
+            "fail connecting to server",
+            "failed to connect",
+            "server unavailable",
+            "connection refused",
+            "connection reset",
+            "connection aborted",
+            "connection closed",
+            "deadline exceeded",
+            "temporarily unavailable",
+            "transport is closing",
+            "timed out",
+            "timeout",
+            "unavailable",
+            "eof",
+        )
+    )
+
+
+def _failure_detail(
+    *,
+    operation: str,
+    collection: str,
+    started_at: str,
+    finished_at: str,
+    exc: Exception,
+) -> dict[str, Any]:
+    return {
+        "type": "PRESSURE_OPERATION_FAILED",
+        "operation": operation,
+        "collection": collection,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "error_type": type(exc).__name__,
+        "error": str(exc),
+        "connectivity_transient": _is_connectivity_exception(exc),
+    }
+
+
 def primary_field(spec: SchemaSpec):
-    for field in spec.fields:
-        if field.primary:
-            return field
+    for candidate in spec.fields:
+        if candidate.primary:
+            return candidate
     return None
 
 
@@ -78,7 +154,9 @@ def search_params_for_field(spec: SchemaSpec, field_name: str) -> dict[str, Any]
 
 def assert_search_result(result: Any, collection: str, field_name: str) -> None:
     if not isinstance(result, list) or len(result) != 1:
-        raise AssertionError(f"{collection}.{field_name}: unexpected search result shape")
+        raise AssertionError(
+            f"{collection}.{field_name}: unexpected search result shape"
+        )
     if not result[0]:
         raise AssertionError(f"{collection}.{field_name}: search returned no hits")
 
@@ -119,9 +197,15 @@ def _count_operation(
             )
         return ("count", 1)
 
-    min_pk = generate_primary_key_value(primary, baseline_start_id) if primary is not None else baseline_start_id
+    min_pk = (
+        generate_primary_key_value(primary, baseline_start_id)
+        if primary is not None
+        else baseline_start_id
+    )
     max_pk = (
-        generate_primary_key_value(primary, baseline_start_id + baseline_rows_per_collection - 1)
+        generate_primary_key_value(
+            primary, baseline_start_id + baseline_rows_per_collection - 1
+        )
         if primary is not None
         else baseline_start_id + baseline_rows_per_collection - 1
     )
@@ -134,7 +218,9 @@ def _count_operation(
     return ("count", 1)
 
 
-def _search_operation(client: Any, spec: SchemaSpec, collection: str, seed: int, op_index: int) -> tuple[str, int]:
+def _search_operation(
+    client: Any, spec: SchemaSpec, collection: str, seed: int, op_index: int
+) -> tuple[str, int]:
     fields = vector_fields(spec)
     if not fields:
         return ("search_skipped", 0)
@@ -151,19 +237,32 @@ def _search_operation(client: Any, spec: SchemaSpec, collection: str, seed: int,
             data=[query_vector],
             anns_field=vector_field.name,
             limit=5,
-            search_params={"metric_type": metric_type, "params": search_params_for_field(spec, vector_field.name)},
+            search_params={
+                "metric_type": metric_type,
+                "params": search_params_for_field(spec, vector_field.name),
+            },
         )
         assert_search_result(result, collection, vector_field.name)
         searches += 1
     return ("search", searches)
 
 
-def _delete_operation(client: Any, spec: SchemaSpec, collection: str, batch_size: int, op_index: int) -> tuple[str, int]:
+def _delete_operation(
+    client: Any, spec: SchemaSpec, collection: str, batch_size: int, op_index: int
+) -> tuple[str, int]:
     primary = primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
     start_id = PRESSURE_DELETE_BASE + op_index * batch_size
-    min_pk = generate_primary_key_value(primary, start_id) if primary is not None else start_id
-    max_pk = generate_primary_key_value(primary, start_id + batch_size - 1) if primary is not None else start_id + batch_size - 1
+    min_pk = (
+        generate_primary_key_value(primary, start_id)
+        if primary is not None
+        else start_id
+    )
+    max_pk = (
+        generate_primary_key_value(primary, start_id + batch_size - 1)
+        if primary is not None
+        else start_id + batch_size - 1
+    )
     client.delete(
         collection_name=collection,
         filter=f"{primary_name} >= {format_filter_value(min_pk)} && {primary_name} <= {format_filter_value(max_pk)}",
@@ -171,7 +270,9 @@ def _delete_operation(client: Any, spec: SchemaSpec, collection: str, batch_size
     return ("delete", batch_size)
 
 
-def _query_iterator_operation(client: Any, spec: SchemaSpec, collection: str, batch_size: int) -> tuple[str, int]:
+def _query_iterator_operation(
+    client: Any, spec: SchemaSpec, collection: str, batch_size: int
+) -> tuple[str, int]:
     primary = primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
     min_pk = generate_primary_key_value(primary, 0) if primary is not None else 0
@@ -197,7 +298,12 @@ def _query_iterator_operation(client: Any, spec: SchemaSpec, collection: str, ba
             if close is not None:
                 close()
         return ("query_iterator", rows)
-    rows = client.query(collection_name=collection, filter=filter_expr, output_fields=[primary_name], limit=batch_size)
+    rows = client.query(
+        collection_name=collection,
+        filter=filter_expr,
+        output_fields=[primary_name],
+        limit=batch_size,
+    )
     return ("query_iterator", len(rows))
 
 
@@ -212,32 +318,82 @@ def run_operation(
     baseline_start_id: int = 0,
     baseline_rows_per_collection: int = 0,
 ) -> tuple[str, int]:
+    outcome = run_operation_outcome(
+        client,
+        spec,
+        collection,
+        operation,
+        seed,
+        batch_size,
+        op_index,
+        baseline_start_id,
+        baseline_rows_per_collection,
+    )
+    return (outcome.operation, outcome.count)
+
+
+def run_operation_outcome(
+    client: Any,
+    spec: SchemaSpec,
+    collection: str,
+    operation: str,
+    seed: int,
+    batch_size: int,
+    op_index: int,
+    baseline_start_id: int = 0,
+    baseline_rows_per_collection: int = 0,
+) -> OperationOutcome:
+    started_at = _utc_now_iso()
     try:
         if auto_id_enabled(spec) and operation in {"upsert", "delete"}:
-            return (f"{operation}_skipped_auto_id", 0)
+            return OperationOutcome(f"{operation}_skipped_auto_id", 0)
         if operation == "insert":
             start_id = PRESSURE_INSERT_BASE + op_index * batch_size
             rows = generate_rows(spec, start_id=start_id, count=batch_size, seed=seed)
             client.insert(collection_name=collection, data=rows)
-            return ("insert", len(rows))
+            return OperationOutcome("insert", len(rows))
         if operation == "upsert":
             start_id = PRESSURE_UPSERT_BASE + op_index * batch_size
             rows = generate_rows(spec, start_id=start_id, count=batch_size, seed=seed)
             client.upsert(collection_name=collection, data=rows)
-            return ("upsert", len(rows))
+            return OperationOutcome("upsert", len(rows))
         if operation == "delete":
-            return _delete_operation(client, spec, collection, batch_size, op_index)
+            op, count = _delete_operation(
+                client, spec, collection, batch_size, op_index
+            )
+            return OperationOutcome(op, count)
         if operation == "query":
-            return _query_operation(client, spec, collection)
+            op, count = _query_operation(client, spec, collection)
+            return OperationOutcome(op, count)
         if operation == "count":
-            return _count_operation(client, spec, collection, baseline_start_id, baseline_rows_per_collection)
+            op, count = _count_operation(
+                client,
+                spec,
+                collection,
+                baseline_start_id,
+                baseline_rows_per_collection,
+            )
+            return OperationOutcome(op, count)
         if operation == "query_iterator":
-            return _query_iterator_operation(client, spec, collection, batch_size)
+            op, count = _query_iterator_operation(client, spec, collection, batch_size)
+            return OperationOutcome(op, count)
         if operation == "search":
-            return _search_operation(client, spec, collection, seed, op_index)
+            op, count = _search_operation(client, spec, collection, seed, op_index)
+            return OperationOutcome(op, count)
         raise ValueError(f"unknown operation: {operation}")
-    except Exception:
-        return (f"failed_{operation}", 1)
+    except Exception as exc:  # noqa: BLE001 - pressure must record every operation failure without killing the loop.
+        finished_at = _utc_now_iso()
+        return OperationOutcome(
+            f"failed_{operation}",
+            1,
+            _failure_detail(
+                operation=operation,
+                collection=collection,
+                started_at=started_at,
+                finished_at=finished_at,
+                exc=exc,
+            ),
+        )
 
 
 def run_pressure_workload(
@@ -264,8 +420,8 @@ def run_pressure_workload(
 
         def collect(done) -> None:
             for future in done:
-                operation, count = future.result()
-                summary.record(operation, count)
+                outcome = future.result()
+                summary.record(outcome.operation, outcome.count, outcome.failure_detail)
 
         while time.time() <= deadline or (duration_sec == 0 and not futures):
             spec = rng.choice(specs)
@@ -273,7 +429,7 @@ def run_pressure_workload(
             operation = rng.choice(operations)
             futures.add(
                 pool.submit(
-                    run_operation,
+                    run_operation_outcome,
                     client,
                     spec,
                     collection,
