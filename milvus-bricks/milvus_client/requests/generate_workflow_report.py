@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any
 
 from milvus_client.common.args import parse_bool
@@ -12,7 +12,7 @@ from milvus_client.common.args import parse_bool
 def _load_json(path: Path, default: Any) -> Any:
     try:
         return json.loads(path.read_text())
-    except Exception:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return default
 
 
@@ -298,6 +298,11 @@ def build_markdown(report: dict[str, Any]) -> str:
         pressure_lines.append(
             f"- excluded `{excluded.get('file')}` `{excluded.get('brick')}`: "
             f"{excluded.get('status')} during `{window.get('label')}`"
+        )
+    for window in pressure.get("maintenance_windows", []):
+        pressure_lines.append(
+            f"- maintenance window `{window.get('label')}`: "
+            f"duration_sec=`{window.get('duration_sec')}`"
         )
     serviceability_lines = []
     for name, payload in sorted(serviceability.items()):

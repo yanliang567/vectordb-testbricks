@@ -402,6 +402,14 @@ def test_generate_workflow_report_reports_excluded_pressure_failures_without_fai
                     "maintenance_window": {"label": "rollback-rollout"},
                 }
             ],
+            "maintenance_windows": [
+                {
+                    "label": "upgrade-rollout",
+                    "started_at": "2026-07-23T20:41:50+00:00",
+                    "finished_at": "2026-07-23T20:42:10+00:00",
+                    "duration_sec": 20.0,
+                }
+            ],
         },
     )
     (tmp_path / "k8s").mkdir()
@@ -422,6 +430,7 @@ def test_generate_workflow_report_reports_excluded_pressure_failures_without_fai
         "excluded `mixed_rw_pressure_105.json` `mixed_rw_pressure`: "
         "maintenance_window_excluded during `rollback-rollout`" in markdown
     )
+    assert "maintenance window `upgrade-rollout`: duration_sec=`20.0`" in markdown
 
 
 def test_generate_workflow_report_fails_when_required_rollback_validation_is_missing(

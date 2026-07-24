@@ -7,7 +7,10 @@ from pathlib import Path
 
 import yaml
 
-from milvus_client.common.pressure_maintenance import classify_pressure_result
+from milvus_client.common.pressure_maintenance import (
+    classify_pressure_result,
+    maintenance_windows_from_workflow_nodes,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -82,19 +85,18 @@ def test_upgrade_rollback_pressure_results_exclude_rollout_connectivity_windows(
         check_command = templates["check-pressure-results"]["container"]["args"][0]
 
         assert "_maintenance_windows" in check_command
-        assert "patch-upgrade" in check_command
-        assert "wait-upgrade-ready" in check_command
         assert "schema-evolution-existing" in check_command
-        assert "patch-post-upgrade-config" in check_command
-        assert "wait-post-upgrade-config-ready" in check_command
         assert "schema-evolution-forward" in check_command
-        assert "patch-rollback" in check_command
-        assert "wait-rollback-ready" in check_command
+        assert "duration_sec" in check_command
+        assert "enabled" in check_command
+        assert "schema-evolution-existing-enabled" in check_command
+        assert "schema-evolution-forward-enabled" in check_command
         assert "excluded_failed_results" in check_command
         assert "failed_all" in check_command
         assert "PRESSURE_ATTEMPT_PENDING" in check_command
         assert "PRESSURE_RESULT_MISSING" in check_command
         assert "classify_pressure_result" in check_command
+        assert "maintenance_windows_from_workflow_nodes" in check_command
         assert "metrics_only_failure_without_error_details" not in check_command
         assert "rm -rf /tmp/repo" in check_command
         assert (
@@ -283,6 +285,100 @@ def test_upgrade_rollback_embedded_python_heredocs_parse():
             ast.parse(code, filename=f"{template_path.name}:python-heredoc:{index}")
 
 
+def test_maintenance_windows_skip_disabled_schema_evolution_noop_nodes():
+    nodes = [
+        {
+            "displayName": "schema-evolution-existing",
+            "phase": "Succeeded",
+            "startedAt": "2026-07-23T20:42:00Z",
+            "finishedAt": "2026-07-23T20:42:30Z",
+        },
+        {
+            "displayName": "schema-evolution-forward",
+            "phase": "Succeeded",
+            "startedAt": "2026-07-23T20:43:00Z",
+            "finishedAt": "2026-07-23T20:43:30Z",
+        },
+    ]
+
+    windows = maintenance_windows_from_workflow_nodes(
+        nodes,
+        schema_evolution_existing_enabled=False,
+        schema_evolution_forward_enabled=False,
+    )
+
+    assert windows == []
+
+
+def test_maintenance_windows_include_successful_rollout_duration():
+    nodes = [
+        {
+            "displayName": "patch-upgrade",
+            "phase": "Succeeded",
+            "startedAt": "2026-07-23T20:41:00Z",
+            "finishedAt": "2026-07-23T20:41:10Z",
+        },
+        {
+            "displayName": "wait-upgrade-ready",
+            "phase": "Succeeded",
+            "startedAt": "2026-07-23T20:41:11Z",
+            "finishedAt": "2026-07-23T20:42:00Z",
+        },
+    ]
+
+    windows = maintenance_windows_from_workflow_nodes(
+        nodes,
+        schema_evolution_existing_enabled=False,
+        schema_evolution_forward_enabled=False,
+    )
+
+    assert len(windows) == 1
+    assert windows[0]["label"] == "upgrade-rollout"
+    assert windows[0]["duration_sec"] == 60.0
+
+
+def test_maintenance_windows_include_enabled_successful_schema_evolution_duration():
+    nodes = [
+        {
+            "displayName": "schema-evolution-existing",
+            "phase": "Succeeded",
+            "startedAt": "2026-07-23T20:42:00Z",
+            "finishedAt": "2026-07-23T20:42:30Z",
+        }
+    ]
+
+    windows = maintenance_windows_from_workflow_nodes(
+        nodes,
+        schema_evolution_existing_enabled=True,
+        schema_evolution_forward_enabled=False,
+    )
+
+    assert len(windows) == 1
+    assert windows[0]["label"] == "schema-evolution-existing"
+    assert windows[0]["started_at"] == "2026-07-23T20:42:00+00:00"
+    assert windows[0]["finished_at"] == "2026-07-23T20:42:30+00:00"
+    assert windows[0]["duration_sec"] == 30.0
+
+
+def test_maintenance_windows_skip_enabled_failed_schema_evolution_nodes():
+    nodes = [
+        {
+            "displayName": "schema-evolution-existing",
+            "phase": "Failed",
+            "startedAt": "2026-07-23T20:42:00Z",
+            "finishedAt": "2026-07-23T20:42:30Z",
+        }
+    ]
+
+    windows = maintenance_windows_from_workflow_nodes(
+        nodes,
+        schema_evolution_existing_enabled=True,
+        schema_evolution_forward_enabled=False,
+    )
+
+    assert windows == []
+
+
 def test_pressure_maintenance_classifier_excludes_only_window_connectivity_failure():
     result = {
         "status": "failed",
@@ -438,6 +534,138 @@ def test_pressure_maintenance_classifier_keeps_connectivity_failure_outside_wind
 
     assert classification == "failed"
     assert entry["failures"][0]["operation"] == "query"
+
+
+def test_pressure_maintenance_classifier_excludes_schema_mismatch_inside_schema_evolution_window():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:42:00+00:00",
+        "finished_at": "2026-07-23T20:42:01+00:00",
+        "metrics": {"requests_failed": 1, "failed_upsert": 1},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "upsert",
+                "started_at": "2026-07-23T20:42:00+00:00",
+                "finished_at": "2026-07-23T20:42:00+00:00",
+                "error_type": "SchemaMismatchRetryableException",
+                "error": "<SchemaMismatchRetryableException: (code=collection schema mismatch[collection=qa], message=)>",
+                "connectivity_transient": False,
+            }
+        ],
+    }
+    windows = [
+        {
+            "label": "schema-evolution-existing",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "excluded"
+    assert entry["status"] == "maintenance_window_excluded"
+    assert entry["maintenance_window"]["label"] == "schema-evolution-existing"
+    assert entry["failures"][0]["error_type"] == "SchemaMismatchRetryableException"
+
+
+def test_pressure_maintenance_classifier_keeps_schema_mismatch_outside_schema_evolution_window():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:42:00+00:00",
+        "finished_at": "2026-07-23T20:42:01+00:00",
+        "metrics": {"requests_failed": 1, "failed_upsert": 1},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "upsert",
+                "started_at": "2026-07-23T20:42:00+00:00",
+                "finished_at": "2026-07-23T20:42:00+00:00",
+                "error_type": "SchemaMismatchRetryableException",
+                "error": "<SchemaMismatchRetryableException: (code=collection schema mismatch[collection=qa], message=)>",
+                "connectivity_transient": False,
+            }
+        ],
+    }
+    windows = [
+        {
+            "label": "rollback-rollout",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"][0]["error_type"] == "SchemaMismatchRetryableException"
+
+
+def test_pressure_maintenance_classifier_keeps_schema_mismatch_without_failure_timestamps_strict():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:42:00+00:00",
+        "finished_at": "2026-07-23T20:42:01+00:00",
+        "metrics": {"requests_failed": 1, "failed_upsert": 1},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "upsert",
+                "error_type": "SchemaMismatchRetryableException",
+                "error": "<SchemaMismatchRetryableException: (code=collection schema mismatch[collection=qa], message=)>",
+                "connectivity_transient": False,
+            }
+        ],
+    }
+    windows = [
+        {
+            "label": "schema-evolution-existing",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"][0]["error_type"] == "SchemaMismatchRetryableException"
+
+
+def test_pressure_maintenance_classifier_keeps_non_schema_mismatch_inside_schema_evolution_window():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:42:00+00:00",
+        "finished_at": "2026-07-23T20:42:01+00:00",
+        "metrics": {"requests_failed": 1, "failed_search": 1},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "search",
+                "started_at": "2026-07-23T20:42:00+00:00",
+                "finished_at": "2026-07-23T20:42:00+00:00",
+                "error_type": "AssertionError",
+                "error": "search returned no hits",
+                "connectivity_transient": False,
+            }
+        ],
+    }
+    windows = [
+        {
+            "label": "schema-evolution-existing",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"][0]["operation"] == "search"
 
 
 def test_pressure_maintenance_classifier_keeps_mixed_failure_strict():
