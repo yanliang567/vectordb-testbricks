@@ -168,8 +168,20 @@ spec:
                 - name: phase
                   value: base
 
-          - name: precheck-base
+          - name: assert-base-storage-config
             dependencies: [snapshot-base-config]
+            template: assert-milvus-storage-config
+            arguments:
+              parameters:
+                - name: phase
+                  value: base
+                - name: expected-loon-ffi-enabled
+                  value: "{{workflow.parameters.base-loon-ffi-enabled}}"
+                - name: expected-vortex-enabled
+                  value: "{{workflow.parameters.base-vortex-enabled}}"
+
+          - name: precheck-base
+            dependencies: [assert-base-storage-config]
             template: run-brick
             arguments:
               parameters:
@@ -293,8 +305,20 @@ spec:
                 - name: phase
                   value: after-upgrade
 
-          - name: observe-after-upgrade
+          - name: assert-after-upgrade-storage-config
             dependencies: [snapshot-after-upgrade-config, pressure-daemon]
+            template: assert-milvus-storage-config
+            arguments:
+              parameters:
+                - name: phase
+                  value: after-upgrade
+                - name: expected-loon-ffi-enabled
+                  value: "{{workflow.parameters.target-loon-ffi-enabled}}"
+                - name: expected-vortex-enabled
+                  value: "{{workflow.parameters.target-vortex-enabled}}"
+
+          - name: observe-after-upgrade
+            dependencies: [assert-after-upgrade-storage-config, pressure-daemon]
             template: observe
             arguments:
               parameters:
@@ -304,7 +328,7 @@ spec:
                   value: after-upgrade
 
           - name: precheck-after-upgrade
-            dependencies: [observe-after-upgrade, pressure-daemon]
+            dependencies: [observe-after-upgrade, assert-after-upgrade-storage-config, pressure-daemon]
             template: run-brick
             arguments:
               parameters:
@@ -581,8 +605,21 @@ spec:
                 - name: phase
                   value: after-rollback
 
+          - name: assert-after-rollback-storage-config
+            dependencies: [snapshot-after-rollback-config, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
+            template: assert-milvus-storage-config
+            arguments:
+              parameters:
+                - name: phase
+                  value: after-rollback
+                - name: expected-loon-ffi-enabled
+                  value: "{{workflow.parameters.rollback-loon-ffi-enabled}}"
+                - name: expected-vortex-enabled
+                  value: "{{workflow.parameters.rollback-vortex-enabled}}"
+
           - name: observe-after-rollback
-            dependencies: [wait-forward-rollback-serviceability, pressure-daemon]
+            dependencies: [wait-forward-rollback-serviceability, assert-after-rollback-storage-config, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: observe
             arguments:
@@ -593,7 +630,7 @@ spec:
                   value: after-rollback
 
           - name: precheck-after-rollback
-            dependencies: [snapshot-after-rollback-config, pressure-daemon]
+            dependencies: [assert-after-rollback-storage-config, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: run-brick
             arguments:
@@ -1158,6 +1195,7 @@ spec:
         args:
           - |
             set -eu
+            python3 -m pip install --disable-pip-version-check -q pyyaml
             mkdir -p /tmp/milvus-bricks/k8s
             phase="{{inputs.parameters.phase}}"
             kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o json > "/tmp/milvus-bricks/k8s/milvus-${phase}.json"
@@ -1185,6 +1223,186 @@ spec:
             }
             target.write_text(json.dumps(snapshot, indent=2, sort_keys=True))
             print(json.dumps(snapshot, indent=2, sort_keys=True))
+            PY
+        volumeMounts:
+          - name: milvus-test-state
+            mountPath: /tmp/milvus-bricks
+
+    - name: assert-milvus-storage-config
+      inputs:
+        parameters:
+          - name: phase
+          - name: expected-loon-ffi-enabled
+          - name: expected-vortex-enabled
+      outputs:
+        artifacts:
+          - name: storage-config-assertion
+            path: /tmp/milvus-bricks/k8s/storage-config-assertion-{{inputs.parameters.phase}}.json
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        args:
+          - |
+            set -eu
+            python3 -m pip install --disable-pip-version-check -q pyyaml
+            mkdir -p /tmp/milvus-bricks/k8s
+            phase="{{inputs.parameters.phase}}"
+            kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o json > "/tmp/milvus-bricks/k8s/milvus-${phase}-storage-config-source.json"
+            kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l app.kubernetes.io/instance="{{workflow.name}}" -o json > "/tmp/milvus-bricks/k8s/pods-${phase}-storage-config-source.json"
+            python3 - <<'PY'
+            import json
+            from pathlib import Path
+            import sys
+
+            def as_bool(value: str) -> bool:
+                return value.lower() == "true"
+
+            phase = "{{inputs.parameters.phase}}"
+            pods = json.loads(Path(f"/tmp/milvus-bricks/k8s/pods-{phase}-storage-config-source.json").read_text())
+            candidates = []
+            for item in pods.get("items", []):
+                status = item.get("status", {})
+                if status.get("phase") != "Running":
+                    continue
+                candidates.append(item.get("metadata", {}).get("name"))
+            candidates = [name for name in candidates if name]
+            if not candidates:
+                print("no Running Milvus pod found for runtime config assertion", file=sys.stderr)
+                sys.exit(1)
+            Path(f"/tmp/milvus-bricks/k8s/runtime-config-pod-{phase}.txt").write_text(candidates[0])
+            PY
+            runtime_pod="$(cat "/tmp/milvus-bricks/k8s/runtime-config-pod-${phase}.txt")"
+            kubectl -n {{workflow.parameters.milvus-namespace}} exec "$runtime_pod" -- sh -c 'cat /milvus/configs/milvus.yaml' > "/tmp/milvus-bricks/k8s/runtime-milvus-${phase}.yaml"
+            kubectl -n {{workflow.parameters.milvus-namespace}} exec "$runtime_pod" -- sh -c 'cat /milvus/configs/user.yaml 2>/dev/null || true' > "/tmp/milvus-bricks/k8s/runtime-user-${phase}.yaml"
+            python3 - <<'PY'
+            import json
+            from pathlib import Path
+            import sys
+            import yaml
+
+            def as_bool(value: str) -> bool:
+                return value.lower() == "true"
+
+            def deep_merge(base: dict, override: dict) -> dict:
+                merged = dict(base)
+                for key, value in override.items():
+                    if (
+                        isinstance(value, dict)
+                        and isinstance(merged.get(key), dict)
+                    ):
+                        merged[key] = deep_merge(merged[key], value)
+                    else:
+                        merged[key] = value
+                return merged
+
+            def parse_loon_and_vortex(
+                config: dict, *, missing_loon_as_false: bool
+            ) -> tuple[object, object]:
+                common_storage = config.get("common", {}).get("storage", {})
+                data_node_storage = config.get("dataNode", {}).get("storage", {})
+                raw_loon = common_storage.get("useLoonFFI")
+                if raw_loon is None:
+                    actual_loon = False if missing_loon_as_false else None
+                elif isinstance(raw_loon, bool):
+                    actual_loon = raw_loon
+                else:
+                    actual_loon = raw_loon
+                return actual_loon, data_node_storage.get("format")
+
+            phase = "{{inputs.parameters.phase}}"
+            expected_loon = as_bool("{{inputs.parameters.expected-loon-ffi-enabled}}")
+            expected_vortex = as_bool("{{inputs.parameters.expected-vortex-enabled}}")
+            declared_payload = json.loads(Path(f"/tmp/milvus-bricks/k8s/milvus-{phase}-storage-config-source.json").read_text())
+            declared_config = declared_payload.get("spec", {}).get("config", {})
+            runtime_milvus_config = yaml.safe_load(Path(f"/tmp/milvus-bricks/k8s/runtime-milvus-{phase}.yaml").read_text()) or {}
+            runtime_user_config = yaml.safe_load(Path(f"/tmp/milvus-bricks/k8s/runtime-user-{phase}.yaml").read_text()) or {}
+            runtime_config = deep_merge(runtime_milvus_config, runtime_user_config)
+            actual_loon, actual_format = parse_loon_and_vortex(
+                declared_config, missing_loon_as_false=True
+            )
+            runtime_loon, runtime_format = parse_loon_and_vortex(
+                runtime_config, missing_loon_as_false=True
+            )
+            runtime_pod = Path(f"/tmp/milvus-bricks/k8s/runtime-config-pod-{phase}.txt").read_text().strip()
+            failures = []
+            if not isinstance(actual_loon, bool):
+                failures.append(
+                    "declared common.storage.useLoonFFI expected YAML boolean or absent "
+                    f"but got {type(actual_loon).__name__}: {actual_loon!r}"
+                )
+            if not isinstance(runtime_loon, bool):
+                failures.append(
+                    "runtime common.storage.useLoonFFI expected YAML boolean or absent "
+                    f"but got {type(runtime_loon).__name__}: {runtime_loon!r}"
+                )
+            if actual_loon != expected_loon:
+                failures.append(
+                    "declared common.storage.useLoonFFI expected "
+                    f"{expected_loon} but got {actual_loon!r}"
+                )
+            if runtime_loon != expected_loon:
+                failures.append(
+                    "runtime common.storage.useLoonFFI expected "
+                    f"{expected_loon} but got {runtime_loon!r}"
+                )
+            if expected_vortex:
+                if actual_format != "vortex":
+                    failures.append(
+                        "declared dataNode.storage.format expected 'vortex' "
+                        f"but got {actual_format!r}"
+                    )
+                if runtime_format != "vortex":
+                    failures.append(
+                        "runtime dataNode.storage.format expected 'vortex' "
+                        f"but got {runtime_format!r}"
+                    )
+            else:
+                non_vortex_formats = (None, "", "parquet")
+                if actual_format not in non_vortex_formats:
+                    failures.append(
+                        "declared dataNode.storage.format expected non-vortex "
+                        "(absent/null/empty/parquet) "
+                        f"but got {actual_format!r}"
+                    )
+                if runtime_format not in non_vortex_formats:
+                    failures.append(
+                        "runtime dataNode.storage.format expected non-vortex "
+                        "(absent/null/empty/parquet) "
+                        f"but got {runtime_format!r}"
+                    )
+            report = {
+                "phase": phase,
+                "declared_source": "milvus_cr.spec.config",
+                "runtime_source": "merged /milvus/configs/milvus.yaml and /milvus/configs/user.yaml",
+                "runtime_pod": runtime_pod,
+                "expected": {
+                    "common.storage.useLoonFFI": expected_loon,
+                    "dataNode.storage.format": "vortex" if expected_vortex else None,
+                },
+                "declared_actual": {
+                    "common.storage.useLoonFFI": actual_loon,
+                    "dataNode.storage.format": actual_format,
+                },
+                "runtime_actual": {
+                    "common.storage.useLoonFFI": runtime_loon,
+                    "dataNode.storage.format": runtime_format,
+                },
+                "status": "failed" if failures else "passed",
+                "failures": failures,
+            }
+            target = Path(f"/tmp/milvus-bricks/k8s/storage-config-assertion-{phase}.json")
+            target.write_text(json.dumps(report, indent=2, sort_keys=True))
+            print(json.dumps(report, indent=2, sort_keys=True))
+            if failures:
+                print("Milvus storage config assertion failed", file=sys.stderr)
+                sys.exit(1)
             PY
         volumeMounts:
           - name: milvus-test-state

@@ -2,13 +2,13 @@ import json
 from pathlib import Path
 
 import yaml
+
 from milvus_client.common.gates import (
     load_gate_manifest,
     render_submission,
     resolve_gate_scenario,
 )
 from milvus_client.requests import render_upgrade_rollback_params as render_cli
-
 
 ROOT = Path(__file__).resolve().parents[1]
 GATES = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
@@ -83,7 +83,7 @@ def test_render_cluster_3_0_gate_parameters():
     )
     assert (
         params["base-milvus-image"]
-        == "harbor.milvus.io/milvusdb/milvus:3.0-baseline-placeholder"
+        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
     )
     assert (
         params["target-milvus-image"]
@@ -91,13 +91,85 @@ def test_render_cluster_3_0_gate_parameters():
     )
     assert (
         params["rollback-milvus-image"]
-        == "harbor.milvus.io/milvusdb/milvus:3.0-baseline-placeholder"
+        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
     )
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
     assert params["schema-evolution-existing-enabled"] == "true"
     assert params["rollback-forward-validation-enabled"] == "true"
     assert params["index-compatibility-validation-enabled"] == "true"
     assert params["phase-dml-dql-validation-enabled"] == "true"
+
+
+def test_render_standalone_3_0_loon_vortex_gate_parameters():
+    manifest = load_gate_manifest(GATES)
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+    )
+
+    submission = render_submission(scenario, manifest, allow_placeholder=True)
+    params = submission["parameters"]
+
+    assert submission["workflow_template"] == "milvus-standalone-3-0-upgrade-rollback"
+    assert (
+        params["base-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
+    )
+    assert (
+        params["target-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
+    )
+    assert (
+        params["rollback-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
+    )
+    assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
+    assert params["base-loon-ffi-enabled"] == "false"
+    assert params["base-vortex-enabled"] == "false"
+    assert params["target-loon-ffi-enabled"] == "true"
+    assert params["target-vortex-enabled"] == "true"
+    assert params["rollback-loon-ffi-enabled"] == "true"
+    assert params["rollback-vortex-enabled"] == "true"
+    assert params["allow-unsafe-negative-coverage"] == "false"
+    assert params["gate-allow-warning"] == "false"
+
+
+def test_render_cluster_3_0_loon_vortex_gate_parameters():
+    manifest = load_gate_manifest(GATES)
+    scenario = resolve_gate_scenario(
+        manifest,
+        "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+    )
+
+    submission = render_submission(scenario, manifest, allow_placeholder=True)
+    params = submission["parameters"]
+
+    assert submission["workflow_template"] == "milvus-cluster-upgrade-rollback"
+    assert (
+        params["deploy-profile"]
+        == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+    )
+    assert (
+        params["base-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
+    )
+    assert (
+        params["target-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
+    )
+    assert (
+        params["rollback-milvus-image"]
+        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
+    )
+    assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
+    assert params["base-loon-ffi-enabled"] == "false"
+    assert params["base-vortex-enabled"] == "false"
+    assert params["target-loon-ffi-enabled"] == "true"
+    assert params["target-vortex-enabled"] == "true"
+    assert params["rollback-loon-ffi-enabled"] == "true"
+    assert params["rollback-vortex-enabled"] == "true"
+    assert params["allow-unsafe-negative-coverage"] == "false"
+    assert params["gate-allow-warning"] == "false"
 
 
 def test_render_cluster_2_6_to_3_0_gate_uses_pulsar_profile():

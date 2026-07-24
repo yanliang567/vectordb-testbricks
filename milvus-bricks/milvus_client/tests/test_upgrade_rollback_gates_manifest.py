@@ -9,7 +9,6 @@ from milvus_client.common.gates import (
     validate_gate_manifest,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 GATES = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
 
@@ -33,14 +32,18 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
     assert {
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
     } <= set(scenarios)
     for scenario_id in [
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
     ]:
         scenario = scenarios[scenario_id]
         assert scenario["classification"] == "gate"
@@ -68,7 +71,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 2
+    assert len(cluster_scenarios) == 3
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-rollback-2-6-latest"]["deploy_profile"]
@@ -76,6 +79,12 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
     )
     assert (
         by_id["cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline"][
+            "deploy_profile"
+        ]
+        == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+    )
+    assert (
+        by_id["cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline"][
             "deploy_profile"
         ]
         == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
@@ -165,6 +174,35 @@ def test_manifest_references_are_centralized():
             assert "image_ref" in scenario[phase]
             assert "image" not in scenario[phase]
             assert "version" not in scenario[phase]
+
+
+def test_3_0_loon_vortex_gate_scenarios_keep_storage_features_enabled_after_upgrade():
+    manifest = _manifest()
+    scenarios = [
+        resolve_gate_scenario(manifest, scenario_id)
+        for scenario_id in [
+            "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+            "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        ]
+    ]
+
+    for scenario in scenarios:
+        assert scenario["classification"] == "gate"
+        assert scenario["support_status"] == "supported"
+        assert scenario.get("allow_unsafe_negative_coverage") is not True
+        assert (
+            scenario["schema_matrix"]
+            == "milvus_client/manifests/schema_matrix_3_0.yaml"
+        )
+        assert scenario["base"].get("loon_ffi_enabled", False) is False
+        assert scenario["base"]["vortex_enabled"] is False
+        assert scenario["target"]["loon_ffi_enabled"] is True
+        assert scenario["target"]["vortex_enabled"] is True
+        assert scenario["rollback"]["loon_ffi_enabled"] is True
+        assert scenario["rollback"]["vortex_enabled"] is True
+        assert scenario["rollback"]["image"] == scenario["base"]["image"]
+        assert scenario["validation_policy"]["pressure_fail_on_error"] is True
+        assert scenario["validation_policy"]["gate_allow_warning"] is False
 
 
 def test_negative_vortex_to_2_6_scenario_is_not_a_gate():
