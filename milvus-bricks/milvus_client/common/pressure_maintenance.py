@@ -33,6 +33,12 @@ FAILED_METRIC_KEYS = (
     "failed_query_iterator",
 )
 
+ROLLOUT_WINDOW_LABELS = {
+    "upgrade-rollout",
+    "post-upgrade-config-rollout",
+    "rollback-rollout",
+}
+
 
 def parse_time(value: Any) -> datetime | None:
     if not value:
@@ -77,8 +83,19 @@ def overlap_window(
     maintenance_windows: list[dict[str, Any]],
     padding_sec: int = 5,
 ) -> dict[str, Any] | None:
+    windows = overlapping_windows(start, end, maintenance_windows, padding_sec)
+    return windows[0] if windows else None
+
+
+def overlapping_windows(
+    start: datetime | None,
+    end: datetime | None,
+    maintenance_windows: list[dict[str, Any]],
+    padding_sec: int = 5,
+) -> list[dict[str, Any]]:
     if start is None or end is None:
-        return None
+        return []
+    windows = []
     for window in maintenance_windows:
         window_start = parse_time(
             window.get("started_at") or window.get("started_at_ts")
@@ -91,8 +108,8 @@ def overlap_window(
         padded_start = window_start - timedelta(seconds=padding_sec)
         padded_end = window_end + timedelta(seconds=padding_sec)
         if start <= padded_end and end >= padded_start:
-            return window
-    return None
+            windows.append(window)
+    return windows
 
 
 def maintenance_windows_from_workflow_nodes(
@@ -195,6 +212,28 @@ def is_schema_evolution_schema_mismatch(
     return "schema mismatch" in text
 
 
+def is_rollout_service_switch_failure(
+    failure: dict[str, Any], window: dict[str, Any]
+) -> bool:
+    label = str(window.get("label") or "")
+    if label not in ROLLOUT_WINDOW_LABELS:
+        return False
+
+    error_type = str(failure.get("error_type") or "")
+    text = json.dumps(failure, sort_keys=True).lower()
+    if error_type != "MilvusException" and "milvusexception" not in text:
+        return False
+
+    if "channel not available" in text and (
+        "channel distribution is not serviceable" in text
+        or "no available shard leaders" in text
+    ):
+        return True
+    return "find no available mixcoord" in text or (
+        "empty grpc client" in text and "mixcoord" in text
+    )
+
+
 def failure_entry(path: Path | str, result: dict[str, Any]) -> dict[str, Any]:
     file_name = path.name if isinstance(path, Path) else str(path)
     return {
@@ -241,25 +280,41 @@ def classify_pressure_result(
         window = overlap_window(start, end, maintenance_windows)
         failure_start = parse_time(failure.get("started_at"))
         failure_end = parse_time(failure.get("finished_at"))
-        schema_window = (
-            overlap_window(failure_start, failure_end, maintenance_windows)
+        failure_windows = (
+            overlapping_windows(failure_start, failure_end, maintenance_windows)
             if failure_start is not None and failure_end is not None
-            else None
+            else []
         )
         connectivity_window = (
             window if window is not None and is_connectivity_failure(failure) else None
         )
-        schema_mismatch_window = (
-            schema_window
-            if schema_window is not None
-            and is_schema_evolution_schema_mismatch(failure, schema_window)
-            else None
+        schema_mismatch_window = next(
+            (
+                candidate
+                for candidate in failure_windows
+                if is_schema_evolution_schema_mismatch(failure, candidate)
+            ),
+            None,
         )
-        if connectivity_window is not None or schema_mismatch_window is not None:
+        rollout_service_switch_window = next(
+            (
+                candidate
+                for candidate in failure_windows
+                if is_rollout_service_switch_failure(failure, candidate)
+            ),
+            None,
+        )
+        if (
+            connectivity_window is not None
+            or schema_mismatch_window is not None
+            or rollout_service_switch_window is not None
+        ):
             matched_window = (
                 connectivity_window
                 if connectivity_window is not None
                 else schema_mismatch_window
+                if schema_mismatch_window is not None
+                else rollout_service_switch_window
             )
             excluded_failures.append(failure)
         else:
