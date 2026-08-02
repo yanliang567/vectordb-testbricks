@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 from milvus_client.common.pressure_maintenance import (
@@ -563,79 +564,106 @@ def test_pressure_maintenance_classifier_keeps_correctness_failure_strict_inside
     assert entry["failures"][0]["operation"] == "search"
 
 
-def test_pressure_maintenance_classifier_excludes_channel_unavailable_inside_rollout_window():
-    result = {
+def _rollout_service_switch_result(error, *, error_type="MilvusException"):
+    return {
         "status": "failed",
         "brick": "mixed_rw_pressure",
-        "started_at": "2026-07-25T02:48:23+00:00",
-        "finished_at": "2026-07-25T02:48:34+00:00",
+        "started_at": "2026-07-25T02:30:41+00:00",
+        "finished_at": "2026-07-25T02:30:55+00:00",
         "metrics": {"requests_failed": 1, "failed_search": 1},
         "failures": [
             {
                 "type": "PRESSURE_OPERATION_FAILED",
                 "operation": "search",
-                "started_at": "2026-07-25T02:48:24+00:00",
-                "finished_at": "2026-07-25T02:48:33+00:00",
-                "error_type": "MilvusException",
-                "error": (
-                    "<MilvusException: (code=503, message=failed to search: "
-                    "channel distribution is not serviceable: channel not available)>"
-                ),
+                "started_at": "2026-07-25T02:30:48+00:00",
+                "finished_at": "2026-07-25T02:30:54+00:00",
+                "error_type": error_type,
+                "error": error,
                 "connectivity_transient": False,
             }
         ],
     }
-    windows = [
+
+
+def _pressure_maintenance_window(label="upgrade-rollout"):
+    return [
         {
-            "label": "rollback-rollout",
-            "started_at": "2026-07-25T02:47:34+00:00",
-            "finished_at": "2026-07-25T02:48:39+00:00",
+            "label": label,
+            "started_at": "2026-07-25T02:30:29+00:00",
+            "finished_at": "2026-07-25T02:31:00+00:00",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        (
+            "<MilvusException: channel distribution is not serviceable: "
+            "channel not available>"
+        ),
+        "<MilvusException: no available shard leaders: channel not available>",
+        "<MilvusException: find no available mixcoord>",
+        "<MilvusException: empty grpc client for mixcoord>",
+    ],
+    ids=[
+        "channel-distribution-unavailable",
+        "shard-leaders-unavailable",
+        "no-available-mixcoord",
+        "empty-mixcoord-grpc-client",
+    ],
+)
+def test_pressure_maintenance_classifier_excludes_each_rollout_service_switch_pattern(
+    error,
+):
+    result = _rollout_service_switch_result(error)
+    windows = _pressure_maintenance_window()
 
     classification, entry = classify_pressure_result("mixed.json", result, windows)
 
     assert classification == "excluded"
     assert entry["status"] == "maintenance_window_excluded"
-    assert entry["maintenance_window"]["label"] == "rollback-rollout"
-
-
-def test_pressure_maintenance_classifier_excludes_mixcoord_unavailable_inside_rollout_window():
-    result = {
-        "status": "failed",
-        "brick": "upsert_pressure",
-        "started_at": "2026-07-25T02:30:41+00:00",
-        "finished_at": "2026-07-25T02:31:32+00:00",
-        "metrics": {"requests_failed": 1, "failed_upsert": 1},
-        "failures": [
-            {
-                "type": "PRESSURE_OPERATION_FAILED",
-                "operation": "upsert",
-                "started_at": "2026-07-25T02:30:48+00:00",
-                "finished_at": "2026-07-25T02:30:54+00:00",
-                "error_type": "MilvusException",
-                "error": (
-                    "<MilvusException: (code=901, message=syncTimestamp Failed: "
-                    "empty grpc client: find no available mixcoord, "
-                    "check mixcoord state: node not found[node=0])>"
-                ),
-                "connectivity_transient": False,
-            }
-        ],
-    }
-    windows = [
-        {
-            "label": "upgrade-rollout",
-            "started_at": "2026-07-25T02:30:29+00:00",
-            "finished_at": "2026-07-25T02:37:33+00:00",
-        }
-    ]
-
-    classification, entry = classify_pressure_result("upsert.json", result, windows)
-
-    assert classification == "excluded"
-    assert entry["status"] == "maintenance_window_excluded"
     assert entry["maintenance_window"]["label"] == "upgrade-rollout"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "channel distribution is not serviceable",
+        "channel not available",
+        "no available shard leaders",
+        "no available mixcoord",
+        "empty grpc client",
+        "mixcoord is unavailable",
+    ],
+    ids=[
+        "channel-distribution-only",
+        "channel-unavailable-only",
+        "shard-leaders-only",
+        "mixcoord-without-find",
+        "empty-grpc-client-only",
+        "mixcoord-only",
+    ],
+)
+def test_pressure_maintenance_classifier_keeps_partial_rollout_patterns_strict(error):
+    result = _rollout_service_switch_result(error)
+    windows = _pressure_maintenance_window()
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"][0]["error"] == error
+
+
+def test_pressure_maintenance_classifier_keeps_wrong_error_type_strict():
+    error = "channel distribution is not serviceable: channel not available"
+    result = _rollout_service_switch_result(error, error_type="AssertionError")
+    windows = _pressure_maintenance_window()
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"][0]["error_type"] == "AssertionError"
 
 
 def test_pressure_maintenance_classifier_keeps_rollout_service_switch_failure_strict_in_schema_window():
