@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from milvus_client.common.capability import version_at_least
+
 
 @dataclass(frozen=True)
 class FieldSpec:
@@ -258,6 +260,19 @@ def validate_schema_matrix(
                 if capability not in capabilities:
                     errors.append(f"{spec.name}: unknown capability {capability}")
     return errors
+
+
+def rollback_incompatible_specs(
+    specs: list[SchemaSpec], rollback_version: str
+) -> list[SchemaSpec]:
+    if not rollback_version:
+        return []
+    return [
+        spec
+        for spec in specs
+        if spec.compat_mode != "rollback_safe"
+        and not version_at_least(rollback_version, spec.version)
+    ]
 
 
 def dtype_to_milvus(dtype: str):

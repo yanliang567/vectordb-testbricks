@@ -297,7 +297,7 @@ def test_upgrade_rollback_prechecks_validate_actual_server_version():
             assert f"--expected-server-version {expected_version}" in parameters["args"]
 
 
-def test_upgrade_templates_reject_target_only_forward_validation_after_2_6_rollback():
+def test_upgrade_templates_delegate_forward_rollback_contract_to_schema_brick():
     for template_name in [
         "standalone-2-6-upgrade-rollback.yaml",
         "standalone-3-0-upgrade-rollback.yaml",
@@ -306,10 +306,23 @@ def test_upgrade_templates_reject_target_only_forward_validation_after_2_6_rollb
         template = yaml.safe_load((ROOT / "argo" / template_name).read_text())
         templates = {item["name"]: item for item in template["spec"]["templates"]}
         command = templates["resolve-inputs"]["container"]["args"][0]
+        dag = next(item for item in templates.values() if "dag" in item)
+        tasks = {task["name"]: task for task in dag["dag"]["tasks"]}
+        create_forward_args = {
+            parameter["name"]: parameter["value"]
+            for parameter in tasks["create-forward-schema"]["arguments"]["parameters"]
+        }["args"]
 
-        assert "forward_schema_matrix" in command
-        assert "rollback_forward_validation_enabled" in command
-        assert "invalid 3.0 target-only rollback validation" in command
+        assert "invalid 3.0 target-only rollback validation" not in command
+        assert "schema_matrix_3_0.yaml" not in command
+        assert "--rollback-version {{workflow.parameters.rollback-version}}" in (
+            create_forward_args
+        )
+        assert (
+            "--rollback-forward-validation-enabled "
+            "{{workflow.parameters.rollback-forward-validation-enabled}}"
+            in create_forward_args
+        )
 
 
 @pytest.mark.parametrize(

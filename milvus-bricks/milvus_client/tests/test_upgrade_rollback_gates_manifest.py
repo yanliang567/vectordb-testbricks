@@ -8,6 +8,7 @@ from milvus_client.common.gates import (
     render_argo_parameters,
     resolve_gate_scenario,
     validate_gate_manifest,
+    validate_resolved_gate_scenario,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,22 +92,61 @@ def test_standalone_2_6_target_only_feature_gate_contract():
     assert scenario["rollback"]["version"].startswith("2.6")
 
 
-def test_2_6_target_only_gate_rejects_forward_validation_after_rollback():
+def test_2_6_target_only_gate_rejects_renamed_forward_only_matrix_after_rollback(
+    tmp_path,
+):
     manifest = _manifest()
     broken = deepcopy(manifest)
+    renamed_matrix = tmp_path / "custom_forward_features.yaml"
+    renamed_matrix.write_text(
+        (ROOT / "manifests" / "schema_matrix_3_0.yaml").read_text()
+    )
     scenario = next(
         item
         for item in broken["scenarios"]
         if item["id"]
         == "standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest"
     )
+    scenario["forward_schema_matrix"] = str(renamed_matrix)
     scenario["rollback_forward_validation_enabled"] = True
 
     with pytest.raises(
         ValueError,
-        match="3.0 target-only forward data cannot be required after rollback to 2.6",
+        match="forward schemas cannot be required after rollback to 2.6.0",
     ):
         resolve_gate_scenario(broken, scenario["id"])
+
+
+def test_target_only_gate_rejects_future_matrix_after_older_rollback(tmp_path):
+    manifest = _manifest()
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
+    )
+    future_matrix = tmp_path / "future_capabilities.yaml"
+    future_matrix.write_text(
+        """\
+version: "3.1"
+schemas:
+  - name: future_feature
+    compat_mode: forward_only
+    fields:
+      - {name: id, dtype: INT64, primary: true}
+"""
+    )
+    scenario["forward_schema_matrix"] = str(future_matrix)
+    scenario["target"] = {
+        **scenario["target"],
+        "image": "harbor.milvus.io/milvusdb/milvus:v3.1.0-build",
+        "version": "3.1.0",
+    }
+    scenario["rollback_forward_validation_enabled"] = True
+
+    with pytest.raises(
+        ValueError,
+        match="forward schemas cannot be required after rollback to 2.6.0",
+    ):
+        validate_resolved_gate_scenario(scenario)
 
 
 def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():

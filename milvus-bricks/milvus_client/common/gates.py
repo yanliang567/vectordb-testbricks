@@ -7,6 +7,10 @@ from typing import Any
 import yaml
 
 from milvus_client.common.deploy import load_deploy_profile
+from milvus_client.common.schema import (
+    load_schema_matrix,
+    rollback_incompatible_specs,
+)
 from milvus_client.common.version import (
     image_is_immutable,
     image_version_family,
@@ -339,6 +343,25 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
     base_version = str(scenario["base"]["version"])
     target_version = str(scenario["target"]["version"])
     rollback_version = str(scenario["rollback"]["version"])
+
+    forward_schema_matrix = _schema_matrix_path(
+        str(scenario.get("forward_schema_matrix") or "")
+    )
+    incompatible_forward_specs = rollback_incompatible_specs(
+        load_schema_matrix(forward_schema_matrix),
+        rollback_version,
+    )
+    if (
+        scenario.get("forward_workload_enabled") is True
+        and scenario.get("rollback_forward_validation_enabled") is True
+        and incompatible_forward_specs
+    ):
+        raise ValueError(
+            f"{scenario['id']}: forward schemas cannot be required after rollback "
+            f"to {rollback_version}; incompatible schemas: "
+            f"{', '.join(spec.name for spec in incompatible_forward_specs)}"
+        )
+
     is_2_6_to_3_0_to_2_6 = (
         base_version.startswith("2.6")
         and target_version.startswith("3.0")
@@ -346,17 +369,6 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
     )
     if not is_2_6_to_3_0_to_2_6:
         return
-
-    forward_schema_matrix = str(scenario.get("forward_schema_matrix") or "")
-    if (
-        scenario.get("forward_workload_enabled") is True
-        and forward_schema_matrix.endswith("schema_matrix_3_0.yaml")
-        and scenario.get("rollback_forward_validation_enabled") is True
-    ):
-        raise ValueError(
-            f"{scenario['id']}: 3.0 target-only forward data cannot be required "
-            "after rollback to 2.6"
-        )
 
     forbidden = set(scenario.get("forbidden_after_upgrade") or [])
     if not {"storage_v3", "vortex"} <= forbidden:
@@ -481,6 +493,13 @@ def _validate_scenario_execution_mode(scenario: dict[str, Any]) -> None:
             f"{scenario_id}: mode {scenario_mode} does not match deploy profile "
             f"{profile_path} mode {profile_mode}"
         )
+
+
+def _schema_matrix_path(value: str) -> Path:
+    matrix_path = Path(value)
+    if not matrix_path.is_absolute():
+        matrix_path = ROOT.parent / matrix_path
+    return matrix_path
 
 
 def _validate_phase_image_versions(scenario: dict[str, Any]) -> None:
