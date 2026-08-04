@@ -1,8 +1,11 @@
 from pathlib import Path
 
-from milvus_client.common.data import checksum_fields_for_spec, generate_rows, stable_checksum
+from milvus_client.common.data import (
+    checksum_fields_for_spec,
+    generate_rows,
+    stable_checksum,
+)
 from milvus_client.common.schema import FieldSpec, SchemaSpec, load_schema_matrix
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,8 +30,12 @@ def test_stable_checksum_uses_selected_fields_and_is_order_independent():
 
     checksum = stable_checksum(rows, fields=["id", "category"], primary_field="id")
 
-    assert checksum == stable_checksum(reordered_rows, fields=["id", "category"], primary_field="id")
-    assert checksum != stable_checksum(rows, fields=["id", "category", "embedding"], primary_field="id")
+    assert checksum == stable_checksum(
+        reordered_rows, fields=["id", "category"], primary_field="id"
+    )
+    assert checksum != stable_checksum(
+        rows, fields=["id", "category", "embedding"], primary_field="id"
+    )
 
 
 def test_stable_checksum_sorts_by_primary_even_when_primary_is_not_digested():
@@ -38,7 +45,9 @@ def test_stable_checksum_sorts_by_primary_even_when_primary_is_not_digested():
     ]
     queried_rows = list(reversed(rows))
 
-    assert stable_checksum(rows, fields=["category"], primary_field="id") == stable_checksum(
+    assert stable_checksum(
+        rows, fields=["category"], primary_field="id"
+    ) == stable_checksum(
         queried_rows,
         fields=["category"],
         primary_field="id",
@@ -53,7 +62,9 @@ def test_stable_checksum_normalizes_repeated_scalar_containers():
     rows = [{"id": 1, "tags": RepeatedScalarLike()}]
     list_rows = [{"id": 1, "tags": ["tag_0", "tag_1"]}]
 
-    assert stable_checksum(rows, fields=["id", "tags"], primary_field="id") == stable_checksum(
+    assert stable_checksum(
+        rows, fields=["id", "tags"], primary_field="id"
+    ) == stable_checksum(
         list_rows,
         fields=["id", "tags"],
         primary_field="id",
@@ -64,7 +75,9 @@ def test_stable_checksum_normalizes_float32_round_trip_precision():
     inserted_rows = [{"id": 1, "score": 16.2}]
     queried_rows = [{"id": 1, "score": 16.200000762939453}]
 
-    assert stable_checksum(inserted_rows, fields=["id", "score"], primary_field="id") == stable_checksum(
+    assert stable_checksum(
+        inserted_rows, fields=["id", "score"], primary_field="id"
+    ) == stable_checksum(
         queried_rows,
         fields=["id", "score"],
         primary_field="id",
@@ -104,6 +117,40 @@ def test_generate_rows_uses_canonical_geometry_wkt():
     row = generate_rows(spec, start_id=0, count=1, seed=7)[0]
 
     assert row["location"] == "POINT (-122 37)"
+
+
+def test_generate_rows_builds_nested_json_shredding_payload():
+    spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_json_shredding.yaml")[
+        0
+    ]
+
+    row = generate_rows(spec, start_id=1, count=1, seed=7)[0]
+
+    assert row["json_nested"] == {
+        "pk": 1,
+        "bucket": 1,
+        "nested": {"score": 0.1, "active": False},
+        "labels": ["label_1", "label_2"],
+    }
+    assert row["dyn_json"] == {"pk_mod": 1, "active": False}
+
+
+def test_json_shredding_checksum_fields_include_selected_dynamic_fields():
+    spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_json_shredding.yaml")[
+        0
+    ]
+
+    assert checksum_fields_for_spec(spec) == [
+        "id",
+        "tenant",
+        "category",
+        "json_profile",
+        "json_nested",
+        "tags",
+        "dyn_bucket",
+        "dyn_text",
+        "dyn_json",
+    ]
 
 
 def test_generate_rows_supports_string_primary_key():

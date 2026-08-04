@@ -30,11 +30,26 @@ class AutoIdValidationClient:
         return [{"id": 1010}]
 
 
-def test_validate_data_integrity_writes_structured_unexpected_failure(monkeypatch, tmp_path):
+class MissingDynamicFieldClient:
+    def query(self, **kwargs):
+        if kwargs.get("output_fields") == ["count(*)"]:
+            return [{"count(*)": 1}]
+        if kwargs.get("filter") == "id == 0":
+            return [{"id": 0}]
+        return [{"id": 0, "json_nested": {"nested": {"score": 0.0}}}]
+
+
+def test_validate_data_integrity_writes_structured_unexpected_failure(
+    monkeypatch, tmp_path
+):
     checkpoint = tmp_path / "seed_data.json"
     checkpoint.write_text(json.dumps({"collections": {}}))
     output_json = tmp_path / "result.json"
-    monkeypatch.setattr(validate_data_integrity, "load_schema_matrix", lambda path: (_ for _ in ()).throw(RuntimeError("bad schema")))
+    monkeypatch.setattr(
+        validate_data_integrity,
+        "load_schema_matrix",
+        lambda path: (_ for _ in ()).throw(RuntimeError("bad schema")),
+    )
 
     code = validate_data_integrity.main(
         [
@@ -59,7 +74,9 @@ def test_validate_data_integrity_writes_structured_unexpected_failure(monkeypatc
     assert result["failures"][0]["type"] == "VALIDATION_FAILED"
 
 
-def test_validate_data_integrity_generates_string_primary_key_filters(monkeypatch, tmp_path):
+def test_validate_data_integrity_generates_string_primary_key_filters(
+    monkeypatch, tmp_path
+):
     checkpoint = tmp_path / "seed_data.json"
     checkpoint.write_text(
         json.dumps(
@@ -86,8 +103,12 @@ def test_validate_data_integrity_generates_string_primary_key_filters(monkeypatc
         ],
     )
     client = CapturingValidationClient()
-    monkeypatch.setattr(validate_data_integrity, "load_schema_matrix", lambda path: [spec])
-    monkeypatch.setattr(validate_data_integrity, "create_client", lambda *args, **kwargs: client)
+    monkeypatch.setattr(
+        validate_data_integrity, "load_schema_matrix", lambda path: [spec]
+    )
+    monkeypatch.setattr(
+        validate_data_integrity, "create_client", lambda *args, **kwargs: client
+    )
 
     code = validate_data_integrity.main(
         [
@@ -109,13 +130,18 @@ def test_validate_data_integrity_generates_string_primary_key_filters(monkeypatc
     result = json.loads(output_json.read_text())
     assert code == 0
     assert result["status"] == "passed"
-    assert client.query_calls[0]["filter"] == 'pk >= "pk_00000000000000000000" && pk <= "pk_00000000000000000002"'
+    assert (
+        client.query_calls[0]["filter"]
+        == 'pk >= "pk_00000000000000000000" && pk <= "pk_00000000000000000002"'
+    )
     assert client.query_calls[1]["filter"] == 'pk == "pk_00000000000000000000"'
     assert client.query_calls[2]["filter"] == 'pk == "pk_00000000000000000001"'
     assert client.query_calls[3]["filter"] == 'pk == "pk_00000000000000000002"'
 
 
-def test_validate_data_integrity_uses_auto_id_pk_values_for_checksum(monkeypatch, tmp_path):
+def test_validate_data_integrity_uses_auto_id_pk_values_for_checksum(
+    monkeypatch, tmp_path
+):
     from milvus_client.common.data import stable_checksum
 
     rows = [{"id": 1010, "category": 1}, {"id": 1011, "category": 2}]
@@ -133,7 +159,9 @@ def test_validate_data_integrity_uses_auto_id_pk_values_for_checksum(monkeypatch
                         "pk_samples": [1010, 1011],
                         "pk_values": [1010, 1011],
                         "checksum_fields": ["category"],
-                        "checksum": stable_checksum(rows, fields=["category"], primary_field="id"),
+                        "checksum": stable_checksum(
+                            rows, fields=["category"], primary_field="id"
+                        ),
                     }
                 }
             }
@@ -150,8 +178,12 @@ def test_validate_data_integrity_uses_auto_id_pk_values_for_checksum(monkeypatch
         ],
     )
     client = AutoIdValidationClient()
-    monkeypatch.setattr(validate_data_integrity, "load_schema_matrix", lambda path: [spec])
-    monkeypatch.setattr(validate_data_integrity, "create_client", lambda *args, **kwargs: client)
+    monkeypatch.setattr(
+        validate_data_integrity, "load_schema_matrix", lambda path: [spec]
+    )
+    monkeypatch.setattr(
+        validate_data_integrity, "create_client", lambda *args, **kwargs: client
+    )
 
     code = validate_data_integrity.main(
         [
@@ -175,3 +207,81 @@ def test_validate_data_integrity_uses_auto_id_pk_values_for_checksum(monkeypatch
     assert result["status"] == "passed"
     assert client.query_calls[0]["filter"] == "id >= 1010 && id <= 1011"
     assert client.query_calls[-1]["filter"] == "id in [1010, 1011]"
+
+
+def test_validate_data_integrity_detects_missing_dynamic_json_fields(
+    monkeypatch, tmp_path
+):
+    from milvus_client.common.data import stable_checksum
+
+    expected_rows = [
+        {
+            "id": 0,
+            "json_nested": {"nested": {"score": 0.0}},
+            "dyn_json": {"pk_mod": 0, "active": True},
+        }
+    ]
+    checksum_fields = ["id", "json_nested", "dyn_json"]
+    checkpoint = tmp_path / "seed_data.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "collections": {
+                    "qa_json": {
+                        "schema_name": "json",
+                        "expected_count": 1,
+                        "primary_field": "id",
+                        "min_pk": 0,
+                        "max_pk": 0,
+                        "checksum_fields": checksum_fields,
+                        "checksum": stable_checksum(
+                            expected_rows,
+                            fields=checksum_fields,
+                            primary_field="id",
+                        ),
+                    }
+                }
+            }
+        )
+    )
+    output_json = tmp_path / "result.json"
+    spec = SchemaSpec(
+        name="json",
+        version="test",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="json_nested", dtype="JSON"),
+        ],
+        enable_dynamic_field=True,
+        checksum_fields=checksum_fields,
+    )
+    monkeypatch.setattr(
+        validate_data_integrity, "load_schema_matrix", lambda path: [spec]
+    )
+    monkeypatch.setattr(
+        validate_data_integrity,
+        "create_client",
+        lambda *args, **kwargs: MissingDynamicFieldClient(),
+    )
+
+    code = validate_data_integrity.main(
+        [
+            "--uri",
+            "http://localhost:19530",
+            "--collection-prefix",
+            "qa",
+            "--schema-matrix",
+            "schema.yaml",
+            "--checkpoint-file",
+            str(checkpoint),
+            "--checkpoint-dir",
+            str(tmp_path),
+            "--output-json",
+            str(output_json),
+        ]
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 1
+    assert result["failures"][0]["type"] == "CHECKSUM_MISMATCH"
+    assert "dyn_json" in result["failures"][0]["fields"]

@@ -175,6 +175,8 @@ spec:
               parameters:
                 - name: phase
                   value: base
+                - name: expected-json-shredding-enabled
+                  value: "{{workflow.parameters.base-json-shredding-enabled}}"
                 - name: expected-loon-ffi-enabled
                   value: "{{workflow.parameters.base-loon-ffi-enabled}}"
                 - name: expected-vortex-enabled
@@ -192,7 +194,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.base-version}}
 
           - name: create-compat-schema
             dependencies: [precheck-base]
@@ -312,6 +315,8 @@ spec:
               parameters:
                 - name: phase
                   value: after-upgrade
+                - name: expected-json-shredding-enabled
+                  value: "{{workflow.parameters.target-json-shredding-enabled}}"
                 - name: expected-loon-ffi-enabled
                   value: "{{workflow.parameters.target-loon-ffi-enabled}}"
                 - name: expected-vortex-enabled
@@ -339,7 +344,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.target-version}}
 
           - name: wait-upgrade-serviceability
             dependencies: [precheck-after-upgrade, pressure-daemon]
@@ -486,8 +492,22 @@ spec:
                 - name: phase
                   value: post-upgrade-config
 
-          - name: create-forward-schema
+          - name: assert-post-upgrade-storage-config
             dependencies: [snapshot-post-upgrade-config, pressure-daemon]
+            template: assert-milvus-storage-config
+            arguments:
+              parameters:
+                - name: phase
+                  value: post-upgrade-config
+                - name: expected-json-shredding-enabled
+                  value: "{{workflow.parameters.post-upgrade-json-shredding-enabled}}"
+                - name: expected-loon-ffi-enabled
+                  value: "{{workflow.parameters.target-loon-ffi-enabled}}"
+                - name: expected-vortex-enabled
+                  value: "{{workflow.parameters.target-vortex-enabled}}"
+
+          - name: create-forward-schema
+            dependencies: [assert-post-upgrade-storage-config, pressure-daemon]
             template: optional-run-brick
             arguments:
               parameters:
@@ -631,6 +651,8 @@ spec:
               parameters:
                 - name: phase
                   value: after-rollback
+                - name: expected-json-shredding-enabled
+                  value: "{{workflow.parameters.rollback-json-shredding-enabled}}"
                 - name: expected-loon-ffi-enabled
                   value: "{{workflow.parameters.rollback-loon-ffi-enabled}}"
                 - name: expected-vortex-enabled
@@ -660,7 +682,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.rollback-version}}
 
           - name: validate-after-rollback
             dependencies: [validate-phase-dml-dql-after-rollback, pressure-daemon]
@@ -1378,6 +1401,7 @@ spec:
       inputs:
         parameters:
           - name: phase
+          - name: expected-json-shredding-enabled
           - name: expected-loon-ffi-enabled
           - name: expected-vortex-enabled
       outputs:
@@ -1457,21 +1481,29 @@ spec:
                         merged[key] = value
                 return merged
 
-            def parse_loon_and_vortex(
-                config: dict, *, missing_loon_as_false: bool
-            ) -> tuple[object, object]:
+            def parse_storage_config(
+                config: dict, *, missing_bools_as_false: bool
+            ) -> tuple[object, object, object]:
                 common_storage = config.get("common", {}).get("storage", {})
                 data_node_storage = config.get("dataNode", {}).get("storage", {})
+                raw_json = common_storage.get("jsonShreddingEnabled")
                 raw_loon = common_storage.get("useLoonFFI")
+                if raw_json is None:
+                    actual_json = False if missing_bools_as_false else None
+                elif isinstance(raw_json, bool):
+                    actual_json = raw_json
+                else:
+                    actual_json = raw_json
                 if raw_loon is None:
-                    actual_loon = False if missing_loon_as_false else None
+                    actual_loon = False if missing_bools_as_false else None
                 elif isinstance(raw_loon, bool):
                     actual_loon = raw_loon
                 else:
                     actual_loon = raw_loon
-                return actual_loon, data_node_storage.get("format")
+                return actual_json, actual_loon, data_node_storage.get("format")
 
             phase = "{{inputs.parameters.phase}}"
+            expected_json = as_bool("{{inputs.parameters.expected-json-shredding-enabled}}")
             expected_loon = as_bool("{{inputs.parameters.expected-loon-ffi-enabled}}")
             expected_vortex = as_bool("{{inputs.parameters.expected-vortex-enabled}}")
             source = Path(f"/tmp/milvus-bricks/k8s/helm-values-{phase}-storage-config-source.yaml")
@@ -1484,14 +1516,34 @@ spec:
             runtime_milvus_config = yaml.safe_load(Path(f"/tmp/milvus-bricks/k8s/runtime-milvus-{phase}.yaml").read_text()) or {}
             runtime_user_config = yaml.safe_load(Path(f"/tmp/milvus-bricks/k8s/runtime-user-{phase}.yaml").read_text()) or {}
             runtime_config = deep_merge(runtime_milvus_config, runtime_user_config)
-            actual_loon, actual_format = parse_loon_and_vortex(
-                declared_config, missing_loon_as_false=True
+            actual_json, actual_loon, actual_format = parse_storage_config(
+                declared_config, missing_bools_as_false=True
             )
-            runtime_loon, runtime_format = parse_loon_and_vortex(
-                runtime_config, missing_loon_as_false=True
+            runtime_json, runtime_loon, runtime_format = parse_storage_config(
+                runtime_config, missing_bools_as_false=True
             )
             runtime_pod = Path(f"/tmp/milvus-bricks/k8s/runtime-config-pod-{phase}.txt").read_text().strip()
             failures = []
+            if not isinstance(actual_json, bool):
+                failures.append(
+                    "declared common.storage.jsonShreddingEnabled expected YAML boolean or absent "
+                    f"but got {type(actual_json).__name__}: {actual_json!r}"
+                )
+            if not isinstance(runtime_json, bool):
+                failures.append(
+                    "runtime common.storage.jsonShreddingEnabled expected YAML boolean or absent "
+                    f"but got {type(runtime_json).__name__}: {runtime_json!r}"
+                )
+            if actual_json != expected_json:
+                failures.append(
+                    "declared common.storage.jsonShreddingEnabled expected "
+                    f"{expected_json} but got {actual_json!r}"
+                )
+            if runtime_json != expected_json:
+                failures.append(
+                    "runtime common.storage.jsonShreddingEnabled expected "
+                    f"{expected_json} but got {runtime_json!r}"
+                )
             if not isinstance(actual_loon, bool):
                 failures.append(
                     "declared common.storage.useLoonFFI expected YAML boolean or absent "
@@ -1543,14 +1595,17 @@ spec:
                 "runtime_source": "merged /milvus/configs/milvus.yaml and /milvus/configs/user.yaml",
                 "runtime_pod": runtime_pod,
                 "expected": {
+                    "common.storage.jsonShreddingEnabled": expected_json,
                     "common.storage.useLoonFFI": expected_loon,
                     "dataNode.storage.format": "vortex" if expected_vortex else None,
                 },
                 "declared_actual": {
+                    "common.storage.jsonShreddingEnabled": actual_json,
                     "common.storage.useLoonFFI": actual_loon,
                     "dataNode.storage.format": actual_format,
                 },
                 "runtime_actual": {
+                    "common.storage.jsonShreddingEnabled": runtime_json,
                     "common.storage.useLoonFFI": runtime_loon,
                     "dataNode.storage.format": runtime_format,
                 },

@@ -16,6 +16,20 @@ from milvus_client.common.pressure_maintenance import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_ci_runs_offline_argo_lint():
+    workflow = yaml.safe_load(
+        (ROOT.parent / ".github" / "workflows" / "milvus-bricks.yml").read_text()
+    )
+    steps = workflow["jobs"]["test"]["steps"]
+    by_name = {step.get("name"): step for step in steps if step.get("name")}
+
+    assert (
+        "argo-workflows/releases/download/v4.0.5/argo-linux-amd64.gz"
+        in (by_name["Install Argo CLI"]["run"])
+    )
+    assert by_name["Argo lint"]["run"] == "argo lint --offline milvus-bricks/argo"
+
+
 def test_argo_template_persists_checkpoint_state_and_exports_results():
     template = yaml.safe_load(
         (ROOT / "argo" / "upgrade-rollback-compatibility.yaml").read_text()
@@ -127,6 +141,10 @@ def test_upgrade_rollback_templates_assert_storage_config_before_phase_validatio
         assert tasks["assert-base-storage-config"]["arguments"]["parameters"] == [
             {"name": "phase", "value": "base"},
             {
+                "name": "expected-json-shredding-enabled",
+                "value": "{{workflow.parameters.base-json-shredding-enabled}}",
+            },
+            {
                 "name": "expected-loon-ffi-enabled",
                 "value": "{{workflow.parameters.base-loon-ffi-enabled}}",
             },
@@ -138,6 +156,31 @@ def test_upgrade_rollback_templates_assert_storage_config_before_phase_validatio
         assert tasks["precheck-base"]["dependencies"] == ["assert-base-storage-config"]
         assert tasks["assert-after-upgrade-storage-config"]["dependencies"] == [
             "snapshot-after-upgrade-config",
+            "pressure-daemon",
+        ]
+        assert tasks["assert-post-upgrade-storage-config"]["dependencies"] == [
+            "snapshot-post-upgrade-config",
+            "pressure-daemon",
+        ]
+        assert {
+            parameter["name"]: parameter["value"]
+            for parameter in tasks["assert-post-upgrade-storage-config"]["arguments"][
+                "parameters"
+            ]
+        } == {
+            "phase": "post-upgrade-config",
+            "expected-json-shredding-enabled": (
+                "{{workflow.parameters.post-upgrade-json-shredding-enabled}}"
+            ),
+            "expected-loon-ffi-enabled": (
+                "{{workflow.parameters.target-loon-ffi-enabled}}"
+            ),
+            "expected-vortex-enabled": (
+                "{{workflow.parameters.target-vortex-enabled}}"
+            ),
+        }
+        assert tasks["create-forward-schema"]["dependencies"] == [
+            "assert-post-upgrade-storage-config",
             "pressure-daemon",
         ]
         assert tasks["assert-after-rollback-storage-config"]["dependencies"] == [
@@ -156,6 +199,7 @@ def test_upgrade_rollback_templates_assert_storage_config_before_phase_validatio
         command = templates["assert-milvus-storage-config"]["container"]["args"][0]
         assert "python3 -m pip install --disable-pip-version-check -q pyyaml" in command
         assert "common.storage.useLoonFFI" in command
+        assert "common.storage.jsonShreddingEnabled" in command
         assert "dataNode.storage.format" in command
         assert "expected YAML boolean or absent" in command
         assert "/milvus/configs/milvus.yaml" in command
@@ -164,12 +208,13 @@ def test_upgrade_rollback_templates_assert_storage_config_before_phase_validatio
         assert "runtime-milvus-${phase}.yaml" in command
         assert "runtime-user-${phase}.yaml" in command
         assert "deep_merge(runtime_milvus_config, runtime_user_config)" in command
-        assert "runtime_config, missing_loon_as_false=True" in command
+        assert "runtime_config, missing_bools_as_false=True" in command
         assert "kubectl -n" in command
         assert " exec " in command
         assert "declared_actual" in command
         assert "runtime_actual" in command
         assert "expected-loon-ffi-enabled" in command
+        assert "expected-json-shredding-enabled" in command
         assert "expected-vortex-enabled" in command
         if template_path.name.startswith("cluster-"):
             assert "helm get values" in command
@@ -180,8 +225,84 @@ def test_upgrade_rollback_templates_assert_storage_config_before_phase_validatio
             assert "get mi" in command
 
 
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+    ],
+)
+def test_standalone_post_config_assertion_retries_until_runtime_converges(
+    template_name,
+):
+    template = yaml.safe_load((ROOT / "argo" / template_name).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    dag = next(item for item in templates.values() if "dag" in item)
+    tasks = {task["name"]: task for task in dag["dag"]["tasks"]}
+
+    task = tasks["assert-post-upgrade-storage-config"]
+    assert "retryStrategy" not in task
+    assert task["template"] == "assert-milvus-storage-config-with-retry"
+    retry_template = templates["assert-milvus-storage-config-with-retry"]
+    assert retry_template["retryStrategy"] == {
+        "limit": "120",
+        "retryPolicy": "Always",
+        "backoff": {"duration": "10s", "factor": 1, "maxDuration": "10s"},
+    }
+    retry_step = retry_template["steps"][0][0]
+    assert retry_step["template"] == "assert-milvus-storage-config"
+    assert retry_step["arguments"]["parameters"] == [
+        {"name": "phase", "value": "{{inputs.parameters.phase}}"},
+        {
+            "name": "expected-json-shredding-enabled",
+            "value": "{{inputs.parameters.expected-json-shredding-enabled}}",
+        },
+        {
+            "name": "expected-loon-ffi-enabled",
+            "value": "{{inputs.parameters.expected-loon-ffi-enabled}}",
+        },
+        {
+            "name": "expected-vortex-enabled",
+            "value": "{{inputs.parameters.expected-vortex-enabled}}",
+        },
+    ]
+    command = templates["assert-milvus-storage-config"]["container"]["args"][0]
+    assert 'container.get("name")' in command
+    assert 'container_status.get("ready") is True' in command
+    assert '"milvus" not in container_names' in command
+    assert '"milvus" not in ready_container_names' in command
+
+
+def test_upgrade_rollback_prechecks_validate_actual_server_version():
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
+    ]:
+        template = yaml.safe_load(template_path.read_text())
+        templates = {item["name"]: item for item in template["spec"]["templates"]}
+        dag = next(item for item in templates.values() if "dag" in item)
+        tasks = {task["name"]: task for task in dag["dag"]["tasks"]}
+
+        expected = {
+            "precheck-base": "{{workflow.parameters.base-version}}",
+            "precheck-after-upgrade": "{{workflow.parameters.target-version}}",
+            "precheck-after-rollback": "{{workflow.parameters.rollback-version}}",
+        }
+        for task_name, expected_version in expected.items():
+            parameters = {
+                parameter["name"]: parameter["value"]
+                for parameter in tasks[task_name]["arguments"]["parameters"]
+            }
+            assert f"--expected-server-version {expected_version}" in parameters["args"]
+
+
 def _run_storage_assertion_heredoc(
-    template_path: Path, tmp_path: Path, *, runtime_format: str
+    template_path: Path,
+    tmp_path: Path,
+    *,
+    runtime_format: str,
+    runtime_json_shredding: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     template = yaml.safe_load(template_path.read_text())
@@ -194,6 +315,9 @@ def _run_storage_assertion_heredoc(
     )
     code = heredocs[-1]
     code = code.replace("{{inputs.parameters.phase}}", "base")
+    code = code.replace(
+        "{{inputs.parameters.expected-json-shredding-enabled}}", "false"
+    )
     code = code.replace("{{inputs.parameters.expected-loon-ffi-enabled}}", "false")
     code = code.replace("{{inputs.parameters.expected-vortex-enabled}}", "false")
     code = code.replace("/tmp/milvus-bricks/k8s", str(tmp_path))
@@ -209,7 +333,12 @@ def _run_storage_assertion_heredoc(
     (tmp_path / "runtime-milvus-base.yaml").write_text(
         yaml.safe_dump(
             {
-                "common": {"storage": {"useLoonFFI": False}},
+                "common": {
+                    "storage": {
+                        "jsonShreddingEnabled": runtime_json_shredding,
+                        "useLoonFFI": False,
+                    }
+                },
                 "dataNode": {"storage": {"format": runtime_format}},
             }
         )
@@ -264,6 +393,29 @@ def test_storage_config_assertion_rejects_vortex_for_non_vortex_runtime(tmp_path
         assert report["status"] == "failed"
         assert "runtime dataNode.storage.format expected non-vortex" in "\n".join(
             report["failures"]
+        )
+
+
+def test_storage_config_assertion_rejects_json_shredding_mismatch(tmp_path):
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
+    ]:
+        assertion_dir = tmp_path / template_path.stem
+        result = _run_storage_assertion_heredoc(
+            template_path,
+            assertion_dir,
+            runtime_format="parquet",
+            runtime_json_shredding=True,
+        )
+
+        assert result.returncode != 0
+        report = json.loads(
+            (assertion_dir / "storage-config-assertion-base.json").read_text()
+        )
+        assert "runtime common.storage.jsonShreddingEnabled expected False" in (
+            "\n".join(report["failures"])
         )
 
 
@@ -1077,6 +1229,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "snapshot-after-upgrade-config",
         "observe-after-upgrade",
         "precheck-after-upgrade",
+        "wait-upgrade-serviceability",
         "validate-after-upgrade",
         "validate-index-compatibility-after-upgrade",
         "validate-phase-dml-dql-after-upgrade",
@@ -1085,6 +1238,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "patch-post-upgrade-config",
         "wait-post-upgrade-config-ready",
         "snapshot-post-upgrade-config",
+        "assert-post-upgrade-storage-config",
         "create-forward-schema",
         "seed-forward-data",
         "validate-forward-after-upgrade",
@@ -1153,6 +1307,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "snapshot-after-upgrade-config",
         "observe-after-upgrade",
         "precheck-after-upgrade",
+        "wait-upgrade-serviceability",
         "validate-after-upgrade",
         "validate-index-compatibility-after-upgrade",
         "validate-phase-dml-dql-after-upgrade",
@@ -1160,6 +1315,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "patch-post-upgrade-config",
         "wait-post-upgrade-config-ready",
         "snapshot-post-upgrade-config",
+        "assert-post-upgrade-storage-config",
         "create-forward-schema",
         "seed-forward-data",
         "validate-forward-after-upgrade",
@@ -1871,6 +2027,64 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
         "validate-phase-dml-dql-after-rollback",
         "pressure-daemon",
     ]
+    assert tasks["validate-forward-indexes-after-upgrade"]["dependencies"] == [
+        "validate-forward-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["schema-evolution-forward"]["dependencies"] == [
+        "validate-forward-indexes-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-forward-indexes-after-rollback"]["dependencies"] == [
+        "validate-forward-after-rollback",
+        "pressure-daemon",
+    ]
+    assert tasks["strict-pressure-after-rollback"]["dependencies"] == [
+        "validate-forward-indexes-after-rollback",
+        "pressure-daemon",
+    ]
+    forward_index_upgrade_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-forward-indexes-after-upgrade"]["arguments"][
+            "parameters"
+        ]
+    }
+    forward_index_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-forward-indexes-after-rollback"]["arguments"][
+            "parameters"
+        ]
+    }
+    assert (
+        forward_index_upgrade_args["enabled"]
+        == "{{workflow.parameters.forward-workload-enabled}}"
+    )
+    assert (
+        forward_index_upgrade_args["collection-prefix"]
+        == "{{workflow.parameters.forward-collection-prefix}}"
+    )
+    assert (
+        "--schema-matrix {{workflow.parameters.forward-schema-matrix}}"
+        in (forward_index_upgrade_args["args"])
+    )
+    assert (
+        "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json"
+        in forward_index_upgrade_args["args"]
+    )
+    assert (
+        "--index-checkpoint-file /tmp/milvus-bricks/checkpoints/forward/index_compatibility.json"
+        in forward_index_upgrade_args["args"]
+    )
+    assert "--phase after-upgrade" in forward_index_upgrade_args["args"]
+    assert (
+        forward_index_rollback_args["enabled"]
+        == "{{workflow.parameters.rollback-forward-validation-enabled}}"
+    )
+    assert "--phase after-rollback" in forward_index_rollback_args["args"]
+    assert tasks["validate-forward-indexes-after-rollback"]["when"] == (
+        "{{workflow.parameters.rollback-enabled}} == true && "
+        "{{workflow.parameters.forward-workload-enabled}} == true"
+    )
     index_after_upgrade_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["validate-index-compatibility-after-upgrade"][
@@ -1930,6 +2144,51 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     resolve_command = templates["resolve-inputs"]["container"]["args"][0]
     assert "approved_unsafe_negative_scenarios = set()" in resolve_command
     assert "invalid unsafe negative coverage bypass" in resolve_command
+
+
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+    ],
+)
+def test_standalone_upgrade_waits_for_data_serviceability(template_name):
+    template = yaml.safe_load((ROOT / "argo" / template_name).read_text())
+    main = next(
+        item for item in template["spec"]["templates"] if item["name"] == "main"
+    )
+    tasks = {task["name"]: task for task in main["dag"]["tasks"]}
+
+    assert tasks["wait-upgrade-serviceability"]["dependencies"] == [
+        "precheck-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-after-upgrade"]["dependencies"] == [
+        "wait-upgrade-serviceability",
+        "pressure-daemon",
+    ]
+    parameters = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["wait-upgrade-serviceability"]["arguments"]["parameters"]
+    }
+    assert parameters["module"] == ("milvus_client.requests.wait_data_serviceability")
+    assert parameters["collection-prefix"] == (
+        "{{workflow.parameters.collection-prefix}}"
+    )
+    assert "--schema-matrix {{workflow.parameters.schema-matrix}}" in parameters["args"]
+    assert (
+        "--checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json"
+        in parameters["args"]
+    )
+    assert (
+        "--timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}"
+        in parameters["args"]
+    )
+    assert (
+        "--interval-sec {{workflow.parameters.rollback-serviceability-interval-sec}}"
+        in parameters["args"]
+    )
 
 
 def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_shared_dag():

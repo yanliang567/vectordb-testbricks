@@ -5,6 +5,7 @@ import pytest
 
 from milvus_client.common.gates import (
     load_gate_manifest,
+    render_argo_parameters,
     resolve_gate_scenario,
     validate_gate_manifest,
 )
@@ -33,6 +34,7 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
@@ -41,6 +43,7 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
@@ -91,6 +94,149 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
     )
     for scenario in cluster_scenarios:
         assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
+
+
+def test_gate_scenario_rejects_deploy_profile_mode_mismatch():
+    manifest = _manifest()
+
+    with pytest.raises(ValueError, match="mode cluster does not match deploy profile"):
+        resolve_gate_scenario(
+            manifest,
+            "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+            deploy_profile_override=(
+                "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
+            ),
+        )
+
+
+def test_gate_scenario_rejects_version_override_outside_declared_family():
+    manifest = _manifest()
+
+    with pytest.raises(
+        ValueError, match="rollback version override must remain in 2.6"
+    ):
+        resolve_gate_scenario(
+            manifest,
+            "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+            phase_overrides={"rollback": {"version": "3.0.0"}},
+        )
+
+
+def test_gate_scenario_rejects_parseable_image_override_outside_version_family():
+    manifest = _manifest()
+
+    with pytest.raises(
+        ValueError,
+        match="target image version family 2.6 does not match declared version family 3.0",
+    ):
+        resolve_gate_scenario(
+            manifest,
+            "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+            phase_overrides={
+                "target": {
+                    "image": "harbor.milvus.io/milvusdb/milvus:v2.6.18",
+                    "version": "3.0.1",
+                }
+            },
+        )
+
+
+def test_gate_scenario_rejects_mutable_image_override():
+    manifest = _manifest()
+
+    with pytest.raises(ValueError, match="target image override must be immutable"):
+        resolve_gate_scenario(
+            manifest,
+            "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+            phase_overrides={
+                "target": {
+                    "image": "harbor.milvus.io/milvusdb/milvus:master-latest",
+                    "version": "3.0.1",
+                }
+            },
+        )
+
+
+def test_gate_scenario_allows_concrete_master_build_tag():
+    manifest = _manifest()
+
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        phase_overrides={
+            "target": {
+                "image": "harbor.milvus.io/milvusdb/milvus:master-20260804-a1b2c3d4",
+                "version": "3.0.1",
+            }
+        },
+    )
+
+    assert scenario["target"]["version"] == "3.0.1"
+
+
+def test_gate_scenario_allows_mutable_tag_when_pinned_by_digest():
+    manifest = _manifest()
+    digest = "a" * 64
+
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        phase_overrides={
+            "target": {
+                "image": f"milvusdb/milvus:master-latest@sha256:{digest}",
+                "version": "3.0.1",
+            }
+        },
+    )
+
+    assert scenario["target"]["image"].endswith(digest)
+    parameters = render_argo_parameters(scenario, manifest)
+    assert parameters["target-milvus-image"].endswith(digest)
+
+
+def test_formal_gate_render_rejects_mutable_image_reference():
+    manifest = _manifest()
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        phase_overrides={
+            "target": {
+                "image": "milvusdb/milvus:master-20260804-a1b2c3d4",
+                "version": "3.0.1",
+            }
+        },
+    )
+    scenario["target"]["image"] = "milvusdb/milvus:master-latest"
+
+    with pytest.raises(ValueError, match="runnable gate contains mutable images"):
+        render_argo_parameters(scenario, manifest)
+
+
+def test_gate_scenario_validates_versioned_image_tag_before_digest():
+    manifest = _manifest()
+
+    with pytest.raises(ValueError, match="target image version family 2.6"):
+        resolve_gate_scenario(
+            manifest,
+            "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+            phase_overrides={
+                "target": {
+                    "image": "milvusdb/milvus:v2.6.18@sha256:deadbeef",
+                    "version": "3.0.1",
+                }
+            },
+        )
+
+
+def test_gate_scenario_rejects_unknown_phase_override():
+    manifest = _manifest()
+
+    with pytest.raises(ValueError, match="unsupported phase overrides: post-config"):
+        resolve_gate_scenario(
+            manifest,
+            "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+            phase_overrides={"post-config": {"image": "milvus:test"}},
+        )
 
 
 def test_cluster_2_6_gate_scenario_uses_pulsar_profile():
@@ -203,6 +349,29 @@ def test_3_0_loon_vortex_gate_scenarios_keep_storage_features_enabled_after_upgr
         assert scenario["rollback"]["image"] == scenario["base"]["image"]
         assert scenario["validation_policy"]["pressure_fail_on_error"] is True
         assert scenario["validation_policy"]["gate_allow_warning"] is False
+
+
+def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle():
+    manifest = _manifest()
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+    )
+
+    assert scenario["classification"] == "gate"
+    assert scenario["workflow_template"] == ("milvus-standalone-3-0-upgrade-rollback")
+    assert scenario["base"]["json_shredding_enabled"] is False
+    assert scenario["target"]["json_shredding_enabled"] is False
+    assert scenario["post_upgrade_config_toggle_enabled"] is True
+    assert scenario["post_upgrade_json_shredding_enabled"] is True
+    assert scenario["rollback"]["json_shredding_enabled"] is True
+    assert scenario["forward_workload_enabled"] is True
+    assert scenario["rollback_forward_validation_enabled"] is True
+    assert scenario["forward_schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_json_shredding.yaml"
+    )
+    assert scenario["validation_policy"]["pressure_fail_on_error"] is True
+    assert scenario["validation_policy"]["gate_allow_warning"] is False
 
 
 def test_negative_vortex_to_2_6_scenario_is_not_a_gate():

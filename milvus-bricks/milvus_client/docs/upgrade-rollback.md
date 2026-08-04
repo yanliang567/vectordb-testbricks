@@ -275,8 +275,15 @@ Code-managed gate definitions live in
 of truth for gate branch/version paths. It intentionally separates reusable
 definitions from scenario composition:
 
-- `image_aliases`: concrete image + operator `version` pairs, such as
-  `milvus-2-6-18`, `milvus-3-0-baseline`, or `milvus-3-0-latest`.
+Formal gate submissions must use an immutable Milvus image reference. Concrete
+release/build tags such as `v2.6.18` or `master-20260707-5617a46a` are accepted;
+mutable tags such as `latest`, `master-latest`, and `3.0-latest-placeholder` are
+rejected unless the image is pinned by a valid `sha256` digest. Placeholder
+images remain available only for explicit dry-run/review rendering.
+
+- `image_aliases`: image + operator `version` pairs, such as
+  `milvus-2-6-18`, `milvus-3-0-baseline`, or `milvus-3-0-latest`; aliases that
+  contain placeholders require a concrete override before formal submission.
 - `schema_matrices`: branch-level schema matrix paths.
 - `deploy_profiles`: code-managed deployment topology. Standalone profiles render
   Milvus Operator CRs; cluster Pulsar/Woodpecker profiles render Helm chart

@@ -193,6 +193,48 @@ class NullableJsonIndexClient(IndexCompatibilityClient):
         return []
 
 
+class NestedJsonPathIndexClient(IndexCompatibilityClient):
+    def __init__(self):
+        super().__init__(scalar_query_pk=1, search_pk=None)
+        self.indexes = {
+            "json_nested": {
+                "index_name": "json_nested_idx",
+                "field_name": "json_nested",
+                "index_type": "INVERTED",
+                "metric_type": None,
+                "params": {
+                    "json_cast_type": "double",
+                    "json_path": "json_nested['nested']['score']",
+                },
+            }
+        }
+
+    def describe_index(self, **kwargs):
+        self.calls.append(("describe_index", kwargs))
+        index = self.indexes["json_nested"]
+        return {
+            "index_name": index["index_name"],
+            "field_name": index["field_name"],
+            "index_type": index["index_type"],
+            "metric_type": index["metric_type"],
+            "json_path": index["params"]["json_path"],
+            "json_cast_type": index["params"]["json_cast_type"],
+        }
+
+    def query(self, **kwargs):
+        self.calls.append(("query", kwargs))
+        if kwargs.get("output_fields") == ["count(*)"]:
+            return [{"count(*)": 3}]
+        if kwargs.get("filter") in {"id == 0", "id == 1", "id == 2"}:
+            pk = int(kwargs["filter"].rsplit(" ", 1)[-1])
+            return [{"id": pk}]
+        if kwargs.get("filter") == "json_nested['nested']['score'] == 0.0":
+            return [{"id": 0}]
+        if kwargs.get("filter") == "(json_nested['nested']['score'] == 0.0) && id == 0":
+            return [{"id": 0}]
+        return []
+
+
 class NullableVectorIndexClient(IndexCompatibilityClient):
     def __init__(self):
         super().__init__(scalar_query_pk=None, search_pk=None, search_distance=1.0)
@@ -371,6 +413,27 @@ def _nullable_json_spec():
     )
 
 
+def _nested_json_path_spec():
+    return SchemaSpec(
+        name="json_nested",
+        version="test",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="json_nested", dtype="JSON"),
+        ],
+        indexes=[
+            IndexSpec(
+                field="json_nested",
+                index_type="INVERTED",
+                params={
+                    "json_cast_type": "double",
+                    "json_path": "json_nested['nested']['score']",
+                },
+            )
+        ],
+    )
+
+
 def _seed_checkpoint(tmp_path):
     checkpoint = tmp_path / "seed_data.json"
     checkpoint.write_text(
@@ -442,6 +505,29 @@ def _json_seed_checkpoint(tmp_path):
                 "collections": {
                     "qa_json_nullable": {
                         "schema_name": "json_nullable",
+                        "expected_count": 3,
+                        "primary_field": "id",
+                        "min_pk": 0,
+                        "max_pk": 2,
+                        "pk_samples": [0, 1, 2],
+                        "data_min_pk": 0,
+                        "data_max_pk": 2,
+                    }
+                }
+            }
+        )
+    )
+    return checkpoint
+
+
+def _nested_json_seed_checkpoint(tmp_path):
+    checkpoint = tmp_path / "seed_data.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "collections": {
+                    "qa_json_nested": {
+                        "schema_name": "json_nested",
                         "expected_count": 3,
                         "primary_field": "id",
                         "min_pk": 0,
@@ -714,6 +800,111 @@ def test_nullable_json_index_selects_non_null_probe_row(monkeypatch, tmp_path):
         call[0] == "query"
         and call[1].get("filter") == "(json_profile['bucket'] == 1) && id == 1"
         for call in client.calls
+    )
+
+
+def test_nested_json_path_index_is_queried_after_upgrade_and_rollback(
+    monkeypatch, tmp_path
+):
+    seed_checkpoint = _nested_json_seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    client = NestedJsonPathIndexClient()
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_nested_json_path_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    upgrade_code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            tmp_path / "after_upgrade.json",
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+    rollback_code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            tmp_path / "after_rollback.json",
+            phase="after-rollback",
+            rebuild=False,
+        )
+    )
+
+    assert upgrade_code == 0
+    assert rollback_code == 0
+    checkpoint = json.loads(index_checkpoint.read_text())
+    assert checkpoint["collections"]["qa_json_nested"]["actual_indexes"][0][
+        "params"
+    ] == {
+        "json_path": "json_nested['nested']['score']",
+        "json_cast_type": "double",
+    }
+    exact_filter = "(json_nested['nested']['score'] == 0.0) && id == 0"
+    assert (
+        sum(
+            call[0] == "query" and call[1].get("filter") == exact_filter
+            for call in client.calls
+        )
+        == 2
+    )
+
+
+def test_rollback_detects_top_level_json_index_parameter_change(monkeypatch, tmp_path):
+    seed_checkpoint = _nested_json_seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    client = NestedJsonPathIndexClient()
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_nested_json_path_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    assert (
+        validate_index_compatibility.main(
+            _args(
+                tmp_path,
+                seed_checkpoint,
+                index_checkpoint,
+                tmp_path / "after_upgrade.json",
+                phase="after-upgrade",
+                rebuild=False,
+            )
+        )
+        == 0
+    )
+    client.indexes["json_nested"]["params"]["json_cast_type"] = "varchar"
+
+    rollback_code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            tmp_path / "after_rollback.json",
+            phase="after-rollback",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads((tmp_path / "after_rollback.json").read_text())
+    assert rollback_code == 1
+    assert any(
+        failure["type"] == "INDEX_METADATA_MISMATCH" for failure in result["failures"]
     )
 
 

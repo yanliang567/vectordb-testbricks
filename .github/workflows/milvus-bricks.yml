@@ -34,6 +34,16 @@ jobs:
           sudo install /tmp/linux-amd64/helm /usr/local/bin/helm
           helm version --short
 
+      - name: Install Argo CLI
+        run: |
+          curl -fsSL https://github.com/argoproj/argo-workflows/releases/download/v4.0.5/argo-linux-amd64.gz -o /tmp/argo.gz
+          gunzip /tmp/argo.gz
+          sudo install /tmp/argo /usr/local/bin/argo
+          argo version --short
+
+      - name: Argo lint
+        run: argo lint --offline milvus-bricks/argo
+
       - name: Run tests
         working-directory: milvus-bricks
         run: PYTHONPATH=. python -m pytest milvus_client/tests -q

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import shlex
 import sys
+from pathlib import Path
 
 import yaml
 
@@ -29,6 +29,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the deploy profile selected by the scenario",
     )
+    for phase in ("base", "target", "rollback"):
+        parser.add_argument(
+            f"--{phase}-milvus-image",
+            default=None,
+            help=f"Override the concrete Milvus image for the {phase} phase",
+        )
+        parser.add_argument(
+            f"--{phase}-version",
+            default=None,
+            help=f"Override the semantic Milvus version for the {phase} phase",
+        )
     parser.add_argument(
         "--allow-placeholder",
         action="store_true",
@@ -49,6 +60,17 @@ def main(argv: list[str] | None = None) -> int:
             manifest,
             args.scenario_id,
             deploy_profile_override=args.deploy_profile,
+            phase_overrides={
+                phase: {
+                    key: value
+                    for key, value in {
+                        "image": getattr(args, f"{phase}_milvus_image"),
+                        "version": getattr(args, f"{phase}_version"),
+                    }.items()
+                    if value
+                }
+                for phase in ("base", "target", "rollback")
+            },
         )
         submission = render_submission(
             scenario, manifest, allow_placeholder=args.allow_placeholder

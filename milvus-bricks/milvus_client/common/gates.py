@@ -6,9 +6,20 @@ from typing import Any
 
 import yaml
 
+from milvus_client.common.deploy import load_deploy_profile
+from milvus_client.common.version import (
+    image_is_immutable,
+    image_version_family,
+    version_family,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GATE_MANIFEST = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
+WORKFLOW_TEMPLATE_MODES = {
+    "milvus-standalone-2-6-upgrade-rollback": "standalone",
+    "milvus-standalone-3-0-upgrade-rollback": "standalone",
+    "milvus-cluster-upgrade-rollback": "cluster",
+}
 
 
 def load_gate_manifest(path: str | Path = DEFAULT_GATE_MANIFEST) -> dict[str, Any]:
@@ -23,6 +34,7 @@ def resolve_gate_scenario(
     scenario_id: str,
     *,
     deploy_profile_override: str | None = None,
+    phase_overrides: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     scenarios = manifest.get("scenarios") or []
     scenario = next((item for item in scenarios if item.get("id") == scenario_id), None)
@@ -49,8 +61,39 @@ def resolve_gate_scenario(
     else:
         resolved["forward_schema_matrix"] = resolved["schema_matrix"]
 
+    unknown_phases = sorted(set(phase_overrides or {}) - {"base", "target", "rollback"})
+    if unknown_phases:
+        raise ValueError(
+            f"{scenario_id}: unsupported phase overrides: {', '.join(unknown_phases)}"
+        )
+
     for phase in ("base", "target", "rollback"):
         resolved[phase] = _resolve_phase(manifest, scenario, phase)
+        override = (phase_overrides or {}).get(phase) or {}
+        unknown = sorted(set(override) - {"image", "version"})
+        if unknown:
+            raise ValueError(
+                f"{scenario_id}: unsupported {phase} override fields: "
+                f"{', '.join(unknown)}"
+            )
+        for field in ("image", "version"):
+            if override.get(field):
+                if field == "image" and resolved.get("classification") == "gate":
+                    override_image = str(override[field])
+                    if not image_is_immutable(override_image):
+                        raise ValueError(
+                            f"{scenario_id}: {phase} image override must be immutable; "
+                            f"use a concrete build tag or sha256 digest, got {override_image}"
+                        )
+                if field == "version":
+                    declared_family = version_family(resolved[phase]["version"])
+                    override_family = version_family(str(override[field]))
+                    if override_family != declared_family:
+                        raise ValueError(
+                            f"{scenario_id}: {phase} version override must remain in "
+                            f"{declared_family}; got {override[field]}"
+                        )
+                resolved[phase][field] = str(override[field])
 
     defaults = manifest.get("defaults") or {}
     resolved.setdefault(
@@ -289,6 +332,8 @@ def validate_gate_manifest(
 
 
 def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
+    _validate_scenario_execution_mode(scenario)
+    _validate_phase_image_versions(scenario)
     if scenario.get("classification") != "gate":
         return
     base_version = str(scenario["base"]["version"])
@@ -335,12 +380,24 @@ def validate_no_gate_placeholders(
         f"{phase}.image={scenario[phase]['image']}"
         for phase in ("base", "target", "rollback")
         if "placeholder" in str(scenario[phase].get("image", ""))
+        and not image_is_immutable(str(scenario[phase].get("image", "")))
     ]
     if placeholders:
         raise ValueError(
             f"{scenario['id']}: runnable scenario contains placeholder images: "
             f"{', '.join(placeholders)}; pass --allow-placeholder only for dry-run/review output"
         )
+    if scenario.get("classification") == "gate":
+        mutable_images = [
+            f"{phase}.image={scenario[phase]['image']}"
+            for phase in ("base", "target", "rollback")
+            if not image_is_immutable(str(scenario[phase].get("image", "")))
+        ]
+        if mutable_images:
+            raise ValueError(
+                f"{scenario['id']}: runnable gate contains mutable images: "
+                f"{', '.join(mutable_images)}; use concrete build tags or sha256 digests"
+            )
 
 
 def _resolve_phase(
@@ -382,6 +439,50 @@ def _resolve_ref(
             f"{scenario.get('id')}: {field}_ref {ref!r} is not defined in {section}"
         )
     return str(mapping[ref])
+
+
+def _validate_scenario_execution_mode(scenario: dict[str, Any]) -> None:
+    scenario_id = str(scenario.get("id") or "<unknown>")
+    scenario_mode = str(scenario.get("mode") or "")
+    workflow_template = str(scenario.get("workflow_template") or "")
+    workflow_mode = WORKFLOW_TEMPLATE_MODES.get(workflow_template)
+    if workflow_mode is None:
+        raise ValueError(
+            f"{scenario_id}: workflow template {workflow_template!r} has no mode mapping"
+        )
+    if workflow_mode != scenario_mode:
+        raise ValueError(
+            f"{scenario_id}: mode {scenario_mode} does not match workflow template "
+            f"{workflow_template} mode {workflow_mode}"
+        )
+
+    profile_path = Path(str(scenario.get("deploy_profile") or ""))
+    if not profile_path.is_absolute():
+        profile_path = ROOT.parent / profile_path
+    if not profile_path.exists():
+        raise ValueError(
+            f"{scenario_id}: deploy profile does not exist: {profile_path}"
+        )
+    profile = load_deploy_profile(profile_path)
+    profile_mode = str(profile.get("mode") or "")
+    if profile_mode != scenario_mode:
+        raise ValueError(
+            f"{scenario_id}: mode {scenario_mode} does not match deploy profile "
+            f"{profile_path} mode {profile_mode}"
+        )
+
+
+def _validate_phase_image_versions(scenario: dict[str, Any]) -> None:
+    for phase in ("base", "target", "rollback"):
+        phase_payload = scenario[phase]
+        declared_family = version_family(str(phase_payload["version"]))
+        image_family = image_version_family(str(phase_payload["image"]))
+        if image_family is not None and image_family != declared_family:
+            raise ValueError(
+                f"{scenario['id']}: {phase} image version family {image_family} "
+                f"does not match declared version family {declared_family}; "
+                f"image={phase_payload['image']} version={phase_payload['version']}"
+            )
 
 
 def _bool_str(value: Any) -> str:
@@ -444,7 +545,7 @@ def _validate_submit_generate_name(
     if value is None:
         return
     if not isinstance(value, str):
-        raise ValueError(
+        raise ValueError(  # noqa: TRY004 - manifest validation consistently uses ValueError.
             f"{source}: scenario {scenario_id} submit_generate_name must be a string"
         )
     if not value:

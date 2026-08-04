@@ -35,6 +35,7 @@ deploy_profiles:
 schema_matrices:
   "2.6": milvus_client/manifests/schema_matrix_2_6.yaml
   "3.0": milvus_client/manifests/schema_matrix_3_0.yaml
+  json_shredding: milvus_client/manifests/schema_matrix_json_shredding.yaml
 
 image_aliases:
   milvus-2-6-18:
@@ -145,6 +146,42 @@ scenarios:
       json_shredding_enabled: false
       loon_ffi_enabled: true
       vortex_enabled: true
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline
+    description: "3.0 JSON Shredding gate: enable JSON Shredding after upgrade, write dedicated JSON-heavy forward data, then rollback with JSON Shredding enabled and validate that data."
+    mode: standalone
+    classification: gate
+    support_status: supported
+    workflow_template_ref: standalone_3_0
+    deploy_profile_ref: standalone
+    schema_matrix_ref: "3.0"
+    forward_schema_matrix_ref: json_shredding
+    collection_prefix: qa_gate_30_json_shredding
+    forward_workload_enabled: true
+    post_upgrade_config_toggle_enabled: true
+    post_upgrade_json_shredding_enabled: true
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-latest
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    rollback:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: true
+      loon_ffi_enabled: false
+      vortex_enabled: false
     validation_policy:
       data_integrity: strict
       serviceability: strict
