@@ -194,7 +194,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.base-version}}
 
           - name: create-compat-schema
             dependencies: [precheck-base]
@@ -343,7 +344,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.target-version}}
 
           - name: wait-upgrade-serviceability
             dependencies: [precheck-after-upgrade, pressure-daemon]
@@ -493,6 +495,13 @@ spec:
           - name: assert-post-upgrade-storage-config
             dependencies: [snapshot-post-upgrade-config, pressure-daemon]
             template: assert-milvus-storage-config
+            retryStrategy:
+              limit: "120"
+              retryPolicy: Always
+              backoff:
+                duration: 10s
+                factor: 1
+                maxDuration: 10s
             arguments:
               parameters:
                 - name: phase
@@ -561,8 +570,30 @@ spec:
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
 
-          - name: schema-evolution-forward
+          - name: validate-forward-indexes-after-upgrade
             dependencies: [validate-forward-after-upgrade, pressure-daemon]
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.forward-workload-enabled}}"
+                - name: brick-name
+                  value: validate_forward_indexes_after_upgrade
+                - name: module
+                  value: milvus_client.requests.validate_index_compatibility
+                - name: collection-prefix
+                  value: "{{workflow.parameters.forward-collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
+                    --index-checkpoint-file /tmp/milvus-bricks/checkpoints/forward/index_compatibility.json
+                    --phase after-upgrade
+                    --rebuild-index false
+                    --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+
+          - name: schema-evolution-forward
+            dependencies: [validate-forward-indexes-after-upgrade, pressure-daemon]
             template: optional-run-brick
             arguments:
               parameters:
@@ -680,7 +711,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.rollback-version}}
 
           - name: validate-after-rollback
             dependencies: [validate-phase-dml-dql-after-rollback, pressure-daemon]
@@ -791,6 +823,29 @@ spec:
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
 
+          - name: validate-forward-indexes-after-rollback
+            dependencies: [validate-forward-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.rollback-forward-validation-enabled}}"
+                - name: brick-name
+                  value: validate_forward_indexes_after_rollback
+                - name: module
+                  value: milvus_client.requests.validate_index_compatibility
+                - name: collection-prefix
+                  value: "{{workflow.parameters.forward-collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
+                    --index-checkpoint-file /tmp/milvus-bricks/checkpoints/forward/index_compatibility.json
+                    --phase after-rollback
+                    --rebuild-index false
+                    --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+
           - name: wait-forward-rollback-serviceability
             dependencies: [wait-rollback-serviceability, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
@@ -813,7 +868,7 @@ spec:
                     --interval-sec {{workflow.parameters.rollback-serviceability-interval-sec}}
 
           - name: strict-pressure-after-rollback
-            dependencies: [validate-forward-after-rollback, pressure-daemon]
+            dependencies: [validate-forward-indexes-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: run-pressure-suite
             arguments:
@@ -1309,6 +1364,17 @@ spec:
             for item in pods.get("items", []):
                 status = item.get("status", {})
                 if status.get("phase") != "Running":
+                    continue
+                container_names = {
+                    container.get("name")
+                    for container in item.get("spec", {}).get("containers", [])
+                }
+                ready_container_names = {
+                    container_status.get("name")
+                    for container_status in status.get("containerStatuses", [])
+                    if container_status.get("ready") is True
+                }
+                if "milvus" not in container_names or "milvus" not in ready_container_names:
                     continue
                 candidates.append(item.get("metadata", {}).get("name"))
             candidates = [name for name in candidates if name]

@@ -211,6 +211,57 @@ def test_upgrade_rollback_templates_assert_storage_config_before_phase_validatio
             assert "get mi" in command
 
 
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+    ],
+)
+def test_standalone_post_config_assertion_retries_until_runtime_converges(
+    template_name,
+):
+    template = yaml.safe_load((ROOT / "argo" / template_name).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    dag = next(item for item in templates.values() if "dag" in item)
+    tasks = {task["name"]: task for task in dag["dag"]["tasks"]}
+
+    assert tasks["assert-post-upgrade-storage-config"]["retryStrategy"] == {
+        "limit": "120",
+        "retryPolicy": "Always",
+        "backoff": {"duration": "10s", "factor": 1, "maxDuration": "10s"},
+    }
+    command = templates["assert-milvus-storage-config"]["container"]["args"][0]
+    assert 'container.get("name")' in command
+    assert 'container_status.get("ready") is True' in command
+    assert '"milvus" not in container_names' in command
+    assert '"milvus" not in ready_container_names' in command
+
+
+def test_upgrade_rollback_prechecks_validate_actual_server_version():
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
+    ]:
+        template = yaml.safe_load(template_path.read_text())
+        templates = {item["name"]: item for item in template["spec"]["templates"]}
+        dag = next(item for item in templates.values() if "dag" in item)
+        tasks = {task["name"]: task for task in dag["dag"]["tasks"]}
+
+        expected = {
+            "precheck-base": "{{workflow.parameters.base-version}}",
+            "precheck-after-upgrade": "{{workflow.parameters.target-version}}",
+            "precheck-after-rollback": "{{workflow.parameters.rollback-version}}",
+        }
+        for task_name, expected_version in expected.items():
+            parameters = {
+                parameter["name"]: parameter["value"]
+                for parameter in tasks[task_name]["arguments"]["parameters"]
+            }
+            assert f"--expected-server-version {expected_version}" in parameters["args"]
+
+
 def _run_storage_assertion_heredoc(
     template_path: Path,
     tmp_path: Path,
@@ -1941,6 +1992,64 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
         "validate-phase-dml-dql-after-rollback",
         "pressure-daemon",
     ]
+    assert tasks["validate-forward-indexes-after-upgrade"]["dependencies"] == [
+        "validate-forward-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["schema-evolution-forward"]["dependencies"] == [
+        "validate-forward-indexes-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["validate-forward-indexes-after-rollback"]["dependencies"] == [
+        "validate-forward-after-rollback",
+        "pressure-daemon",
+    ]
+    assert tasks["strict-pressure-after-rollback"]["dependencies"] == [
+        "validate-forward-indexes-after-rollback",
+        "pressure-daemon",
+    ]
+    forward_index_upgrade_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-forward-indexes-after-upgrade"]["arguments"][
+            "parameters"
+        ]
+    }
+    forward_index_rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-forward-indexes-after-rollback"]["arguments"][
+            "parameters"
+        ]
+    }
+    assert (
+        forward_index_upgrade_args["enabled"]
+        == "{{workflow.parameters.forward-workload-enabled}}"
+    )
+    assert (
+        forward_index_upgrade_args["collection-prefix"]
+        == "{{workflow.parameters.forward-collection-prefix}}"
+    )
+    assert (
+        "--schema-matrix {{workflow.parameters.forward-schema-matrix}}"
+        in (forward_index_upgrade_args["args"])
+    )
+    assert (
+        "--checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json"
+        in forward_index_upgrade_args["args"]
+    )
+    assert (
+        "--index-checkpoint-file /tmp/milvus-bricks/checkpoints/forward/index_compatibility.json"
+        in forward_index_upgrade_args["args"]
+    )
+    assert "--phase after-upgrade" in forward_index_upgrade_args["args"]
+    assert (
+        forward_index_rollback_args["enabled"]
+        == "{{workflow.parameters.rollback-forward-validation-enabled}}"
+    )
+    assert "--phase after-rollback" in forward_index_rollback_args["args"]
+    assert tasks["validate-forward-indexes-after-rollback"]["when"] == (
+        "{{workflow.parameters.rollback-enabled}} == true && "
+        "{{workflow.parameters.forward-workload-enabled}} == true"
+    )
     index_after_upgrade_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["validate-index-compatibility-after-upgrade"][

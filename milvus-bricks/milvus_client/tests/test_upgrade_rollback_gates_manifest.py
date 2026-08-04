@@ -121,6 +121,58 @@ def test_gate_scenario_rejects_version_override_outside_declared_family():
         )
 
 
+def test_gate_scenario_rejects_parseable_image_override_outside_version_family():
+    manifest = _manifest()
+
+    with pytest.raises(
+        ValueError,
+        match="target image version family 2.6 does not match declared version family 3.0",
+    ):
+        resolve_gate_scenario(
+            manifest,
+            "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+            phase_overrides={
+                "target": {
+                    "image": "harbor.milvus.io/milvusdb/milvus:v2.6.18",
+                    "version": "3.0.1",
+                }
+            },
+        )
+
+
+def test_gate_scenario_allows_unversioned_image_tag_with_runtime_version_check():
+    manifest = _manifest()
+
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        phase_overrides={
+            "target": {
+                "image": "harbor.milvus.io/milvusdb/milvus:master-latest",
+                "version": "3.0.1",
+            }
+        },
+    )
+
+    assert scenario["target"]["version"] == "3.0.1"
+
+
+def test_gate_scenario_validates_versioned_image_tag_before_digest():
+    manifest = _manifest()
+
+    with pytest.raises(ValueError, match="target image version family 2.6"):
+        resolve_gate_scenario(
+            manifest,
+            "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+            phase_overrides={
+                "target": {
+                    "image": "milvusdb/milvus:v2.6.18@sha256:deadbeef",
+                    "version": "3.0.1",
+                }
+            },
+        )
+
+
 def test_gate_scenario_rejects_unknown_phase_override():
     manifest = _manifest()
 

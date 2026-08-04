@@ -194,7 +194,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.base-version}}
 
           - name: create-compat-schema
             dependencies: [precheck-base]
@@ -343,7 +344,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.target-version}}
 
           - name: wait-upgrade-serviceability
             dependencies: [precheck-after-upgrade, pressure-daemon]
@@ -493,6 +495,13 @@ spec:
           - name: assert-post-upgrade-storage-config
             dependencies: [snapshot-post-upgrade-config, pressure-daemon]
             template: assert-milvus-storage-config
+            retryStrategy:
+              limit: "120"
+              retryPolicy: Always
+              backoff:
+                duration: 10s
+                factor: 1
+                maxDuration: 10s
             arguments:
               parameters:
                 - name: phase
@@ -680,7 +689,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.rollback-version}}
 
           - name: validate-after-rollback
             dependencies: [validate-phase-dml-dql-after-rollback, pressure-daemon]
@@ -1311,6 +1321,17 @@ spec:
             for item in pods.get("items", []):
                 status = item.get("status", {})
                 if status.get("phase") != "Running":
+                    continue
+                container_names = {
+                    container.get("name")
+                    for container in item.get("spec", {}).get("containers", [])
+                }
+                ready_container_names = {
+                    container_status.get("name")
+                    for container_status in status.get("containerStatuses", [])
+                    if container_status.get("ready") is True
+                }
+                if "milvus" not in container_names or "milvus" not in ready_container_names:
                     continue
                 candidates.append(item.get("metadata", {}).get("name"))
             candidates = [name for name in candidates if name]

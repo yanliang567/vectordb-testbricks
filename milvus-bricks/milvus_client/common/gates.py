@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 
 from milvus_client.common.deploy import load_deploy_profile
+from milvus_client.common.version import image_version_family, version_family
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GATE_MANIFEST = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
@@ -74,8 +75,8 @@ def resolve_gate_scenario(
         for field in ("image", "version"):
             if override.get(field):
                 if field == "version":
-                    declared_family = _version_family(resolved[phase]["version"])
-                    override_family = _version_family(str(override[field]))
+                    declared_family = version_family(resolved[phase]["version"])
+                    override_family = version_family(str(override[field]))
                     if override_family != declared_family:
                         raise ValueError(
                             f"{scenario_id}: {phase} version override must remain in "
@@ -321,6 +322,7 @@ def validate_gate_manifest(
 
 def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
     _validate_scenario_execution_mode(scenario)
+    _validate_phase_image_versions(scenario)
     if scenario.get("classification") != "gate":
         return
     base_version = str(scenario["base"]["version"])
@@ -447,11 +449,17 @@ def _validate_scenario_execution_mode(scenario: dict[str, Any]) -> None:
         )
 
 
-def _version_family(value: str) -> str:
-    parts = str(value).split(".")
-    if len(parts) < 2 or not all(part.isdigit() for part in parts[:2]):
-        raise ValueError(f"Milvus version must start with numeric major.minor: {value}")
-    return ".".join(parts[:2])
+def _validate_phase_image_versions(scenario: dict[str, Any]) -> None:
+    for phase in ("base", "target", "rollback"):
+        phase_payload = scenario[phase]
+        declared_family = version_family(str(phase_payload["version"]))
+        image_family = image_version_family(str(phase_payload["image"]))
+        if image_family is not None and image_family != declared_family:
+            raise ValueError(
+                f"{scenario['id']}: {phase} image version family {image_family} "
+                f"does not match declared version family {declared_family}; "
+                f"image={phase_payload['image']} version={phase_payload['version']}"
+            )
 
 
 def _bool_str(value: Any) -> str:

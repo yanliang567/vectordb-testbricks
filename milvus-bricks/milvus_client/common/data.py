@@ -81,7 +81,10 @@ def _normalize_for_checksum(value: Any) -> Any:
     if isinstance(value, float):
         return round(value, 5)
     if isinstance(value, dict):
-        return {str(key): _normalize_for_checksum(value[key]) for key in sorted(value, key=str)}
+        return {
+            str(key): _normalize_for_checksum(value[key])
+            for key in sorted(value, key=str)
+        }
     if isinstance(value, (list, tuple)):
         return [_normalize_for_checksum(item) for item in value]
     if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
@@ -102,19 +105,29 @@ def stable_checksum(
         else:
             selected = {field: row.get(field) for field in fields}
         sort_value = _normalize_for_checksum(row.get(primary_field))
-        selected_rows.append((sort_value is None, sort_value, _normalize_for_checksum(selected)))
+        selected_rows.append(
+            (sort_value is None, sort_value, _normalize_for_checksum(selected))
+        )
     selected_rows.sort(key=lambda item: (item[0], item[1]))
     for _, _, selected in selected_rows:
-        digest.update(json.dumps(selected, sort_keys=True, separators=(",", ":"), default=str).encode())
+        digest.update(
+            json.dumps(
+                selected, sort_keys=True, separators=(",", ":"), default=str
+            ).encode()
+        )
     return digest.hexdigest()
 
 
 def checksum_fields_for_spec(spec: SchemaSpec) -> list[str]:
+    if spec.checksum_fields:
+        return list(spec.checksum_fields)
     function_outputs = function_output_fields(spec)
     return [
         field.name
         for field in spec.fields
-        if field.dtype not in VECTOR_TYPES and not field.auto_id and field.name not in function_outputs
+        if field.dtype not in VECTOR_TYPES
+        and not field.auto_id
+        and field.name not in function_outputs
     ]
 
 
@@ -141,7 +154,9 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
         return pk % 2 == 0
     if field.dtype in {"VARCHAR", "STRING", "TEXT"}:
         if field.name in {"text", "document"}:
-            return f"document {pk} milvus compatibility upgrade rollback token_{pk % 16}"
+            return (
+                f"document {pk} milvus compatibility upgrade rollback token_{pk % 16}"
+            )
         if field.is_partition_key:
             return f"tenant_{pk % 16}"
         return f"{field.name}_{pk}"
@@ -177,7 +192,9 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
     raise ValueError(f"Unsupported generated dtype: {field.dtype}")
 
 
-def generate_rows(spec: SchemaSpec, start_id: int, count: int, seed: int) -> list[dict[str, Any]]:
+def generate_rows(
+    spec: SchemaSpec, start_id: int, count: int, seed: int
+) -> list[dict[str, Any]]:
     rows = []
     primary_fields = [field for field in spec.fields if field.primary]
     if len(primary_fields) != 1:

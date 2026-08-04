@@ -54,6 +54,7 @@ class SchemaSpec:
     validators: list[str] = field(default_factory=list)
     description: str = ""
     enable_dynamic_field: bool = False
+    checksum_fields: list[str] = field(default_factory=list)
     num_partitions: int | None = None
     partitions: list[str] = field(default_factory=list)
 
@@ -128,13 +129,17 @@ def load_schema_matrix(path: str | Path) -> list[SchemaSpec]:
                 version=version,
                 fields=[_as_field_spec(field) for field in item.get("fields", [])],
                 indexes=[_as_index_spec(index) for index in item.get("indexes", [])],
-                functions=[_as_function_spec(function) for function in item.get("functions", [])],
+                functions=[
+                    _as_function_spec(function)
+                    for function in item.get("functions", [])
+                ],
                 feature_tags=list(item.get("feature_tags", [])),
                 compat_mode=item.get("compat_mode", "rollback_safe"),
                 required_capabilities=list(item.get("required_capabilities", [])),
                 validators=list(item.get("validators", [])),
                 description=item.get("description", ""),
                 enable_dynamic_field=bool(item.get("enable_dynamic_field", False)),
+                checksum_fields=list(item.get("checksum_fields", [])),
                 num_partitions=item.get("num_partitions"),
                 partitions=list(item.get("partitions", [])),
             )
@@ -176,36 +181,73 @@ def validate_schema_matrix(
         primary_fields = [field for field in spec.fields if field.primary]
         if len(primary_fields) != 1:
             errors.append(f"{spec.name}: expected exactly one primary field")
-        if any(field.auto_id for field in spec.fields) and not any(field.primary and field.auto_id for field in spec.fields):
-            errors.append(f"{spec.name}: auto_id can only be enabled on the primary field")
+        if any(field.auto_id for field in spec.fields) and not any(
+            field.primary and field.auto_id for field in spec.fields
+        ):
+            errors.append(
+                f"{spec.name}: auto_id can only be enabled on the primary field"
+            )
 
-        partition_key_fields = [field for field in spec.fields if field.is_partition_key]
+        partition_key_fields = [
+            field for field in spec.fields if field.is_partition_key
+        ]
         if len(partition_key_fields) > 1:
             errors.append(f"{spec.name}: expected at most one partition key field")
         for field_spec in partition_key_fields:
             if field_spec.dtype not in {"INT64", "VARCHAR"}:
-                errors.append(f"{spec.name}.{field_spec.name}: partition key field must be INT64 or VARCHAR")
+                errors.append(
+                    f"{spec.name}.{field_spec.name}: partition key field must be INT64 or VARCHAR"
+                )
         if partition_key_fields and spec.partitions:
-            errors.append(f"{spec.name}: partition key cannot be combined with explicit partitions")
+            errors.append(
+                f"{spec.name}: partition key cannot be combined with explicit partitions"
+            )
         if spec.num_partitions is not None and spec.num_partitions <= 0:
             errors.append(f"{spec.name}: num_partitions must be positive")
         if spec.num_partitions is not None and not partition_key_fields:
-            errors.append(f"{spec.name}: num_partitions can only be specified when a partition key is defined")
+            errors.append(
+                f"{spec.name}: num_partitions can only be specified when a partition key is defined"
+            )
 
         field_names = {field.name for field in spec.fields}
+        field_by_name = {field.name: field for field in spec.fields}
+        if len(spec.checksum_fields) != len(set(spec.checksum_fields)):
+            errors.append(f"{spec.name}: checksum_fields contains duplicates")
+        for checksum_field in spec.checksum_fields:
+            declared_field = field_by_name.get(checksum_field)
+            if declared_field is None and not spec.enable_dynamic_field:
+                errors.append(
+                    f"{spec.name}: checksum field {checksum_field} is not declared and dynamic fields are disabled"
+                )
+            elif declared_field is not None and declared_field.dtype in VECTOR_TYPES:
+                errors.append(
+                    f"{spec.name}: checksum field {checksum_field} must not be a vector field"
+                )
         for field_spec in spec.fields:
-            if field_spec.dtype in VECTOR_TYPES and field_spec.dtype != "SPARSE_FLOAT_VECTOR" and not field_spec.dim:
-                errors.append(f"{spec.name}.{field_spec.name}: vector field requires dim")
+            if (
+                field_spec.dtype in VECTOR_TYPES
+                and field_spec.dtype != "SPARSE_FLOAT_VECTOR"
+                and not field_spec.dim
+            ):
+                errors.append(
+                    f"{spec.name}.{field_spec.name}: vector field requires dim"
+                )
         for index in spec.indexes:
             if index.field not in field_names:
-                errors.append(f"{spec.name}: index references unknown field {index.field}")
+                errors.append(
+                    f"{spec.name}: index references unknown field {index.field}"
+                )
         for function in spec.functions:
-            for field in function.input_fields:
-                if field not in field_names:
-                    errors.append(f"{spec.name}: function {function.name} references unknown input field {field}")
-            for field in function.output_fields:
-                if field not in field_names:
-                    errors.append(f"{spec.name}: function {function.name} references unknown output field {field}")
+            for input_field in function.input_fields:
+                if input_field not in field_names:
+                    errors.append(
+                        f"{spec.name}: function {function.name} references unknown input field {input_field}"
+                    )
+            for output_field in function.output_fields:
+                if output_field not in field_names:
+                    errors.append(
+                        f"{spec.name}: function {function.name} references unknown output field {output_field}"
+                    )
 
         if features is not None:
             for tag in spec.feature_tags:

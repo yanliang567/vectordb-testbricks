@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import ast
 import json
 import sys
 
@@ -14,6 +15,7 @@ from milvus_client.common.data import (
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import (
     FieldSpec,
+    IndexSpec,
     SchemaSpec,
     VECTOR_TYPES,
     auto_id_enabled,
@@ -82,12 +84,12 @@ def _indexed_vector_fields(spec: SchemaSpec) -> list[FieldSpec]:
     ]
 
 
-def _indexed_scalar_fields(spec: SchemaSpec) -> list[FieldSpec]:
+def _indexed_scalar_indexes(spec: SchemaSpec) -> list[tuple[IndexSpec, FieldSpec]]:
     fields = _field_by_name(spec)
     return [
-        fields[field_name]
-        for field_name in _indexed_fields(spec)
-        if field_name in fields and fields[field_name].dtype not in VECTOR_TYPES
+        (index, fields[index.field])
+        for index in spec.indexes
+        if index.field in fields and fields[index.field].dtype not in VECTOR_TYPES
     ]
 
 
@@ -242,12 +244,19 @@ def _actual_index_metadata(
 
 
 def _index_identity(index: dict[str, Any]) -> dict[str, Any]:
-    return {
+    identity = {
         "index_name": index.get("index_name"),
         "field_name": index.get("field_name"),
         "index_type": index.get("index_type"),
         "metric_type": index.get("metric_type"),
     }
+    params = index.get("params") or {}
+    json_params = {
+        key: params[key] for key in ("json_path", "json_cast_type") if key in params
+    }
+    if json_params:
+        identity["json_params"] = json_params
+    return identity
 
 
 def _validate_index_metadata_matches_checkpoint(
@@ -569,11 +578,42 @@ def _validate_index_searches(
     return searches
 
 
-def _scalar_index_filter(field: FieldSpec, pk: int, seed: int) -> str | None:
+def _json_path_keys(json_path: str, field_name: str) -> list[str]:
+    node = ast.parse(json_path, mode="eval").body
+    keys = []
+    while isinstance(node, ast.Subscript):
+        key_node = node.slice
+        if not isinstance(key_node, ast.Constant) or not isinstance(
+            key_node.value, str
+        ):
+            raise ValueError(f"unsupported JSON path component: {json_path}")
+        keys.append(key_node.value)
+        node = node.value
+    if not isinstance(node, ast.Name) or node.id != field_name:
+        raise ValueError(
+            f"JSON path {json_path!r} does not start with field {field_name!r}"
+        )
+    return list(reversed(keys))
+
+
+def _json_path_value(value: Any, keys: list[str]) -> Any:
+    current = value
+    for key in keys:
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    return current
+
+
+def _scalar_index_filter(
+    index: IndexSpec, field: FieldSpec, pk: int, seed: int
+) -> str | None:
     if field.dtype == "JSON":
         value = generate_field_value(field, pk, seed)
-        if isinstance(value, dict) and "bucket" in value:
-            return f"{field.name}['bucket'] == {format_filter_value(value['bucket'])}"
+        json_path = str(index.params.get("json_path") or f"{field.name}['bucket']")
+        path_value = _json_path_value(value, _json_path_keys(json_path, field.name))
+        if path_value is not None:
+            return f"{json_path} == {format_filter_value(path_value)}"
         return None
     if field.dtype == "ARRAY":
         value = generate_field_value(field, pk, seed)
@@ -595,13 +635,14 @@ def _scalar_index_filter(field: FieldSpec, pk: int, seed: int) -> str | None:
 def _scalar_index_probe(
     spec: SchemaSpec,
     meta: dict[str, Any],
+    index: IndexSpec,
     field: FieldSpec,
     seed: int,
 ) -> tuple[int, Any, str] | None:
     data_min_pk, data_max_pk = _data_pk_range(meta)
     null_fallback: tuple[int, Any, str] | None = None
     for data_pk_number in range(data_min_pk, data_max_pk + 1):
-        filter_expr = _scalar_index_filter(field, data_pk_number, seed)
+        filter_expr = _scalar_index_filter(index, field, data_pk_number, seed)
         if not filter_expr:
             continue
         expected_pk = _expected_primary_value(spec, meta, data_pk_number)
@@ -626,8 +667,8 @@ def _validate_scalar_index_queries(
         primary.name if primary is not None else "id"
     )
     queries = 0
-    for field in _indexed_scalar_fields(spec):
-        probe = _scalar_index_probe(spec, meta, field, seed)
+    for index, field in _indexed_scalar_indexes(spec):
+        probe = _scalar_index_probe(spec, meta, index, field, seed)
         if probe is None:
             report.fail(
                 INDEX_SCALAR_QUERY_FAILED,

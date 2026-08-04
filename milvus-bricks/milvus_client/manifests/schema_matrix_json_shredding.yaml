@@ -7,6 +7,7 @@ schemas:
     required_capabilities: []
     validators: ["count", "pk_sample", "search_smoke"]
     enable_dynamic_field: true
+    checksum_fields: [id, tenant, category, json_profile, json_nested, tags, dyn_bucket, dyn_text, dyn_json]
     fields:
       - {name: id, dtype: INT64, primary: true, auto_id: false}
       - {name: tenant, dtype: VARCHAR, max_length: 64}

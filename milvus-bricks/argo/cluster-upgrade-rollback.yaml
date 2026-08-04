@@ -194,7 +194,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.base-version}}
 
           - name: create-compat-schema
             dependencies: [precheck-base]
@@ -343,7 +344,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.target-version}}
 
           - name: wait-upgrade-serviceability
             dependencies: [precheck-after-upgrade, pressure-daemon]
@@ -680,7 +682,8 @@ spec:
                 - name: collection-prefix
                   value: "{{workflow.parameters.collection-prefix}}"
                 - name: args
-                  value: ""
+                  value: >-
+                    --expected-server-version {{workflow.parameters.rollback-version}}
 
           - name: validate-after-rollback
             dependencies: [validate-phase-dml-dql-after-rollback, pressure-daemon]
