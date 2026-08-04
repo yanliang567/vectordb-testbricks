@@ -1,8 +1,11 @@
 from pathlib import Path
 
-from milvus_client.common.data import checksum_fields_for_spec, generate_rows, stable_checksum
+from milvus_client.common.data import (
+    checksum_fields_for_spec,
+    generate_rows,
+    stable_checksum,
+)
 from milvus_client.common.schema import FieldSpec, SchemaSpec, load_schema_matrix
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -104,6 +107,22 @@ def test_generate_rows_uses_canonical_geometry_wkt():
     row = generate_rows(spec, start_id=0, count=1, seed=7)[0]
 
     assert row["location"] == "POINT (-122 37)"
+
+
+def test_generate_rows_builds_nested_json_shredding_payload():
+    spec = load_schema_matrix(
+        ROOT / "manifests" / "schema_matrix_json_shredding.yaml"
+    )[0]
+
+    row = generate_rows(spec, start_id=1, count=1, seed=7)[0]
+
+    assert row["json_nested"] == {
+        "pk": 1,
+        "bucket": 1,
+        "nested": {"score": 0.1, "active": False},
+        "labels": ["label_1", "label_2"],
+    }
+    assert row["dyn_json"] == {"pk_mod": 1, "active": False}
 
 
 def test_generate_rows_supports_string_primary_key():

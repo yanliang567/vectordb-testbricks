@@ -12,6 +12,34 @@ from milvus_client.requests import render_upgrade_rollback_params as render_cli
 
 ROOT = Path(__file__).resolve().parents[1]
 GATES = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
+WORKFLOW_PATHS = {
+    "milvus-standalone-2-6-upgrade-rollback": (
+        ROOT.parent / "argo" / "standalone-2-6-upgrade-rollback.yaml"
+    ),
+    "milvus-standalone-3-0-upgrade-rollback": (
+        ROOT.parent / "argo" / "standalone-3-0-upgrade-rollback.yaml"
+    ),
+    "milvus-cluster-upgrade-rollback": (
+        ROOT.parent / "argo" / "cluster-upgrade-rollback.yaml"
+    ),
+}
+
+
+def test_all_gate_scenarios_render_parameters_declared_by_their_workflow():
+    manifest = load_gate_manifest(GATES)
+
+    for item in manifest["scenarios"]:
+        scenario = resolve_gate_scenario(manifest, item["id"])
+        submission = render_submission(scenario, manifest, allow_placeholder=True)
+        workflow = yaml.safe_load(
+            WORKFLOW_PATHS[submission["workflow_template"]].read_text()
+        )
+        declared = {
+            parameter["name"]
+            for parameter in workflow["spec"]["arguments"]["parameters"]
+        }
+
+        assert set(submission["parameters"]) <= declared, scenario["id"]
 
 
 def test_render_standalone_2_6_to_3_0_gate_parameters():
@@ -100,6 +128,25 @@ def test_render_cluster_3_0_gate_parameters():
     assert params["phase-dml-dql-validation-enabled"] == "true"
 
 
+def test_render_standalone_3_0_gate_parameters():
+    manifest = load_gate_manifest(GATES)
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+    )
+
+    submission = render_submission(scenario, manifest, allow_placeholder=True)
+    params = submission["parameters"]
+
+    assert submission["workflow_template"] == ("milvus-standalone-3-0-upgrade-rollback")
+    assert params["deploy-profile"] == (
+        "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
+    )
+    assert params["schema-matrix"] == ("milvus_client/manifests/schema_matrix_3_0.yaml")
+    assert params["schema-evolution-existing-enabled"] == "true"
+    assert params["rollback-forward-validation-enabled"] == "true"
+
+
 def test_render_standalone_3_0_loon_vortex_gate_parameters():
     manifest = load_gate_manifest(GATES)
     scenario = resolve_gate_scenario(
@@ -131,6 +178,30 @@ def test_render_standalone_3_0_loon_vortex_gate_parameters():
     assert params["rollback-loon-ffi-enabled"] == "true"
     assert params["rollback-vortex-enabled"] == "true"
     assert params["allow-unsafe-negative-coverage"] == "false"
+    assert params["gate-allow-warning"] == "false"
+
+
+def test_render_standalone_json_shredding_gate_parameters():
+    manifest = load_gate_manifest(GATES)
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+    )
+
+    submission = render_submission(scenario, manifest, allow_placeholder=True)
+    params = submission["parameters"]
+
+    assert submission["workflow_template"] == ("milvus-standalone-3-0-upgrade-rollback")
+    assert params["target-json-shredding-enabled"] == "false"
+    assert params["post-upgrade-config-toggle-enabled"] == "true"
+    assert params["post-upgrade-json-shredding-enabled"] == "true"
+    assert params["rollback-json-shredding-enabled"] == "true"
+    assert params["forward-workload-enabled"] == "true"
+    assert params["rollback-forward-validation-enabled"] == "true"
+    assert params["forward-schema-matrix"] == (
+        "milvus_client/manifests/schema_matrix_json_shredding.yaml"
+    )
+    assert params["pressure-fail-on-error"] == "true"
     assert params["gate-allow-warning"] == "false"
 
 
@@ -340,6 +411,42 @@ def test_render_params_cli_rejects_placeholder_images_for_promoted_gate(tmp_path
 
     assert rc == 2
     assert not output.exists()
+
+
+def test_render_params_cli_accepts_concrete_phase_image_overrides(tmp_path):
+    output = tmp_path / "params.json"
+
+    rc = render_cli.main(
+        [
+            "--manifest",
+            str(GATES),
+            "--scenario-id",
+            "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+            "--target-milvus-image",
+            "harbor.milvus.io/milvusdb/milvus:3.0-20260804-abcd1234",
+            "--target-version",
+            "3.0.1",
+            "--rollback-milvus-image",
+            "harbor.milvus.io/milvusdb/milvus:2.6-20260804-ef567890",
+            "--rollback-version",
+            "2.6.19",
+            "--format",
+            "json",
+            "--output",
+            str(output),
+        ]
+    )
+
+    payload = json.loads(output.read_text())
+    assert rc == 0
+    assert payload["parameters"]["target-milvus-image"].endswith(
+        ":3.0-20260804-abcd1234"
+    )
+    assert payload["parameters"]["target-version"] == "3.0.1"
+    assert payload["parameters"]["rollback-milvus-image"].endswith(
+        ":2.6-20260804-ef567890"
+    )
+    assert payload["parameters"]["rollback-version"] == "2.6.19"
 
 
 def test_render_params_cli_rejects_placeholder_images_for_negative_scenario(tmp_path):

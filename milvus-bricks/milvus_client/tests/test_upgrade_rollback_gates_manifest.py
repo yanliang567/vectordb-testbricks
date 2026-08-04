@@ -33,6 +33,7 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
@@ -41,6 +42,7 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
@@ -91,6 +93,43 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
     )
     for scenario in cluster_scenarios:
         assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
+
+
+def test_gate_scenario_rejects_deploy_profile_mode_mismatch():
+    manifest = _manifest()
+
+    with pytest.raises(ValueError, match="mode cluster does not match deploy profile"):
+        resolve_gate_scenario(
+            manifest,
+            "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+            deploy_profile_override=(
+                "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
+            ),
+        )
+
+
+def test_gate_scenario_rejects_version_override_outside_declared_family():
+    manifest = _manifest()
+
+    with pytest.raises(
+        ValueError, match="rollback version override must remain in 2.6"
+    ):
+        resolve_gate_scenario(
+            manifest,
+            "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+            phase_overrides={"rollback": {"version": "3.0.0"}},
+        )
+
+
+def test_gate_scenario_rejects_unknown_phase_override():
+    manifest = _manifest()
+
+    with pytest.raises(ValueError, match="unsupported phase overrides: post-config"):
+        resolve_gate_scenario(
+            manifest,
+            "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+            phase_overrides={"post-config": {"image": "milvus:test"}},
+        )
 
 
 def test_cluster_2_6_gate_scenario_uses_pulsar_profile():
@@ -203,6 +242,29 @@ def test_3_0_loon_vortex_gate_scenarios_keep_storage_features_enabled_after_upgr
         assert scenario["rollback"]["image"] == scenario["base"]["image"]
         assert scenario["validation_policy"]["pressure_fail_on_error"] is True
         assert scenario["validation_policy"]["gate_allow_warning"] is False
+
+
+def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle():
+    manifest = _manifest()
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+    )
+
+    assert scenario["classification"] == "gate"
+    assert scenario["workflow_template"] == ("milvus-standalone-3-0-upgrade-rollback")
+    assert scenario["base"]["json_shredding_enabled"] is False
+    assert scenario["target"]["json_shredding_enabled"] is False
+    assert scenario["post_upgrade_config_toggle_enabled"] is True
+    assert scenario["post_upgrade_json_shredding_enabled"] is True
+    assert scenario["rollback"]["json_shredding_enabled"] is True
+    assert scenario["forward_workload_enabled"] is True
+    assert scenario["rollback_forward_validation_enabled"] is True
+    assert scenario["forward_schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_json_shredding.yaml"
+    )
+    assert scenario["validation_policy"]["pressure_fail_on_error"] is True
+    assert scenario["validation_policy"]["gate_allow_warning"] is False
 
 
 def test_negative_vortex_to_2_6_scenario_is_not_a_gate():

@@ -1,8 +1,13 @@
 from pathlib import Path
 
 from milvus_client.common.capability import load_capability_catalog
-from milvus_client.common.schema import FieldSpec, SchemaSpec, load_feature_inventory, load_schema_matrix, validate_schema_matrix
-
+from milvus_client.common.schema import (
+    FieldSpec,
+    SchemaSpec,
+    load_feature_inventory,
+    load_schema_matrix,
+    validate_schema_matrix,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -11,7 +16,11 @@ def test_schema_matrix_manifests_are_valid():
     features = load_feature_inventory(ROOT / "manifests" / "feature_inventory.yaml")
     capabilities = load_capability_catalog(ROOT / "manifests" / "capability_catalog.yaml")
 
-    for name in ["schema_matrix_2_6.yaml", "schema_matrix_3_0.yaml"]:
+    for name in [
+        "schema_matrix_2_6.yaml",
+        "schema_matrix_3_0.yaml",
+        "schema_matrix_json_shredding.yaml",
+    ]:
         specs = load_schema_matrix(ROOT / "manifests" / name)
         errors = validate_schema_matrix(specs, features, set(capabilities))
         assert errors == []
@@ -72,6 +81,25 @@ def test_schema_matrix_3_0_covers_forward_schema_evolution_shapes():
     assert any(any(field.nullable and field.dtype == "FLOAT_VECTOR" for field in spec.fields) for spec in specs)
     assert any(any(function.function_type == "BM25" for function in spec.functions) for spec in specs)
     assert any(any(index.index_type == "RTREE" for index in spec.indexes) for spec in specs)
+
+
+def test_json_shredding_schema_matrix_covers_nested_and_dynamic_json():
+    specs = load_schema_matrix(
+        ROOT / "manifests" / "schema_matrix_json_shredding.yaml"
+    )
+
+    assert [spec.name for spec in specs] == ["json_shredding_nested"]
+    spec = specs[0]
+    assert spec.enable_dynamic_field is True
+    assert {field.name for field in spec.fields if field.dtype == "JSON"} == {
+        "json_profile",
+        "json_nested",
+    }
+    assert any(
+        index.field == "json_nested"
+        and index.params.get("json_path") == "json_nested['nested']['score']"
+        for index in spec.indexes
+    )
 
 
 def test_schema_validation_rejects_invalid_partition_key_shapes():

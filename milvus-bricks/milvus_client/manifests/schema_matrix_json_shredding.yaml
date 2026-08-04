@@ -1,0 +1,24 @@
+version: "3.0"
+schemas:
+  - name: json_shredding_nested
+    description: "JSON Shredding coverage for nested, nullable, array, and dynamic JSON data"
+    feature_tags: ["compat_basic_vector", "compat_json_array"]
+    compat_mode: rollback_safe
+    required_capabilities: []
+    validators: ["count", "pk_sample", "search_smoke"]
+    enable_dynamic_field: true
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: tenant, dtype: VARCHAR, max_length: 64}
+      - {name: category, dtype: INT64}
+      - {name: json_profile, dtype: JSON, nullable: true}
+      - {name: json_nested, dtype: JSON}
+      - {name: tags, dtype: ARRAY, element_type: VARCHAR, max_capacity: 16, max_length: 128}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
+    indexes:
+      - {field: tenant, index_type: INVERTED}
+      - {field: category, index_type: STL_SORT}
+      - {field: json_profile, index_type: INVERTED, params: {json_cast_type: double, json_path: "json_profile['bucket']"}}
+      - {field: json_nested, index_type: INVERTED, params: {json_cast_type: double, json_path: "json_nested['nested']['score']"}}
+      - {field: tags, index_type: INVERTED}
+      - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}}

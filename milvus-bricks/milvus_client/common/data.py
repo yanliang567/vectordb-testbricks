@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
-import json
 from random import Random
 from typing import Any
 
-from milvus_client.common.schema import FieldSpec, SchemaSpec, VECTOR_TYPES, function_output_fields
+from milvus_client.common.schema import (
+    VECTOR_TYPES,
+    FieldSpec,
+    SchemaSpec,
+    function_output_fields,
+)
 
 
 def stable_float_vector(seed: int, pk: int, dim: int) -> list[float]:
@@ -141,6 +146,16 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
             return f"tenant_{pk % 16}"
         return f"{field.name}_{pk}"
     if field.dtype == "JSON":
+        if field.name == "json_nested":
+            return {
+                "pk": pk,
+                "bucket": pk % 16,
+                "nested": {
+                    "score": float(pk % 1000) / 10.0,
+                    "active": pk % 2 == 0,
+                },
+                "labels": [f"label_{pk % 8}", f"label_{(pk + 1) % 8}"],
+            }
         return {"pk": pk, "bucket": pk % 16, "checksum": f"json_{pk}"}
     if field.dtype == "ARRAY":
         if field.element_type in {"INT64", "INT32", "INT16", "INT8"}:
@@ -167,7 +182,6 @@ def generate_rows(spec: SchemaSpec, start_id: int, count: int, seed: int) -> lis
     primary_fields = [field for field in spec.fields if field.primary]
     if len(primary_fields) != 1:
         raise ValueError(f"{spec.name}: expected exactly one primary field")
-    primary = primary_fields[0]
     function_outputs = function_output_fields(spec)
     for offset in range(count):
         pk = start_id + offset
@@ -175,7 +189,7 @@ def generate_rows(spec: SchemaSpec, start_id: int, count: int, seed: int) -> lis
         for field in spec.fields:
             if (field.primary and field.auto_id) or field.name in function_outputs:
                 continue
-            row[field.name] = generate_field_value(field, pk if field is not primary else pk, seed)
+            row[field.name] = generate_field_value(field, pk, seed)
         if spec.enable_dynamic_field:
             row.update(generate_dynamic_fields(pk))
         rows.append(row)
