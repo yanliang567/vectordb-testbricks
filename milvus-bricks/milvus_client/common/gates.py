@@ -7,7 +7,11 @@ from typing import Any
 import yaml
 
 from milvus_client.common.deploy import load_deploy_profile
-from milvus_client.common.version import image_version_family, version_family
+from milvus_client.common.version import (
+    image_is_immutable,
+    image_version_family,
+    version_family,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_GATE_MANIFEST = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
@@ -74,6 +78,13 @@ def resolve_gate_scenario(
             )
         for field in ("image", "version"):
             if override.get(field):
+                if field == "image" and resolved.get("classification") == "gate":
+                    override_image = str(override[field])
+                    if not image_is_immutable(override_image):
+                        raise ValueError(
+                            f"{scenario_id}: {phase} image override must be immutable; "
+                            f"use a concrete build tag or sha256 digest, got {override_image}"
+                        )
                 if field == "version":
                     declared_family = version_family(resolved[phase]["version"])
                     override_family = version_family(str(override[field]))
@@ -369,12 +380,24 @@ def validate_no_gate_placeholders(
         f"{phase}.image={scenario[phase]['image']}"
         for phase in ("base", "target", "rollback")
         if "placeholder" in str(scenario[phase].get("image", ""))
+        and not image_is_immutable(str(scenario[phase].get("image", "")))
     ]
     if placeholders:
         raise ValueError(
             f"{scenario['id']}: runnable scenario contains placeholder images: "
             f"{', '.join(placeholders)}; pass --allow-placeholder only for dry-run/review output"
         )
+    if scenario.get("classification") == "gate":
+        mutable_images = [
+            f"{phase}.image={scenario[phase]['image']}"
+            for phase in ("base", "target", "rollback")
+            if not image_is_immutable(str(scenario[phase].get("image", "")))
+        ]
+        if mutable_images:
+            raise ValueError(
+                f"{scenario['id']}: runnable gate contains mutable images: "
+                f"{', '.join(mutable_images)}; use concrete build tags or sha256 digests"
+            )
 
 
 def _resolve_phase(

@@ -16,6 +16,20 @@ from milvus_client.common.pressure_maintenance import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_ci_runs_offline_argo_lint():
+    workflow = yaml.safe_load(
+        (ROOT.parent / ".github" / "workflows" / "milvus-bricks.yml").read_text()
+    )
+    steps = workflow["jobs"]["test"]["steps"]
+    by_name = {step.get("name"): step for step in steps if step.get("name")}
+
+    assert (
+        "argo-workflows/releases/download/v4.0.5/argo-linux-amd64.gz"
+        in (by_name["Install Argo CLI"]["run"])
+    )
+    assert by_name["Argo lint"]["run"] == "argo lint --offline milvus-bricks/argo"
+
+
 def test_argo_template_persists_checkpoint_state_and_exports_results():
     template = yaml.safe_load(
         (ROOT / "argo" / "upgrade-rollback-compatibility.yaml").read_text()
@@ -226,11 +240,32 @@ def test_standalone_post_config_assertion_retries_until_runtime_converges(
     dag = next(item for item in templates.values() if "dag" in item)
     tasks = {task["name"]: task for task in dag["dag"]["tasks"]}
 
-    assert tasks["assert-post-upgrade-storage-config"]["retryStrategy"] == {
+    task = tasks["assert-post-upgrade-storage-config"]
+    assert "retryStrategy" not in task
+    assert task["template"] == "assert-milvus-storage-config-with-retry"
+    retry_template = templates["assert-milvus-storage-config-with-retry"]
+    assert retry_template["retryStrategy"] == {
         "limit": "120",
         "retryPolicy": "Always",
         "backoff": {"duration": "10s", "factor": 1, "maxDuration": "10s"},
     }
+    retry_step = retry_template["steps"][0][0]
+    assert retry_step["template"] == "assert-milvus-storage-config"
+    assert retry_step["arguments"]["parameters"] == [
+        {"name": "phase", "value": "{{inputs.parameters.phase}}"},
+        {
+            "name": "expected-json-shredding-enabled",
+            "value": "{{inputs.parameters.expected-json-shredding-enabled}}",
+        },
+        {
+            "name": "expected-loon-ffi-enabled",
+            "value": "{{inputs.parameters.expected-loon-ffi-enabled}}",
+        },
+        {
+            "name": "expected-vortex-enabled",
+            "value": "{{inputs.parameters.expected-vortex-enabled}}",
+        },
+    ]
     command = templates["assert-milvus-storage-config"]["container"]["args"][0]
     assert 'container.get("name")' in command
     assert 'container_status.get("ready") is True' in command

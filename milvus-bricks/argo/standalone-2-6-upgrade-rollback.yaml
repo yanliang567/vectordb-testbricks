@@ -494,14 +494,7 @@ spec:
 
           - name: assert-post-upgrade-storage-config
             dependencies: [snapshot-post-upgrade-config, pressure-daemon]
-            template: assert-milvus-storage-config
-            retryStrategy:
-              limit: "120"
-              retryPolicy: Always
-              backoff:
-                duration: 10s
-                factor: 1
-                maxDuration: 10s
+            template: assert-milvus-storage-config-with-retry
             arguments:
               parameters:
                 - name: phase
@@ -1277,6 +1270,34 @@ spec:
         volumeMounts:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks
+
+    - name: assert-milvus-storage-config-with-retry
+      retryStrategy:
+        limit: "120"
+        retryPolicy: Always
+        backoff:
+          duration: 10s
+          factor: 1
+          maxDuration: 10s
+      inputs:
+        parameters:
+          - name: phase
+          - name: expected-json-shredding-enabled
+          - name: expected-loon-ffi-enabled
+          - name: expected-vortex-enabled
+      steps:
+        - - name: assert-storage-config
+            template: assert-milvus-storage-config
+            arguments:
+              parameters:
+                - name: phase
+                  value: "{{inputs.parameters.phase}}"
+                - name: expected-json-shredding-enabled
+                  value: "{{inputs.parameters.expected-json-shredding-enabled}}"
+                - name: expected-loon-ffi-enabled
+                  value: "{{inputs.parameters.expected-loon-ffi-enabled}}"
+                - name: expected-vortex-enabled
+                  value: "{{inputs.parameters.expected-vortex-enabled}}"
 
     - name: assert-milvus-storage-config
       inputs:

@@ -179,9 +179,15 @@ def _describe_index(
     if not isinstance(payload, dict):
         payload = {}
     index_param = payload.get("index_param") or payload.get("indexParam") or {}
-    params = payload.get("params") or payload.get("index_params") or {}
+    raw_params = payload.get("params") or payload.get("index_params") or {}
+    params = dict(raw_params) if isinstance(raw_params, dict) else {}
     if not params and isinstance(index_param, dict):
-        params = index_param.get("params") or {}
+        index_params = index_param.get("params") or {}
+        if isinstance(index_params, dict):
+            params.update(index_params)
+    for key in ("json_path", "json_cast_type"):
+        if payload.get(key) is not None:
+            params[key] = payload[key]
     metadata = {
         "index_name": str(
             payload.get("index_name")
