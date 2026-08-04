@@ -5,25 +5,34 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 ## Current scenario set
 
-The manifest currently registers 7 scenarios:
+The manifest currently registers 9 scenarios:
 
-- 6 promoted gate scenarios
+- 8 promoted gate scenarios
 - 1 negative coverage scenario
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
 | --- | --- | --- | --- | --- |
 | `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest` | standalone | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | LoonFFI/storage v3 and Vortex must stay disabled. |
+| `standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest` | standalone | gate | `2.6.18 -> 3.0 latest + 3.0-only forward features -> 2.6 latest` | Forward 3.0 collections are required after upgrade but intentionally excluded from rollback validation. |
 | `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | LoonFFI/storage v3 and Vortex must stay disabled. |
 | `standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled. |
 | `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled. |
 | `standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
 | `cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
+| `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
 | `standalone-3-0-loon-vortex-to-2-6-negative` | standalone | negative | `2.6.18 -> 3.0 latest + LoonFFI/Vortex -> 2.6 latest` | Unsupported negative coverage only; not a promoted gate. |
 
 For the 3.0 LoonFFI/Vortex gates, the rollback phase uses the 3.0 baseline
 image but keeps LoonFFI/storage v3 and Vortex enabled. This validates image
 rollback compatibility after the upgraded version has written data and indexes
 with the 3.0 storage features enabled.
+
+The target-only feature gate uses the 2.6 baseline matrix for the rollback
+contract and the 3.0 matrix for forward collections created only after upgrade.
+Those forward collections must pass data, index, search/query, and schema
+evolution checks on the target version. They are not part of the 2.6 rollback
+contract; requiring forward rollback validation for this gate is rejected by
+manifest validation.
 
 ## Centralized change points
 
@@ -55,6 +64,15 @@ Standalone 3.0 LoonFFI/Vortex gate:
 ```bash
 PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
   --scenario-id standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline \
+  --format argo-args \
+  --allow-placeholder
+```
+
+Standalone 2.6 -> 3.0 target-only feature gate:
+
+```bash
+PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
+  --scenario-id standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest \
   --format argo-args \
   --allow-placeholder
 ```
@@ -129,5 +147,9 @@ The current gates validate:
   - expected net increase: 900 rows per phase;
 - DQL on old and new collections after each phase;
 - index compatibility and load/search/query probes;
+- forward collection index compatibility after upgrade, with a separate
+  `/tmp/milvus-bricks/checkpoints/forward/index_compatibility.json` checkpoint;
+- forward index compatibility after rollback only when
+  `rollback-forward-validation-enabled=true`;
 - continuous pressure workload, with rollout maintenance windows only excluding
   confirmed connectivity failures.

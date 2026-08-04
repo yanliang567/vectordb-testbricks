@@ -94,6 +94,27 @@ def test_render_standalone_2_6_to_3_0_gate_parameters():
     assert params["rows-per-collection"] == "5000"
 
 
+def test_render_standalone_2_6_target_only_feature_gate_parameters():
+    manifest = load_gate_manifest(GATES)
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
+    )
+
+    submission = render_submission(scenario, manifest, allow_placeholder=True)
+    params = submission["parameters"]
+
+    assert submission["workflow_template"] == ("milvus-standalone-2-6-upgrade-rollback")
+    assert params["forward-workload-enabled"] == "true"
+    assert params["forward-schema-matrix"] == (
+        "milvus_client/manifests/schema_matrix_3_0.yaml"
+    )
+    assert params["schema-evolution-forward-enabled"] == "true"
+    assert params["rollback-forward-validation-enabled"] == "false"
+    assert params["pressure-fail-on-error"] == "true"
+    assert params["gate-allow-warning"] == "false"
+
+
 def test_render_cluster_3_0_gate_parameters():
     manifest = load_gate_manifest(GATES)
     scenario = resolve_gate_scenario(

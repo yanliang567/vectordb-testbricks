@@ -15,10 +15,10 @@
 1. 全场景与 Workflow 参数契约校验，并支持正式运行时覆盖 placeholder 镜像。
 2. Standalone 升级后的数据 serviceability 重试门禁。
 3. JSON Shredding 正向 upgrade/rollback gate，包括配置切换后写入和回滚读取。
+4. 2.6 -> 3.0 target-only feature upgrade gate。
 
 后续阶段：
 
-4. 2.6 -> 3.0 target-only feature upgrade gate。
 5. Woodpecker 2CU HA 滚动升级/回滚 gate。
 
 ## 非目标
@@ -125,6 +125,43 @@
 - 回滚后 forward JSON collection 数据完整且可查询。
 - 配置声明值与 Milvus runtime config 一致。
 - 场景保持 strict data、serviceability 和 pressure gate 策略。
+
+---
+
+### 任务 4：2.6 -> 3.0 Target-Only Feature Gate
+
+**文件：**
+
+- 修改：`milvus_client/manifests/upgrade_rollback_gates.yaml`
+- 修改：`milvus_client/common/gates.py`
+- 修改：`argo/standalone-2-6-upgrade-rollback.yaml`
+- 修改：`argo/standalone-3-0-upgrade-rollback.yaml`
+- 修改：`argo/cluster-upgrade-rollback.yaml`
+- 修改：`milvus_client/requests/generate_workflow_report.py`
+- 修改：`milvus_client/tests/test_upgrade_rollback_gates_manifest.py`
+- 修改：`milvus_client/tests/test_render_upgrade_rollback_params.py`
+- 修改：`milvus_client/tests/test_argo_template.py`
+- 修改：`milvus_client/tests/test_generate_workflow_report.py`
+
+**场景：**
+
+`standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest`
+
+**步骤：**
+
+1. 使用 `schema_matrix_2_6.yaml` 创建 rollback-safe baseline 数据。
+2. 升级到 3.0 后使用 `schema_matrix_3_0.yaml` 创建 forward collections。
+3. 对 forward collections 执行数据完整性、索引 metadata、load/search/query 和 schema evolution 验证。
+4. 回滚到 2.6 后只要求 baseline 数据、索引和 phase DML/DQL 继续工作。
+5. 明确禁止把 3.0-only forward collections 设置为 rollback required validation。
+6. 最终报告将 forward index upgrade validation 纳入 required results；只有 rollback forward validation 开启时才要求 rollback forward index result。
+
+**验收：**
+
+- 3.0-only schema/index 能力在 target 阶段被实际创建、写入和查询。
+- target-only forward index checkpoint 独立存放，不覆盖 baseline checkpoint。
+- 2.6 rollback 不因预期不可兼容的 3.0-only collections 判失败。
+- baseline 2.6 数据在升级和回滚后继续通过严格门禁。
 
 ---
 

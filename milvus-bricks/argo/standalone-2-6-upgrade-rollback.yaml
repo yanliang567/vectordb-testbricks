@@ -563,8 +563,30 @@ spec:
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
 
-          - name: schema-evolution-forward
+          - name: validate-forward-indexes-after-upgrade
             dependencies: [validate-forward-after-upgrade, pressure-daemon]
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.forward-workload-enabled}}"
+                - name: brick-name
+                  value: validate_forward_indexes_after_upgrade
+                - name: module
+                  value: milvus_client.requests.validate_index_compatibility
+                - name: collection-prefix
+                  value: "{{workflow.parameters.forward-collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
+                    --index-checkpoint-file /tmp/milvus-bricks/checkpoints/forward/index_compatibility.json
+                    --phase after-upgrade
+                    --rebuild-index false
+                    --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+
+          - name: schema-evolution-forward
+            dependencies: [validate-forward-indexes-after-upgrade, pressure-daemon]
             template: optional-run-brick
             arguments:
               parameters:
@@ -794,6 +816,29 @@ spec:
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
 
+          - name: validate-forward-indexes-after-rollback
+            dependencies: [validate-forward-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.rollback-forward-validation-enabled}}"
+                - name: brick-name
+                  value: validate_forward_indexes_after_rollback
+                - name: module
+                  value: milvus_client.requests.validate_index_compatibility
+                - name: collection-prefix
+                  value: "{{workflow.parameters.forward-collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
+                    --index-checkpoint-file /tmp/milvus-bricks/checkpoints/forward/index_compatibility.json
+                    --phase after-rollback
+                    --rebuild-index false
+                    --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+
           - name: wait-forward-rollback-serviceability
             dependencies: [wait-rollback-serviceability, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
@@ -816,7 +861,7 @@ spec:
                     --interval-sec {{workflow.parameters.rollback-serviceability-interval-sec}}
 
           - name: strict-pressure-after-rollback
-            dependencies: [validate-forward-after-rollback, pressure-daemon]
+            dependencies: [validate-forward-indexes-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: run-pressure-suite
             arguments:
@@ -882,9 +927,11 @@ spec:
                 print(f"invalid Milvus collection prefix parameters: {invalid}", file=sys.stderr)
                 raise SystemExit(2)
             schema_matrix = "{{workflow.parameters.schema-matrix}}"
+            forward_schema_matrix = "{{workflow.parameters.forward-schema-matrix}}"
             target_version = "{{workflow.parameters.target-version}}"
             rollback_version = "{{workflow.parameters.rollback-version}}"
             rollback_enabled = "{{workflow.parameters.rollback-enabled}}" == "true"
+            rollback_forward_validation_enabled = "{{workflow.parameters.rollback-forward-validation-enabled}}" == "true"
             allow_unsafe_negative_coverage = "{{workflow.parameters.allow-unsafe-negative-coverage}}" == "true"
             scenario_id = "{{workflow.parameters.scenario-id}}"
             approved_unsafe_negative_scenarios = {
@@ -917,6 +964,20 @@ spec:
                 print(
                     "invalid 2.6 -> 3.0 -> 2.6 rollback gate: storage v3/vortex must remain disabled; "
                     f"enabled phase flags: {enabled}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(2)
+            if (
+                rollback_enabled
+                and schema_matrix.endswith("schema_matrix_2_6.yaml")
+                and forward_schema_matrix.endswith("schema_matrix_3_0.yaml")
+                and target_version.startswith("3.0")
+                and rollback_version.startswith("2.6")
+                and rollback_forward_validation_enabled
+            ):
+                print(
+                    "invalid 3.0 target-only rollback validation: "
+                    "forward 3.0 collections cannot be required after rollback to 2.6",
                     file=sys.stderr,
                 )
                 raise SystemExit(2)

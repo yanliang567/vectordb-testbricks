@@ -87,6 +87,42 @@ scenarios:
       - storage_v3
       - vortex
 
+  - id: standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest
+    description: "Target-only feature gate: preserve rollback-safe 2.6 baseline data, create and validate 3.0-only forward collections after upgrade, then rollback to 2.6 without requiring those forward collections to remain readable."
+    mode: standalone
+    classification: gate
+    support_status: supported_with_config_constraints
+    workflow_template_ref: standalone_2_6
+    deploy_profile_ref: standalone
+    schema_matrix_ref: "2.6"
+    forward_schema_matrix_ref: "3.0"
+    collection_prefix: qa_gate_2618_to_30_target_only
+    forward_workload_enabled: true
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: true
+    rollback_forward_validation_enabled: false
+    base:
+      image_ref: milvus-2-6-18
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-latest
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    rollback:
+      image_ref: milvus-2-6-latest
+      json_shredding_enabled: false
+      vortex_enabled: false
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+    forbidden_after_upgrade:
+      - storage_v3
+      - vortex
+
   - id: standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline
     description: "3.0 branch gate: baseline to latest 3.0 and rollback to the same 3.0 baseline."
     mode: standalone

@@ -927,9 +927,11 @@ spec:
                 print(f"invalid Milvus collection prefix parameters: {invalid}", file=sys.stderr)
                 raise SystemExit(2)
             schema_matrix = "{{workflow.parameters.schema-matrix}}"
+            forward_schema_matrix = "{{workflow.parameters.forward-schema-matrix}}"
             target_version = "{{workflow.parameters.target-version}}"
             rollback_version = "{{workflow.parameters.rollback-version}}"
             rollback_enabled = "{{workflow.parameters.rollback-enabled}}" == "true"
+            rollback_forward_validation_enabled = "{{workflow.parameters.rollback-forward-validation-enabled}}" == "true"
             allow_unsafe_negative_coverage = "{{workflow.parameters.allow-unsafe-negative-coverage}}" == "true"
             scenario_id = "{{workflow.parameters.scenario-id}}"
             approved_unsafe_negative_scenarios = set()
@@ -960,6 +962,20 @@ spec:
                 print(
                     "invalid 2.6 -> 3.0 -> 2.6 rollback gate: storage v3/vortex must remain disabled; "
                     f"enabled phase flags: {enabled}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(2)
+            if (
+                rollback_enabled
+                and schema_matrix.endswith("schema_matrix_2_6.yaml")
+                and forward_schema_matrix.endswith("schema_matrix_3_0.yaml")
+                and target_version.startswith("3.0")
+                and rollback_version.startswith("2.6")
+                and rollback_forward_validation_enabled
+            ):
+                print(
+                    "invalid 3.0 target-only rollback validation: "
+                    "forward 3.0 collections cannot be required after rollback to 2.6",
                     file=sys.stderr,
                 )
                 raise SystemExit(2)
