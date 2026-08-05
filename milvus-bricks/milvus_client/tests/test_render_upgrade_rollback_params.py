@@ -149,6 +149,55 @@ def test_render_cluster_3_0_gate_parameters():
     assert params["phase-dml-dql-validation-enabled"] == "true"
 
 
+def test_render_cluster_target_only_feature_gate_parameters():
+    manifest = load_gate_manifest(GATES)
+    scenario = resolve_gate_scenario(
+        manifest,
+        "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
+    )
+
+    submission = render_submission(scenario, manifest, allow_placeholder=True)
+    params = submission["parameters"]
+
+    assert submission["workflow_template"] == "milvus-cluster-upgrade-rollback"
+    assert submission["submit_generate_name"] == "c26to-"
+    assert params["deploy-profile"] == (
+        "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
+    )
+    assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
+    assert params["forward-schema-matrix"] == (
+        "milvus_client/manifests/schema_matrix_3_0.yaml"
+    )
+    assert params["forward-workload-enabled"] == "true"
+    assert params["schema-evolution-forward-enabled"] == "true"
+    assert params["rollback-forward-validation-enabled"] == "false"
+
+
+def test_render_cluster_json_shredding_gate_parameters():
+    manifest = load_gate_manifest(GATES)
+    scenario = resolve_gate_scenario(
+        manifest,
+        "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+    )
+
+    submission = render_submission(scenario, manifest, allow_placeholder=True)
+    params = submission["parameters"]
+
+    assert submission["workflow_template"] == "milvus-cluster-upgrade-rollback"
+    assert submission["submit_generate_name"] == "c30json-"
+    assert params["deploy-profile"] == (
+        "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+    )
+    assert params["post-upgrade-config-toggle-enabled"] == "true"
+    assert params["post-upgrade-json-shredding-enabled"] == "true"
+    assert params["rollback-json-shredding-enabled"] == "true"
+    assert params["forward-workload-enabled"] == "true"
+    assert params["rollback-forward-validation-enabled"] == "true"
+    assert params["forward-schema-matrix"] == (
+        "milvus_client/manifests/schema_matrix_json_shredding.yaml"
+    )
+
+
 def test_render_cluster_woodpecker_2cu_ha_gate_parameters():
     manifest = load_gate_manifest(GATES)
     scenario = resolve_gate_scenario(

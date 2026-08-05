@@ -5,9 +5,9 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 ## Current scenario set
 
-The manifest currently registers 10 scenarios:
+The manifest currently registers 12 scenarios:
 
-- 9 promoted gate scenarios
+- 11 promoted gate scenarios
 - 1 negative coverage scenario
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
@@ -15,8 +15,10 @@ The manifest currently registers 10 scenarios:
 | `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest` | standalone | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | LoonFFI/storage v3 and Vortex must stay disabled. |
 | `standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest` | standalone | gate | `2.6.18 -> 3.0 latest + 3.0-only forward features -> 2.6 latest` | Forward 3.0 collections are required after upgrade but intentionally excluded from rollback validation. |
 | `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | LoonFFI/storage v3 and Vortex must stay disabled. |
+| `cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest + 3.0-only forward features -> 2.6 latest` | Forward 3.0 collections are required after upgrade but intentionally excluded from rollback validation. |
 | `standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled. |
 | `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled. |
+| `cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
 | `cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` on Woodpecker 2CU | Proxy, QueryNode, DataNode, and StreamingNode must each keep at least two replicas. |
 | `standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
 | `cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
@@ -28,12 +30,18 @@ image but keeps LoonFFI/storage v3 and Vortex enabled. This validates image
 rollback compatibility after the upgraded version has written data and indexes
 with the 3.0 storage features enabled.
 
-The target-only feature gate uses the 2.6 baseline matrix for the rollback
-contract and the 3.0 matrix for forward collections created only after upgrade.
-Those forward collections must pass data, index, search/query, and schema
-evolution checks on the target version. They are not part of the 2.6 rollback
-contract; requiring forward rollback validation for this gate is rejected by
-manifest validation.
+The standalone and cluster target-only feature gates use the 2.6 baseline
+matrix for the rollback contract and the 3.0 matrix for forward collections
+created only after upgrade. Those forward collections must pass data, index,
+search/query, and schema evolution checks on the target version. They are not
+part of the 2.6 rollback contract; requiring forward rollback validation for
+either gate is rejected by manifest validation.
+
+The standalone and cluster JSON Shredding gates both write JSON-heavy forward
+data only after the post-upgrade configuration rollout has enabled JSON
+Shredding. The rollback phase keeps the setting enabled and requires the
+forward data, dynamic JSON fields, JSON path indexes, and filters to remain
+usable.
 
 The Woodpecker 2CU gate reuses the cluster Helm rolling upgrade workflow with
 a multi-replica data plane. Its scenario contract rejects deploy-profile
@@ -81,6 +89,24 @@ Standalone 2.6 -> 3.0 target-only feature gate:
 ```bash
 PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
   --scenario-id standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest \
+  --format argo-args \
+  --allow-placeholder
+```
+
+Cluster 2.6 -> 3.0 target-only feature gate:
+
+```bash
+PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
+  --scenario-id cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest \
+  --format argo-args \
+  --allow-placeholder
+```
+
+Cluster JSON Shredding gate:
+
+```bash
+PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
+  --scenario-id cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline \
   --format argo-args \
   --allow-placeholder
 ```
