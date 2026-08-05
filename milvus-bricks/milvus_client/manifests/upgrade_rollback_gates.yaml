@@ -292,6 +292,45 @@ scenarios:
       pressure_fail_on_error: true
       gate_allow_warning: false
 
+  - id: cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline
+    description: "Cluster-mode 3.0 Woodpecker 2CU HA gate: roll the multi-replica data plane from the 3.0 baseline to latest 3.0 and back to the same baseline."
+    mode: cluster
+    classification: gate
+    support_status: supported
+    submit_generate_name: c30-2cu-ha-
+    workflow_template_ref: cluster
+    deploy_profile_ref: cluster_woodpecker_2cu
+    schema_matrix_ref: "3.0"
+    collection_prefix: qa_gate_cluster_30_2cu_ha
+    forward_workload_enabled: false
+    schema_evolution_existing_enabled: true
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    topology_requirements:
+      min_replicas:
+        proxy: 2
+        queryNode: 2
+        dataNode: 2
+        streamingNode: 2
+    base:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-latest
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    rollback:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: false
+      vortex_enabled: false
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
   - id: cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline
     description: "Cluster-mode 3.0 branch storage-feature gate: baseline to latest 3.0 with LoonFFI/storage v3 and Vortex enabled, then rollback to the same 3.0 baseline image with those storage features still enabled."
     mode: cluster

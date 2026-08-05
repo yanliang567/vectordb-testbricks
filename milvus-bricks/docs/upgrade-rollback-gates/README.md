@@ -5,9 +5,9 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 ## Current scenario set
 
-The manifest currently registers 9 scenarios:
+The manifest currently registers 10 scenarios:
 
-- 8 promoted gate scenarios
+- 9 promoted gate scenarios
 - 1 negative coverage scenario
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
@@ -17,6 +17,7 @@ The manifest currently registers 9 scenarios:
 | `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | LoonFFI/storage v3 and Vortex must stay disabled. |
 | `standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled. |
 | `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled. |
+| `cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` on Woodpecker 2CU | Proxy, QueryNode, DataNode, and StreamingNode must each keep at least two replicas. |
 | `standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
 | `cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
 | `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
@@ -33,6 +34,13 @@ Those forward collections must pass data, index, search/query, and schema
 evolution checks on the target version. They are not part of the 2.6 rollback
 contract; requiring forward rollback validation for this gate is rejected by
 manifest validation.
+
+The Woodpecker 2CU gate reuses the cluster Helm rolling upgrade workflow with
+a multi-replica data plane. Its scenario contract rejects deploy-profile
+overrides that reduce Proxy, QueryNode, DataNode, or StreamingNode below two
+replicas. The existing pressure and serviceability gates remain strict outside
+confirmed rollout connectivity windows, but this scenario does not define a
+zero-request-failure availability SLO.
 
 ## Centralized change points
 
@@ -82,6 +90,15 @@ Cluster 3.0 LoonFFI/Vortex gate:
 ```bash
 PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
   --scenario-id cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline \
+  --format argo-args \
+  --allow-placeholder
+```
+
+Cluster Woodpecker 2CU HA gate:
+
+```bash
+PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
+  --scenario-id cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline \
   --format argo-args \
   --allow-placeholder
 ```
@@ -151,5 +168,7 @@ The current gates validate:
   `/tmp/milvus-bricks/checkpoints/forward/index_compatibility.json` checkpoint;
 - forward index compatibility after rollback only when
   `rollback-forward-validation-enabled=true`;
+- Woodpecker 2CU topology requirements at render time and again before Helm
+  deployment for registered runtime scenarios;
 - continuous pressure workload, with rollout maintenance windows only excluding
   confirmed connectivity failures.

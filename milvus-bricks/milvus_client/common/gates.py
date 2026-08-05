@@ -317,6 +317,7 @@ def validate_gate_manifest(
             scenario_id=str(scenario_id),
         )
         _validate_scenario_bool_fields(scenario, source=source)
+        _validate_topology_requirements(scenario, source=source)
         if (
             scenario.get("allow_unsafe_negative_coverage") is True
             and scenario.get("classification") != "negative"
@@ -495,6 +496,21 @@ def _validate_scenario_execution_mode(scenario: dict[str, Any]) -> None:
             f"{profile_path} mode {profile_mode}"
         )
 
+    min_replicas = (scenario.get("topology_requirements") or {}).get(
+        "min_replicas"
+    ) or {}
+    insufficient = []
+    for component, minimum in min_replicas.items():
+        component_spec = profile.get("components", {}).get(component)
+        actual = component_spec.get("replicas", 1) if component_spec else 0
+        if isinstance(actual, bool) or not isinstance(actual, int) or actual < minimum:
+            insufficient.append(f"{component}={actual!r} (required >= {minimum})")
+    if insufficient:
+        raise ValueError(
+            f"{scenario_id}: deploy profile {profile_path} does not satisfy "
+            "topology_requirements.min_replicas: " + ", ".join(insufficient)
+        )
+
 
 def _schema_matrix_path(value: str) -> Path:
     matrix_path = Path(value)
@@ -568,6 +584,41 @@ def _validate_scenario_bool_fields(scenario: dict[str, Any], *, source: str) -> 
             scenario_id=scenario_id,
             prefix="validation_policy",
         )
+
+
+def _validate_topology_requirements(scenario: dict[str, Any], *, source: str) -> None:
+    requirements = scenario.get("topology_requirements")
+    if requirements is None:
+        return
+    scenario_id = str(scenario.get("id") or "<unknown>")
+    if not isinstance(requirements, dict):
+        raise ValueError(
+            f"{source}: scenario {scenario_id} topology_requirements must be a mapping"
+        )
+    unknown = sorted(set(requirements) - {"min_replicas"})
+    if unknown:
+        raise ValueError(
+            f"{source}: scenario {scenario_id} topology_requirements has unknown fields: "
+            f"{', '.join(unknown)}"
+        )
+    min_replicas = requirements.get("min_replicas")
+    if not isinstance(min_replicas, dict) or not min_replicas:
+        raise ValueError(
+            f"{source}: scenario {scenario_id} "
+            "topology_requirements.min_replicas must be a non-empty mapping"
+        )
+    for component, minimum in min_replicas.items():
+        if not isinstance(component, str) or not component:
+            raise ValueError(
+                f"{source}: scenario {scenario_id} topology requirement component "
+                "must be a non-empty string"
+            )
+        if isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 1:
+            raise ValueError(
+                f"{source}: scenario {scenario_id} "
+                f"topology_requirements.min_replicas.{component} "
+                "must be a positive integer"
+            )
 
 
 def _validate_submit_generate_name(

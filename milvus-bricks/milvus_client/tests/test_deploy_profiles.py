@@ -99,6 +99,20 @@ def test_cluster_profiles_declare_required_components_resources_and_woodpecker()
         assert profile["dependencies"]["storage"]["inCluster"]["pvcDeletion"] is True
 
 
+def test_cluster_woodpecker_2cu_profile_declares_multi_replica_data_plane():
+    profile = _load_profile("cluster-woodpecker-2cu.yaml")
+
+    assert {
+        component: profile["components"][component]["replicas"]
+        for component in ["proxy", "queryNode", "dataNode", "streamingNode"]
+    } == {
+        "proxy": 2,
+        "queryNode": 2,
+        "dataNode": 2,
+        "streamingNode": 2,
+    }
+
+
 def test_cluster_pulsar_profile_declares_2_6_compatible_message_queue():
     required_components = {
         "mixCoord",

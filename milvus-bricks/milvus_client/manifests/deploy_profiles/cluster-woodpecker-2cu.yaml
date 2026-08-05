@@ -1,7 +1,7 @@
 name: cluster-woodpecker-2cu
 mode: cluster
 deployer: helm
-description: "2CU Milvus cluster with Woodpecker and in-cluster dependencies for heavier QA upgrade/rollback gates."
+description: "2CU Milvus cluster with Woodpecker and a multi-replica data plane for HA upgrade/rollback gates."
 helm:
   repo_name: zilliztech
   repo_url: https://zilliztech.github.io/milvus-helm/
@@ -46,7 +46,7 @@ components:
         cpu: "1"
         memory: 2Gi
   proxy:
-    replicas: 1
+    replicas: 2
     resources:
       requests:
         cpu: "2"

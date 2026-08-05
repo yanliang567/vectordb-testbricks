@@ -40,6 +40,7 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
     } <= set(scenarios)
     for scenario_id in [
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
@@ -50,6 +51,7 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
     ]:
         scenario = scenarios[scenario_id]
         assert scenario["classification"] == "gate"
@@ -174,7 +176,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 3
+    assert len(cluster_scenarios) == 4
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-rollback-2-6-latest"]["deploy_profile"]
@@ -192,8 +194,42 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         ]
         == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
     )
+    assert (
+        by_id[
+            "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline"
+        ]["deploy_profile"]
+        == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-2cu.yaml"
+    )
     for scenario in cluster_scenarios:
         assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
+
+
+def test_woodpecker_2cu_ha_gate_rejects_single_replica_profile_override():
+    manifest = _manifest()
+    scenario_id = (
+        "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline"
+    )
+
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+
+    assert scenario["submit_generate_name"] == "c30-2cu-ha-"
+    assert scenario["topology_requirements"]["min_replicas"] == {
+        "proxy": 2,
+        "queryNode": 2,
+        "dataNode": 2,
+        "streamingNode": 2,
+    }
+    with pytest.raises(
+        ValueError,
+        match="does not satisfy topology_requirements.min_replicas",
+    ):
+        resolve_gate_scenario(
+            manifest,
+            scenario_id,
+            deploy_profile_override=(
+                "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+            ),
+        )
 
 
 def test_gate_scenario_rejects_deploy_profile_mode_mismatch():
@@ -534,6 +570,18 @@ def test_manifest_validator_rejects_unsafe_negative_escape_hatch_on_gate():
     broken["scenarios"][0]["allow_unsafe_negative_coverage"] = True
 
     with pytest.raises(ValueError, match="only when classification is negative"):
+        validate_gate_manifest(broken)
+
+
+def test_manifest_validator_rejects_invalid_topology_replica_requirement():
+    manifest = _manifest()
+    broken = deepcopy(manifest)
+    broken["scenarios"][0]["topology_requirements"] = {"min_replicas": {"proxy": 0}}
+
+    with pytest.raises(
+        ValueError,
+        match="topology_requirements.min_replicas.proxy must be a positive integer",
+    ):
         validate_gate_manifest(broken)
 
 
