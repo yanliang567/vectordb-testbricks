@@ -267,6 +267,63 @@ def test_render_milvus_helm_values_cli_writes_yaml_and_topology_summary(tmp_path
     assert summary["dependencies"]["pulsarv3"]["enabled"] is False
 
 
+def test_render_woodpecker_2cu_helm_values_preserves_multi_replica_topology(tmp_path):
+    output_yaml = tmp_path / "values.yaml"
+    summary_json = tmp_path / "deploy_topology.json"
+
+    rc = render_helm_cli.main(
+        [
+            "--deploy-profile",
+            str(ROOT / "manifests" / "deploy_profiles" / "cluster-woodpecker-2cu.yaml"),
+            "--name",
+            "cluster-2cu-upgrade-test",
+            "--namespace",
+            "qa-milvus",
+            "--image",
+            "harbor.milvus.io/milvusdb/milvus:3.0-latest",
+            "--version",
+            "3.0.0",
+            "--workflow-name",
+            "wf-2cu",
+            "--workflow-uid",
+            "uid-2cu",
+            "--app-name",
+            "milvus-cluster-upgrade-rollback",
+            "--output-yaml",
+            str(output_yaml),
+            "--summary-json",
+            str(summary_json),
+        ]
+    )
+
+    values = yaml.safe_load(output_yaml.read_text())
+    summary = json.loads(summary_json.read_text())
+    assert rc == 0
+    assert {
+        component: values[helm_key]["replicas"]
+        for component, helm_key in {
+            "proxy": "proxy",
+            "queryNode": "queryNode",
+            "dataNode": "dataNode",
+            "streamingNode": "streamingNode",
+        }.items()
+    } == {
+        "proxy": 2,
+        "queryNode": 2,
+        "dataNode": 2,
+        "streamingNode": 2,
+    }
+    assert {
+        component: summary["components"][component]["replicas"]
+        for component in ["proxy", "queryNode", "dataNode", "streamingNode"]
+    } == {
+        "proxy": 2,
+        "queryNode": 2,
+        "dataNode": 2,
+        "streamingNode": 2,
+    }
+
+
 def test_render_pulsar_helm_values_cli_writes_pulsar_topology_summary(tmp_path):
     output_yaml = tmp_path / "values.yaml"
     summary_json = tmp_path / "deploy_topology.json"

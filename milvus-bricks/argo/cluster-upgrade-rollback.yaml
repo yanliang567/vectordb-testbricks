@@ -1107,6 +1107,23 @@ spec:
             done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/reports
+            PYTHONPATH=. python3 - <<'PY'
+            from milvus_client.common.gates import (
+                load_gate_manifest,
+                resolve_gate_scenario,
+            )
+
+            manifest = load_gate_manifest(
+                "milvus_client/manifests/upgrade_rollback_gates.yaml"
+            )
+            scenario_id = "{{workflow.parameters.scenario-id}}"
+            if any(item.get("id") == scenario_id for item in manifest["scenarios"]):
+                resolve_gate_scenario(
+                    manifest,
+                    scenario_id,
+                    deploy_profile_override="{{workflow.parameters.deploy-profile}}",
+                )
+            PY
             PYTHONPATH=. python3 -m milvus_client.requests.render_milvus_helm_values \
               --deploy-profile "{{workflow.parameters.deploy-profile}}" \
               --name "{{workflow.name}}" \

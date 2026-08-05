@@ -149,6 +149,30 @@ def test_render_cluster_3_0_gate_parameters():
     assert params["phase-dml-dql-validation-enabled"] == "true"
 
 
+def test_render_cluster_woodpecker_2cu_ha_gate_parameters():
+    manifest = load_gate_manifest(GATES)
+    scenario = resolve_gate_scenario(
+        manifest,
+        "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
+    )
+
+    submission = render_submission(scenario, manifest, allow_placeholder=True)
+    params = submission["parameters"]
+
+    assert submission["workflow_template"] == "milvus-cluster-upgrade-rollback"
+    assert submission["submit_generate_name"] == "c30-2cu-ha-"
+    assert params["deploy-profile"] == (
+        "milvus_client/manifests/deploy_profiles/cluster-woodpecker-2cu.yaml"
+    )
+    assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
+    assert params["schema-evolution-existing-enabled"] == "true"
+    assert params["rollback-forward-validation-enabled"] == "true"
+    assert params["index-compatibility-validation-enabled"] == "true"
+    assert params["phase-dml-dql-validation-enabled"] == "true"
+    assert params["pressure-fail-on-error"] == "true"
+    assert params["gate-allow-warning"] == "false"
+
+
 def test_render_standalone_3_0_gate_parameters():
     manifest = load_gate_manifest(GATES)
     scenario = resolve_gate_scenario(

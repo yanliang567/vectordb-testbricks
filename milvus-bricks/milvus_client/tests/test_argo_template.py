@@ -2380,6 +2380,13 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     )
     assert 'helm upgrade --install "{{workflow.name}}" "$chart"' in deploy_command
     assert '--version "$chart_version"' in deploy_command
+    assert "load_gate_manifest" in deploy_command
+    assert "resolve_gate_scenario" in deploy_command
+    assert 'scenario_id = "{{workflow.parameters.scenario-id}}"' in deploy_command
+    assert (
+        'deploy_profile_override="{{workflow.parameters.deploy-profile}}"'
+        in deploy_command
+    )
     wait_command = templates["wait-milvus-ready"]["container"]["args"][0]
     assert "helm status" in wait_command
     assert 'get svc "$name"' in wait_command

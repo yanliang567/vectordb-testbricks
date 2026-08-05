@@ -16,9 +16,6 @@
 2. Standalone 升级后的数据 serviceability 重试门禁。
 3. JSON Shredding 正向 upgrade/rollback gate，包括配置切换后写入和回滚读取。
 4. 2.6 -> 3.0 target-only feature upgrade gate。
-
-后续阶段：
-
 5. Woodpecker 2CU HA 滚动升级/回滚 gate。
 
 ## 非目标
@@ -162,6 +159,40 @@
 - target-only forward index checkpoint 独立存放，不覆盖 baseline checkpoint。
 - 2.6 rollback 不因预期不可兼容的 3.0-only collections 判失败。
 - baseline 2.6 数据在升级和回滚后继续通过严格门禁。
+
+---
+
+### 任务 5：Woodpecker 2CU HA 滚动升级/回滚 Gate
+
+**文件：**
+
+- 修改：`milvus_client/manifests/deploy_profiles/cluster-woodpecker-2cu.yaml`
+- 修改：`milvus_client/manifests/upgrade_rollback_gates.yaml`
+- 修改：`milvus_client/common/gates.py`
+- 修改：`argo/cluster-upgrade-rollback.yaml`
+- 修改：`milvus_client/tests/test_deploy_profiles.py`
+- 修改：`milvus_client/tests/test_upgrade_rollback_gates_manifest.py`
+- 修改：`milvus_client/tests/test_render_upgrade_rollback_params.py`
+- 修改：`milvus_client/tests/test_render_milvus_cr.py`
+- 修改：`milvus_client/tests/test_argo_template.py`
+
+**场景：**
+
+`cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline`
+
+**步骤：**
+
+1. 使用 Woodpecker 2CU profile，Proxy、QueryNode、DataNode 和 StreamingNode 均保持至少 2 副本。
+2. 复用 cluster Helm rolling upgrade/rollback DAG，不新增 WorkflowTemplate。
+3. 在场景 resolve 和 Helm deploy 前校验实际 deploy profile 满足最小副本契约。
+4. 保持存储特性关闭，复用 strict pressure、serviceability、数据、索引、phase DML/DQL 和 schema evolution 门禁。
+5. 不增加零请求失败或多副本可用性 SLO。
+
+**验收：**
+
+- 2CU topology 被实际渲染进 Helm values 和最终 topology summary。
+- 使用 1CU profile override 时，在提交渲染或 Helm deploy 前失败。
+- 升级和回滚后继续通过既有严格正确性门禁。
 
 ---
 
