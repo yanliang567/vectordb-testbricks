@@ -1326,7 +1326,7 @@ spec:
         backoff:
           duration: 10s
           factor: 1
-          maxDuration: 10s
+          maxDuration: 15m
       inputs:
         parameters:
           - name: phase
@@ -1400,7 +1400,10 @@ spec:
                     for container_status in status.get("containerStatuses", [])
                     if container_status.get("ready") is True
                 }
-                if "milvus" not in container_names or "milvus" not in ready_container_names:
+                milvus_container_names = {"milvus", "standalone"}
+                if not (
+                    container_names & ready_container_names & milvus_container_names
+                ):
                     continue
                 candidates.append(item.get("metadata", {}).get("name"))
             candidates = [name for name in candidates if name]

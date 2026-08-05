@@ -247,7 +247,7 @@ def test_standalone_post_config_assertion_retries_until_runtime_converges(
     assert retry_template["retryStrategy"] == {
         "limit": "120",
         "retryPolicy": "Always",
-        "backoff": {"duration": "10s", "factor": 1, "maxDuration": "10s"},
+        "backoff": {"duration": "10s", "factor": 1, "maxDuration": "15m"},
     }
     retry_step = retry_template["steps"][0][0]
     assert retry_step["template"] == "assert-milvus-storage-config"
@@ -269,8 +269,62 @@ def test_standalone_post_config_assertion_retries_until_runtime_converges(
     command = templates["assert-milvus-storage-config"]["container"]["args"][0]
     assert 'container.get("name")' in command
     assert 'container_status.get("ready") is True' in command
-    assert '"milvus" not in container_names' in command
-    assert '"milvus" not in ready_container_names' in command
+    assert 'milvus_container_names = {"milvus", "standalone"}' in command
+    assert "container_names & ready_container_names & milvus_container_names" in command
+
+
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+    ],
+)
+def test_standalone_storage_assertion_selects_ready_operator_container(
+    template_name,
+    tmp_path,
+):
+    template = yaml.safe_load((ROOT / "argo" / template_name).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    command = templates["assert-milvus-storage-config"]["container"]["args"][0]
+    heredocs = re.findall(
+        r"python3 - <<'PY'\n(.*?)\n\s*PY",
+        command,
+        flags=re.DOTALL,
+    )
+    code = heredocs[0]
+    code = code.replace("{{inputs.parameters.phase}}", "base")
+    code = code.replace("/tmp/milvus-bricks/k8s", str(tmp_path))
+    (tmp_path / "pods-base-storage-config-source.json").write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "metadata": {"name": "milvus-test-milvus-standalone-abc"},
+                        "spec": {"containers": [{"name": "standalone"}]},
+                        "status": {
+                            "phase": "Running",
+                            "containerStatuses": [
+                                {"name": "standalone", "ready": True}
+                            ],
+                        },
+                    }
+                ]
+            }
+        )
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "runtime-config-pod-base.txt").read_text() == (
+        "milvus-test-milvus-standalone-abc"
+    )
 
 
 def test_upgrade_rollback_prechecks_validate_actual_server_version():
