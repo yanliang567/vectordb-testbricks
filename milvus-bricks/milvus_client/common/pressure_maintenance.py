@@ -42,7 +42,7 @@ ROLLOUT_WINDOW_LABELS = {
 }
 
 
-def pressure_result_configmaps(
+def workflow_owned_configmaps(
     payload: dict[str, Any], *, workflow_name: str, workflow_uid: str
 ) -> list[dict[str, Any]]:
     prefix = f"{workflow_name}-pressure-"
@@ -54,10 +54,23 @@ def pressure_result_configmaps(
             continue
         if labels.get("zilliz.com/workflow-run-id") != workflow_uid:
             continue
-        if labels.get("zilliz.com/pressure-result") != "true":
-            continue
         matched.append(item)
     return matched
+
+
+def pressure_result_configmaps(
+    payload: dict[str, Any], *, workflow_name: str, workflow_uid: str
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in workflow_owned_configmaps(
+            payload, workflow_name=workflow_name, workflow_uid=workflow_uid
+        )
+        if ((item.get("metadata") or {}).get("labels") or {}).get(
+            "zilliz.com/pressure-result"
+        )
+        == "true"
+    ]
 
 
 def pressure_result_text_from_configmap(item: dict[str, Any]) -> str | None:

@@ -15,6 +15,7 @@ from milvus_client.common.pressure_maintenance import (
     maintenance_windows_from_workflow_nodes,
     pressure_result_configmaps,
     pressure_result_text_from_configmap,
+    workflow_owned_configmaps,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,15 +61,22 @@ def test_pressure_result_configmaps_filters_by_name_uid_and_result_label():
         }
 
     expected = item("workflow-name-pressure-1-search-pressure")
+    stop = item("workflow-name-pressure-stop", pressure_result=None)
     payload = {
         "items": [
             expected,
             item("other-workflow-pressure-1-search-pressure"),
-            item("workflow-name-pressure-2-query-pressure", workflow_uid="other-uid"),
-            item("workflow-name-pressure-stop", pressure_result=None),
+            item(
+                "workflow-name-pressure-canary-pressure-1-search-pressure",
+                workflow_uid="other-uid",
+            ),
+            stop,
         ]
     }
 
+    assert workflow_owned_configmaps(
+        payload, workflow_name="workflow-name", workflow_uid="workflow-uid"
+    ) == [expected, stop]
     assert pressure_result_configmaps(
         payload, workflow_name="workflow-name", workflow_uid="workflow-uid"
     ) == [expected]
@@ -105,6 +113,12 @@ def test_pressure_daemon_compresses_configmap_results(template_name):
     cleanup_command = templates["maybe-cleanup"]["container"]["args"][0]
     assert "workflow-configmaps-to-delete.txt" in cleanup_command
     assert 'delete configmaps -l "$selector"' not in cleanup_command
+    assert '"get", *resource_names, "-o", "json"' in cleanup_command
+    assert 'labels.get("zilliz.com/workflow-run-id") != workflow_uid' in cleanup_command
+    assert cleanup_command.count("list_owned_workflow_configmaps >") == 3
+    assert (
+        'awk -v prefix="configmap/{{workflow.name}}-pressure-"' not in cleanup_command
+    )
 
 
 def test_ci_runs_offline_argo_lint():
