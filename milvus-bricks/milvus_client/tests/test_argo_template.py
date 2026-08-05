@@ -13,6 +13,7 @@ import yaml
 from milvus_client.common.pressure_maintenance import (
     classify_pressure_result,
     maintenance_windows_from_workflow_nodes,
+    pressure_result_configmaps,
     pressure_result_text_from_configmap,
 )
 
@@ -46,6 +47,33 @@ def test_pressure_result_configmap_decoder_supports_plain_and_gzip_payloads():
     assert pressure_result_text_from_configmap({"data": {}}) is None
 
 
+def test_pressure_result_configmaps_filters_by_name_uid_and_result_label():
+    def item(name, workflow_uid="workflow-uid", pressure_result="true"):
+        return {
+            "metadata": {
+                "name": name,
+                "labels": {
+                    "zilliz.com/workflow-run-id": workflow_uid,
+                    "zilliz.com/pressure-result": pressure_result,
+                },
+            }
+        }
+
+    expected = item("workflow-name-pressure-1-search-pressure")
+    payload = {
+        "items": [
+            expected,
+            item("other-workflow-pressure-1-search-pressure"),
+            item("workflow-name-pressure-2-query-pressure", workflow_uid="other-uid"),
+            item("workflow-name-pressure-stop", pressure_result=None),
+        ]
+    }
+
+    assert pressure_result_configmaps(
+        payload, workflow_name="workflow-name", workflow_uid="workflow-uid"
+    ) == [expected]
+
+
 @pytest.mark.parametrize(
     "template_name",
     [
@@ -67,12 +95,16 @@ def test_pressure_daemon_compresses_configmap_results(template_name):
 
     check_command = templates["check-pressure-results"]["container"]["args"][0]
     assert "pressure_result_text_from_configmap" in check_command
+    assert "pressure_result_configmaps" in check_command
     assert 'if "result.json" in data' not in check_command
-    assert (
-        'selector = "app.kubernetes.io/instance={{workflow.name}},'
-        'app.kubernetes.io/component=pressure-result"' in check_command
-    )
-    assert "zilliz.com/workflow-run-id={{workflow.uid}}," not in check_command
+    assert '"get", "configmaps", "-o", "name"' in check_command
+    assert 'prefix = "configmap/{{workflow.name}}-pressure-"' in check_command
+    assert '"get", *resource_names, "-o", "json"' in check_command
+    assert '"get", "configmaps", "-l"' not in check_command
+
+    cleanup_command = templates["maybe-cleanup"]["container"]["args"][0]
+    assert "workflow-configmaps-to-delete.txt" in cleanup_command
+    assert 'delete configmaps -l "$selector"' not in cleanup_command
 
 
 def test_ci_runs_offline_argo_lint():
@@ -2019,10 +2051,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "PRESSURE_RESULT_MISSING" in check_command
     assert "PRESSURE_ATTEMPT_PENDING" in check_command
     assert "kubectl" in check_command
-    assert (
-        "app.kubernetes.io/instance={{workflow.name}},"
-        "app.kubernetes.io/component=pressure-result" in check_command
-    )
+    assert 'prefix = "configmap/{{workflow.name}}-pressure-"' in check_command
+    assert "pressure_result_configmaps" in check_command
     assert 'summary["fail_on_error"] and failed' not in check_command
 
     final_report = templates["generate-final-report"]
