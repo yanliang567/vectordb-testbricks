@@ -260,6 +260,43 @@ scenarios:
       - storage_v3
       - vortex
 
+  - id: cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest
+    description: "Cluster-mode target-only feature gate: preserve rollback-safe 2.6 baseline data, create and validate 3.0-only forward collections after upgrade, then rollback to 2.6 without requiring those forward collections to remain readable."
+    mode: cluster
+    classification: gate
+    support_status: supported_with_config_constraints
+    submit_generate_name: c26to-
+    workflow_template_ref: cluster
+    deploy_profile_ref: cluster_pulsar_1cu
+    schema_matrix_ref: "2.6"
+    forward_schema_matrix_ref: "3.0"
+    collection_prefix: qa_gate_cluster_2618_to_30_target_only
+    forward_workload_enabled: true
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: true
+    rollback_forward_validation_enabled: false
+    base:
+      image_ref: milvus-2-6-18
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-latest
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    rollback:
+      image_ref: milvus-2-6-latest
+      json_shredding_enabled: false
+      vortex_enabled: false
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+    forbidden_after_upgrade:
+      - storage_v3
+      - vortex
+
   - id: cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline
     description: "Cluster-mode 3.0 branch gate: baseline to latest 3.0 and rollback to the same 3.0 baseline."
     mode: cluster
@@ -285,6 +322,43 @@ scenarios:
     rollback:
       image_ref: milvus-3-0-baseline
       json_shredding_enabled: false
+      vortex_enabled: false
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline
+    description: "Cluster-mode JSON Shredding gate: upgrade from the 3.0 baseline, enable JSON Shredding through a post-upgrade Helm rollout, write JSON-heavy forward data, then rollback to the baseline with JSON Shredding still enabled."
+    mode: cluster
+    classification: gate
+    support_status: supported
+    submit_generate_name: c30json-
+    workflow_template_ref: cluster
+    deploy_profile_ref: cluster_woodpecker_1cu
+    schema_matrix_ref: "3.0"
+    forward_schema_matrix_ref: json_shredding
+    collection_prefix: qa_gate_cluster_30_json_shredding
+    forward_workload_enabled: true
+    post_upgrade_config_toggle_enabled: true
+    post_upgrade_json_shredding_enabled: true
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-latest
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    rollback:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: true
+      loon_ffi_enabled: false
       vortex_enabled: false
     validation_policy:
       data_integrity: strict

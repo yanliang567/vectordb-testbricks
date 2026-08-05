@@ -17,6 +17,7 @@
 3. JSON Shredding 正向 upgrade/rollback gate，包括配置切换后写入和回滚读取。
 4. 2.6 -> 3.0 target-only feature upgrade gate。
 5. Woodpecker 2CU HA 滚动升级/回滚 gate。
+6. Cluster target-only feature 与 JSON Shredding 场景 parity。
 
 ## 非目标
 
@@ -193,6 +194,35 @@
 - 2CU topology 被实际渲染进 Helm values 和最终 topology summary。
 - 使用 1CU profile override 时，在提交渲染或 Helm deploy 前失败。
 - 升级和回滚后继续通过既有严格正确性门禁。
+
+---
+
+### 任务 6：Cluster Feature Gate Parity
+
+**文件：**
+
+- 修改：`milvus_client/manifests/upgrade_rollback_gates.yaml`
+- 修改：`milvus_client/tests/test_upgrade_rollback_gates_manifest.py`
+- 修改：`milvus_client/tests/test_render_upgrade_rollback_params.py`
+- 修改：`docs/upgrade-rollback-gates/README.md`
+
+**场景：**
+
+- `cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest`
+- `cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline`
+
+**步骤：**
+
+1. 为 cluster 2.6 -> 3.0 路径增加 target-only forward collections，回滚后仅要求 baseline contract。
+2. 为 cluster 3.0 路径增加 JSON Shredding post-config rollout 和 rollback forward validation。
+3. 复用现有 cluster WorkflowTemplate，不复制 DAG。
+4. 将 promoted gate 场景更新为 11 条，standalone/cluster 功能场景保持对称。
+
+**验收：**
+
+- target-only 与 JSON Shredding 在 standalone 和 cluster 模式均有 promoted gate。
+- 两条 cluster 场景全部通过统一 manifest、renderer 和 Workflow 参数契约测试。
+- 下一阶段转为真实环境执行验证和独立 availability SLO 设计。
 
 ---
 
