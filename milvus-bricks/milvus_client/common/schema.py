@@ -6,6 +6,9 @@ from typing import Any
 
 import yaml
 
+from milvus_client.common.capability import version_at_least
+from milvus_client.common.version import version_family
+
 
 @dataclass(frozen=True)
 class FieldSpec:
@@ -120,7 +123,13 @@ def _as_function_spec(payload: dict[str, Any]) -> FunctionSpec:
 def load_schema_matrix(path: str | Path) -> list[SchemaSpec]:
     matrix_path = Path(path)
     payload = yaml.safe_load(matrix_path.read_text()) or {}
-    version = str(payload.get("version", "unknown"))
+    version = str(payload.get("version") or "").strip()
+    try:
+        version_family(version)
+    except ValueError as exc:
+        raise ValueError(
+            f"{matrix_path}: schema matrix requires a parseable major.minor version"
+        ) from exc
     specs = []
     for item in payload.get("schemas", []):
         specs.append(
@@ -258,6 +267,33 @@ def validate_schema_matrix(
                 if capability not in capabilities:
                     errors.append(f"{spec.name}: unknown capability {capability}")
     return errors
+
+
+def rollback_incompatible_specs(
+    specs: list[SchemaSpec], rollback_version: str
+) -> list[SchemaSpec]:
+    try:
+        version_family(rollback_version)
+        rollback_version_valid = True
+    except ValueError:
+        rollback_version_valid = False
+
+    incompatible = []
+    for spec in specs:
+        if spec.compat_mode == "rollback_safe":
+            continue
+        try:
+            version_family(spec.version)
+            schema_version_valid = True
+        except ValueError:
+            schema_version_valid = False
+        if (
+            not rollback_version_valid
+            or not schema_version_valid
+            or not version_at_least(rollback_version, spec.version)
+        ):
+            incompatible.append(spec)
+    return incompatible
 
 
 def dtype_to_milvus(dtype: str):

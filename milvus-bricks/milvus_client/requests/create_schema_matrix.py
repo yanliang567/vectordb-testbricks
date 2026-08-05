@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
 import sys
 
 from milvus_client.common.args import build_common_parser, parse_bool
-from milvus_client.common.capability import evaluate_capabilities, load_capability_catalog
+from milvus_client.common.capability import (
+    evaluate_capabilities,
+    load_capability_catalog,
+)
 from milvus_client.common.client import create_client, get_server_version
 from milvus_client.common.result import FAILED, PASSED, SKIPPED, result_from_args
 from milvus_client.common.schema import (
@@ -14,20 +16,33 @@ from milvus_client.common.schema import (
     create_collection_kwargs,
     load_feature_inventory,
     load_schema_matrix,
+    rollback_incompatible_specs,
     validate_schema_matrix,
 )
 
 
 def add_args(parser):
     parser.add_argument("--schema-matrix", required=True)
-    parser.add_argument("--feature-inventory", default="milvus_client/manifests/feature_inventory.yaml")
-    parser.add_argument("--capability-catalog", default="milvus_client/manifests/capability_catalog.yaml")
+    parser.add_argument(
+        "--feature-inventory", default="milvus_client/manifests/feature_inventory.yaml"
+    )
+    parser.add_argument(
+        "--capability-catalog",
+        default="milvus_client/manifests/capability_catalog.yaml",
+    )
     parser.add_argument("--drop-if-exists", type=parse_bool, default=False)
     parser.add_argument("--load-after-create", type=parse_bool, default=True)
+    parser.add_argument("--rollback-version", default="")
+    parser.add_argument("--rollback-enabled", type=parse_bool, default=True)
+    parser.add_argument(
+        "--rollback-forward-validation-enabled", type=parse_bool, default=False
+    )
     parser.add_argument("--dry-run", action="store_true")
 
 
-def run_dry_run(schema_matrix: str, feature_inventory: str, capability_catalog: str) -> dict:
+def run_dry_run(
+    schema_matrix: str, feature_inventory: str, capability_catalog: str
+) -> dict:
     features = load_feature_inventory(feature_inventory)
     capabilities = load_capability_catalog(capability_catalog)
     specs = load_schema_matrix(schema_matrix)
@@ -42,10 +57,14 @@ def main(argv: list[str] | None = None) -> int:
     result = result_from_args(args, "create_schema_matrix")
 
     try:
-        dry_run = run_dry_run(args.schema_matrix, args.feature_inventory, args.capability_catalog)
+        dry_run = run_dry_run(
+            args.schema_matrix, args.feature_inventory, args.capability_catalog
+        )
     except Exception as exc:
         result.status = FAILED
-        result.mark_failed("MANIFEST_INVALID", "failed to load schema matrix", error=str(exc))
+        result.mark_failed(
+            "MANIFEST_INVALID", "failed to load schema matrix", error=str(exc)
+        )
         result.write(args.output_json)
         return 2
     if dry_run["errors"]:
@@ -54,6 +73,21 @@ def main(argv: list[str] | None = None) -> int:
             result.mark_failed("MANIFEST_INVALID", error)
         result.write(args.output_json)
         return 2
+    if args.rollback_enabled and args.rollback_forward_validation_enabled:
+        incompatible_specs = rollback_incompatible_specs(
+            load_schema_matrix(args.schema_matrix),
+            args.rollback_version,
+        )
+        if incompatible_specs:
+            result.status = FAILED
+            result.mark_failed(
+                "ROLLBACK_CONTRACT_INVALID",
+                "forward schema matrix contains schemas incompatible with the rollback version",
+                rollback_version=args.rollback_version,
+                incompatible_schemas=[spec.name for spec in incompatible_specs],
+            )
+            result.write(args.output_json)
+            return 2
     if args.dry_run:
         result.metrics = dry_run
         result.write(args.output_json)
@@ -68,9 +102,17 @@ def main(argv: list[str] | None = None) -> int:
     loaded = []
     failed = []
     for spec in specs:
-        capability_result = evaluate_capabilities(spec.required_capabilities, capabilities, server_version)
+        capability_result = evaluate_capabilities(
+            spec.required_capabilities, capabilities, server_version
+        )
         if capability_result["unsupported"] and args.skip_unsupported:
-            skipped.append({"schema": spec.name, "reason": "unsupported capabilities", "capabilities": capability_result})
+            skipped.append(
+                {
+                    "schema": spec.name,
+                    "reason": "unsupported capabilities",
+                    "capabilities": capability_result,
+                }
+            )
             continue
         name = collection_name(args.collection_prefix, spec)
         try:
@@ -80,23 +122,47 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     if args.load_after_create:
                         client.load_collection(name)
-                        loaded.append({"schema": spec.name, "collection": name, "reason": "collection exists"})
-                    skipped.append({"schema": spec.name, "collection": name, "reason": "collection exists"})
+                        loaded.append(
+                            {
+                                "schema": spec.name,
+                                "collection": name,
+                                "reason": "collection exists",
+                            }
+                        )
+                    skipped.append(
+                        {
+                            "schema": spec.name,
+                            "collection": name,
+                            "reason": "collection exists",
+                        }
+                    )
                     continue
-            client.create_collection(collection_name=name, schema=build_milvus_schema(spec), **create_collection_kwargs(spec))
+            client.create_collection(
+                collection_name=name,
+                schema=build_milvus_schema(spec),
+                **create_collection_kwargs(spec),
+            )
             for partition in spec.partitions:
                 if not hasattr(client, "create_partition"):
                     raise RuntimeError("client does not support create_partition")
                 has_partition = False
                 if hasattr(client, "has_partition"):
-                    has_partition = client.has_partition(collection_name=name, partition_name=partition)
+                    has_partition = client.has_partition(
+                        collection_name=name, partition_name=partition
+                    )
                 if not has_partition:
-                    client.create_partition(collection_name=name, partition_name=partition)
+                    client.create_partition(
+                        collection_name=name, partition_name=partition
+                    )
             if spec.indexes:
-                client.create_index(collection_name=name, index_params=build_index_params(spec))
+                client.create_index(
+                    collection_name=name, index_params=build_index_params(spec)
+                )
             if args.load_after_create:
                 client.load_collection(name)
-                loaded.append({"schema": spec.name, "collection": name, "reason": "created"})
+                loaded.append(
+                    {"schema": spec.name, "collection": name, "reason": "created"}
+                )
             created.append({"schema": spec.name, "collection": name})
         except Exception as exc:
             failed.append({"schema": spec.name, "collection": name, "error": str(exc)})
@@ -115,7 +181,11 @@ def main(argv: list[str] | None = None) -> int:
     if failed:
         result.status = FAILED
         for failure in failed:
-            result.mark_failed("CREATE_COLLECTION_FAILED", "failed to create schema collection", **failure)
+            result.mark_failed(
+                "CREATE_COLLECTION_FAILED",
+                "failed to create schema collection",
+                **failure,
+            )
     else:
         result.status = PASSED if created else SKIPPED
         if not created:

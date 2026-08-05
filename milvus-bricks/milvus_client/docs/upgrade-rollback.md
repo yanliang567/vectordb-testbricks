@@ -263,6 +263,14 @@ seed/validate steps use `/tmp/milvus-bricks/checkpoints/forward/seed_data.json`.
 This keeps forward-only checkpoints from overwriting the baseline checkpoint
 used by rollback validation.
 
+The promoted target-only feature scenario is
+`standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest`.
+It creates the full 3.0 forward schema matrix after upgrading from 2.6, validates
+forward data and indexes, runs forward schema evolution, and then rolls back to
+2.6. `rollback-forward-validation-enabled` must remain `false`: the rollback
+contract covers the original 2.6 baseline data, not collections that use
+3.0-only schema or index capabilities.
+
 For `v2.6.18 -> master/3.0 -> latest 2.6` runs, keep the 2.6 template and pass
 the master/3.0 image as `target-milvus-image`. Use a rollback 2.6 build that
 contains #50792; `v2.6.18` is a diagnostic-only rollback target for #50694 and

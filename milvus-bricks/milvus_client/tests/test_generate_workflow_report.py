@@ -187,6 +187,10 @@ def _write_successful_upgrade_only_validation(tmp_path: Path) -> None:
         tmp_path / "results" / "validate_forward_after_upgrade.json",
         {"status": "passed"},
     )
+    _write_json(
+        tmp_path / "results" / "validate_forward_indexes_after_upgrade.json",
+        {"status": "passed"},
+    )
 
 
 def _write_successful_upgrade_validation(tmp_path: Path) -> None:
@@ -769,6 +773,96 @@ def test_generate_workflow_report_fails_when_required_forward_rollback_validatio
     assert report["status"] == "failed"
     assert (
         report["validation"]["results"]["validate_forward_after_rollback"]["status"]
+        == "missing"
+    )
+
+
+def test_generate_workflow_report_requires_forward_index_validation_after_upgrade(
+    tmp_path,
+):
+    _write_successful_validation(tmp_path)
+    _write_json(
+        tmp_path / "results" / "validate_forward_after_upgrade.json",
+        {"status": "passed"},
+    )
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        [
+            *_base_args(tmp_path, pressure_fail_on_error="true"),
+            "--forward-workload-enabled",
+            "true",
+        ]
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 1
+    assert (
+        report["validation"]["results"]["validate_forward_indexes_after_upgrade"][
+            "status"
+        ]
+        == "missing"
+    )
+
+
+def test_generate_workflow_report_requires_forward_index_validation_after_rollback(
+    tmp_path,
+):
+    _write_successful_validation(tmp_path)
+    _write_json(
+        tmp_path / "results" / "validate_forward_after_upgrade.json",
+        {"status": "passed"},
+    )
+    _write_json(
+        tmp_path / "results" / "validate_forward_indexes_after_upgrade.json",
+        {"status": "passed"},
+    )
+    _write_json(
+        tmp_path / "results" / "validate_forward_after_rollback.json",
+        {"status": "passed"},
+    )
+    _write_json(
+        tmp_path / "results" / "wait_forward_rollback_serviceability.json",
+        {"brick": "wait_data_serviceability", "status": "passed"},
+    )
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        [
+            *_base_args(tmp_path, pressure_fail_on_error="true"),
+            "--forward-workload-enabled",
+            "true",
+            "--rollback-forward-validation-enabled",
+            "true",
+        ]
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 1
+    assert (
+        report["validation"]["results"]["validate_forward_indexes_after_rollback"][
+            "status"
+        ]
         == "missing"
     )
 
