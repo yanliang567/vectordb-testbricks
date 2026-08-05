@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import gzip
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -38,6 +40,19 @@ ROLLOUT_WINDOW_LABELS = {
     "post-upgrade-config-rollout",
     "rollback-rollout",
 }
+
+
+def pressure_result_text_from_configmap(item: dict[str, Any]) -> str | None:
+    data = item.get("data") or {}
+    if "result.json" in data:
+        return data["result.json"]
+
+    binary_data = item.get("binaryData") or {}
+    encoded = binary_data.get("result.json.gz")
+    if encoded is None:
+        return None
+    compressed = base64.b64decode(encoded, validate=True)
+    return gzip.decompress(compressed).decode("utf-8")
 
 
 def parse_time(value: Any) -> datetime | None:

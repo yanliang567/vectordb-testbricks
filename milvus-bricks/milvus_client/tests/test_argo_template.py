@@ -1,4 +1,6 @@
 import ast
+import base64
+import gzip
 import json
 import re
 import subprocess
@@ -11,9 +13,59 @@ import yaml
 from milvus_client.common.pressure_maintenance import (
     classify_pressure_result,
     maintenance_windows_from_workflow_nodes,
+    pressure_result_text_from_configmap,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_pressure_result_configmap_decoder_supports_plain_and_gzip_payloads():
+    result_text = json.dumps(
+        {
+            "status": "failed",
+            "failures": [{"error": "repeated failure"}] * 5000,
+        }
+    )
+    compressed = gzip.compress(result_text.encode("utf-8"))
+
+    assert (
+        pressure_result_text_from_configmap({"data": {"result.json": result_text}})
+        == result_text
+    )
+    assert (
+        pressure_result_text_from_configmap(
+            {
+                "binaryData": {
+                    "result.json.gz": base64.b64encode(compressed).decode("ascii")
+                }
+            }
+        )
+        == result_text
+    )
+    assert len(compressed) < len(result_text) / 20
+    assert pressure_result_text_from_configmap({"data": {}}) is None
+
+
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
+def test_pressure_daemon_compresses_configmap_results(template_name):
+    template = yaml.safe_load((ROOT / "argo" / template_name).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+
+    daemon_command = templates["pressure-daemon"]["container"]["args"][0]
+    assert 'gzip -c "$result" > /tmp/pressure-result.json.gz' in daemon_command
+    assert "--from-file=result.json.gz=/tmp/pressure-result.json.gz" in daemon_command
+    assert '--from-file=result.json="$result"' not in daemon_command
+
+    check_command = templates["check-pressure-results"]["container"]["args"][0]
+    assert "pressure_result_text_from_configmap" in check_command
+    assert 'if "result.json" in data' not in check_command
 
 
 def test_ci_runs_offline_argo_lint():

@@ -1787,12 +1787,13 @@ spec:
             EOF
                   fi
                 fi
+                gzip -c "$result" > /tmp/pressure-result.json.gz
                 kubectl -n "$pressure_ns" create configmap "$attempt_cm" \
                   --from-literal=module="$module" \
                   --from-literal=iteration="$iteration" \
                   --from-literal=result_file="$result_file" \
                   --from-literal=return_code="$rc" \
-                  --from-file=result.json="$result" \
+                  --from-file=result.json.gz=/tmp/pressure-result.json.gz \
                   --dry-run=client -o yaml > /tmp/pressure-result.yaml
                 kubectl label --local -f /tmp/pressure-result.yaml \
                   app.kubernetes.io/managed-by=argo-workflow \
@@ -1928,6 +1929,7 @@ spec:
             from pathlib import Path
             from milvus_client.common.pressure_maintenance import classify_pressure_result
             from milvus_client.common.pressure_maintenance import maintenance_windows_from_workflow_nodes
+            from milvus_client.common.pressure_maintenance import pressure_result_text_from_configmap
 
             root = Path("/tmp/milvus-bricks")
             result_dir = root / "pressure-results"
@@ -1983,8 +1985,9 @@ spec:
                         "configmap": item["metadata"]["name"],
                     }
                 )
-                if "result.json" in data:
-                    (result_dir / result_file).write_text(data["result.json"])
+                result_text = pressure_result_text_from_configmap(item)
+                if result_text is not None:
+                    (result_dir / result_file).write_text(result_text)
             attempts_path.write_text("\n".join(json.dumps(attempt, sort_keys=True) for attempt in attempts) + ("\n" if attempts else ""))
             files = sorted(result_dir.glob("*.json"))
             failed = []
