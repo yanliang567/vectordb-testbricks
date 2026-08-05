@@ -1326,7 +1326,7 @@ spec:
         backoff:
           duration: 10s
           factor: 1
-          maxDuration: 10s
+          maxDuration: 15m
       inputs:
         parameters:
           - name: phase

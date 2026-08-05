@@ -247,7 +247,7 @@ def test_standalone_post_config_assertion_retries_until_runtime_converges(
     assert retry_template["retryStrategy"] == {
         "limit": "120",
         "retryPolicy": "Always",
-        "backoff": {"duration": "10s", "factor": 1, "maxDuration": "10s"},
+        "backoff": {"duration": "10s", "factor": 1, "maxDuration": "15m"},
     }
     retry_step = retry_template["steps"][0][0]
     assert retry_step["template"] == "assert-milvus-storage-config"
