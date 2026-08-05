@@ -117,6 +117,23 @@ def test_2_6_target_only_gate_rejects_renamed_forward_only_matrix_after_rollback
         resolve_gate_scenario(broken, scenario["id"])
 
 
+def test_target_only_gate_ignores_forward_rollback_contract_when_rollback_disabled():
+    manifest = _manifest()
+    scenario = next(
+        item
+        for item in manifest["scenarios"]
+        if item["id"]
+        == "standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest"
+    )
+    scenario["rollback_enabled"] = False
+    scenario["rollback_forward_validation_enabled"] = True
+
+    resolved = resolve_gate_scenario(manifest, scenario["id"])
+
+    assert resolved["rollback_enabled"] is False
+    assert resolved["rollback_forward_validation_enabled"] is True
+
+
 def test_target_only_gate_rejects_future_matrix_after_older_rollback(tmp_path):
     manifest = _manifest()
     scenario = resolve_gate_scenario(

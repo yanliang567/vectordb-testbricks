@@ -318,6 +318,9 @@ def test_upgrade_templates_delegate_forward_rollback_contract_to_schema_brick():
         assert "--rollback-version {{workflow.parameters.rollback-version}}" in (
             create_forward_args
         )
+        assert "--rollback-enabled {{workflow.parameters.rollback-enabled}}" in (
+            create_forward_args
+        )
         assert (
             "--rollback-forward-validation-enabled "
             "{{workflow.parameters.rollback-forward-validation-enabled}}"

@@ -344,23 +344,24 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
     target_version = str(scenario["target"]["version"])
     rollback_version = str(scenario["rollback"]["version"])
 
-    forward_schema_matrix = _schema_matrix_path(
-        str(scenario.get("forward_schema_matrix") or "")
-    )
-    incompatible_forward_specs = rollback_incompatible_specs(
-        load_schema_matrix(forward_schema_matrix),
-        rollback_version,
-    )
     if (
-        scenario.get("forward_workload_enabled") is True
+        scenario.get("rollback_enabled", True) is True
+        and scenario.get("forward_workload_enabled") is True
         and scenario.get("rollback_forward_validation_enabled") is True
-        and incompatible_forward_specs
     ):
-        raise ValueError(
-            f"{scenario['id']}: forward schemas cannot be required after rollback "
-            f"to {rollback_version}; incompatible schemas: "
-            f"{', '.join(spec.name for spec in incompatible_forward_specs)}"
+        forward_schema_matrix = _schema_matrix_path(
+            str(scenario.get("forward_schema_matrix") or "")
         )
+        incompatible_forward_specs = rollback_incompatible_specs(
+            load_schema_matrix(forward_schema_matrix),
+            rollback_version,
+        )
+        if incompatible_forward_specs:
+            raise ValueError(
+                f"{scenario['id']}: forward schemas cannot be required after rollback "
+                f"to {rollback_version}; incompatible schemas: "
+                f"{', '.join(spec.name for spec in incompatible_forward_specs)}"
+            )
 
     is_2_6_to_3_0_to_2_6 = (
         base_version.startswith("2.6")

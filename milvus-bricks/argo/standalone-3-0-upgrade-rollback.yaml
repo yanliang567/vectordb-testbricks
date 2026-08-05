@@ -525,6 +525,7 @@ spec:
                     --drop-if-exists true
                     --load-after-create true
                     --rollback-version {{workflow.parameters.rollback-version}}
+                    --rollback-enabled {{workflow.parameters.rollback-enabled}}
                     --rollback-forward-validation-enabled {{workflow.parameters.rollback-forward-validation-enabled}}
 
           - name: seed-forward-data

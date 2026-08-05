@@ -1,11 +1,14 @@
 from pathlib import Path
 
+import pytest
+
 from milvus_client.common.capability import load_capability_catalog
 from milvus_client.common.schema import (
     FieldSpec,
     SchemaSpec,
     load_feature_inventory,
     load_schema_matrix,
+    rollback_incompatible_specs,
     validate_schema_matrix,
 )
 
@@ -26,6 +29,35 @@ def test_schema_matrix_manifests_are_valid():
         specs = load_schema_matrix(ROOT / "manifests" / name)
         errors = validate_schema_matrix(specs, features, set(capabilities))
         assert errors == []
+
+
+@pytest.mark.parametrize("version", [None, "unknown"])
+def test_load_schema_matrix_requires_parseable_version(tmp_path, version):
+    matrix = tmp_path / "invalid-version.yaml"
+    version_line = "" if version is None else f'version: "{version}"\n'
+    matrix.write_text(
+        f"""\
+{version_line}schemas:
+  - name: future_feature
+    compat_mode: forward_only
+    fields:
+      - {{name: id, dtype: INT64, primary: true}}
+"""
+    )
+
+    with pytest.raises(ValueError, match="version"):
+        load_schema_matrix(matrix)
+
+
+def test_rollback_compatibility_fails_closed_for_unknown_schema_version():
+    spec = SchemaSpec(
+        name="future_feature",
+        version="unknown",
+        compat_mode="forward_only",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+    )
+
+    assert rollback_incompatible_specs([spec], "2.6.18") == [spec]
 
 
 def test_schema_matrix_2_6_covers_expanded_rollback_safe_shapes():

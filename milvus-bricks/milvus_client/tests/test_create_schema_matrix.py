@@ -19,7 +19,13 @@ def test_create_schema_matrix_dry_run_loads_manifest():
     assert result["errors"] == []
 
 
-def _contract_args(tmp_path, matrix: Path, rollback_version: str) -> list[str]:
+def _contract_args(
+    tmp_path,
+    matrix: Path,
+    rollback_version: str,
+    *,
+    rollback_enabled: bool = True,
+) -> list[str]:
     return [
         "--uri",
         "http://milvus:19530",
@@ -37,6 +43,8 @@ def _contract_args(tmp_path, matrix: Path, rollback_version: str) -> list[str]:
         str(ROOT / "manifests" / "capability_catalog.yaml"),
         "--rollback-version",
         rollback_version,
+        "--rollback-enabled",
+        str(rollback_enabled).lower(),
         "--rollback-forward-validation-enabled",
         "true",
         "--dry-run",
@@ -72,3 +80,36 @@ def test_create_schema_matrix_allows_forward_only_matrix_for_same_family_rollbac
     result = json.loads((tmp_path / "result-3.0.0.json").read_text())
     assert code == 0
     assert result["status"] == "passed"
+
+
+def test_create_schema_matrix_ignores_contract_when_rollback_disabled(tmp_path):
+    matrix = ROOT / "manifests" / "schema_matrix_3_0.yaml"
+
+    code = create_schema_matrix.main(
+        _contract_args(
+            tmp_path,
+            matrix,
+            "2.6.18",
+            rollback_enabled=False,
+        )
+    )
+
+    result = json.loads((tmp_path / "result-2.6.18.json").read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+
+
+def test_create_schema_matrix_rejects_missing_matrix_version(tmp_path):
+    matrix = tmp_path / "missing-version.yaml"
+    matrix.write_text(
+        "\n".join(
+            (ROOT / "manifests" / "schema_matrix_3_0.yaml").read_text().splitlines()[1:]
+        )
+    )
+
+    code = create_schema_matrix.main(_contract_args(tmp_path, matrix, "2.6.18"))
+
+    result = json.loads((tmp_path / "result-2.6.18.json").read_text())
+    assert code == 2
+    assert result["failures"][0]["type"] == "MANIFEST_INVALID"
+    assert "version" in result["failures"][0]["error"]

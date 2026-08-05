@@ -103,7 +103,7 @@ def test_seed_data_captures_auto_id_checkpoint(monkeypatch, tmp_path):
     schema_matrix = tmp_path / "schema.yaml"
     schema_matrix.write_text(
         """
-version: "test"
+version: "2.6"
 schemas:
   - name: auto
     fields:

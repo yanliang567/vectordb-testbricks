@@ -33,6 +33,7 @@ def add_args(parser):
     parser.add_argument("--drop-if-exists", type=parse_bool, default=False)
     parser.add_argument("--load-after-create", type=parse_bool, default=True)
     parser.add_argument("--rollback-version", default="")
+    parser.add_argument("--rollback-enabled", type=parse_bool, default=True)
     parser.add_argument(
         "--rollback-forward-validation-enabled", type=parse_bool, default=False
     )
@@ -72,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
             result.mark_failed("MANIFEST_INVALID", error)
         result.write(args.output_json)
         return 2
-    if args.rollback_forward_validation_enabled:
+    if args.rollback_enabled and args.rollback_forward_validation_enabled:
         incompatible_specs = rollback_incompatible_specs(
             load_schema_matrix(args.schema_matrix),
             args.rollback_version,
