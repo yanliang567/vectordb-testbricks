@@ -1860,6 +1860,8 @@ spec:
                 kubectl label --local -f /tmp/pressure-attempt.yaml \
                   app.kubernetes.io/managed-by=argo-workflow \
                   app.kubernetes.io/name=milvus-cluster-upgrade-rollback \
+                  app.kubernetes.io/instance="{{workflow.name}}" \
+                  app.kubernetes.io/component=pressure-result \
                   zilliz.com/workflow-run-id="{{workflow.uid}}" \
                   zilliz.com/pressure-result=true \
                   -o yaml | kubectl apply -f -
@@ -1913,6 +1915,8 @@ spec:
                 kubectl label --local -f /tmp/pressure-result.yaml \
                   app.kubernetes.io/managed-by=argo-workflow \
                   app.kubernetes.io/name=milvus-cluster-upgrade-rollback \
+                  app.kubernetes.io/instance="{{workflow.name}}" \
+                  app.kubernetes.io/component=pressure-result \
                   zilliz.com/workflow-run-id="{{workflow.uid}}" \
                   zilliz.com/pressure-result=true \
                   -o yaml | kubectl apply -f -
@@ -2051,7 +2055,7 @@ spec:
             attempts_path = root / "pressure-attempts.jsonl"
             result_dir.mkdir(parents=True, exist_ok=True)
             attempts_path.parent.mkdir(parents=True, exist_ok=True)
-            selector = "zilliz.com/workflow-run-id={{workflow.uid}},zilliz.com/pressure-result=true"
+            selector = "app.kubernetes.io/instance={{workflow.name}},app.kubernetes.io/component=pressure-result"
             completed = subprocess.run(
                 ["kubectl", "-n", "{{workflow.namespace}}", "get", "configmaps", "-l", selector, "-o", "json"],
                 check=False,

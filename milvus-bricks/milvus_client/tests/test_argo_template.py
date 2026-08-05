@@ -62,10 +62,17 @@ def test_pressure_daemon_compresses_configmap_results(template_name):
     assert 'gzip -c "$result" > /tmp/pressure-result.json.gz' in daemon_command
     assert "--from-file=result.json.gz=/tmp/pressure-result.json.gz" in daemon_command
     assert '--from-file=result.json="$result"' not in daemon_command
+    assert daemon_command.count('app.kubernetes.io/instance="{{workflow.name}}"') == 2
+    assert daemon_command.count("app.kubernetes.io/component=pressure-result") == 2
 
     check_command = templates["check-pressure-results"]["container"]["args"][0]
     assert "pressure_result_text_from_configmap" in check_command
     assert 'if "result.json" in data' not in check_command
+    assert (
+        'selector = "app.kubernetes.io/instance={{workflow.name}},'
+        'app.kubernetes.io/component=pressure-result"' in check_command
+    )
+    assert "zilliz.com/workflow-run-id={{workflow.uid}}," not in check_command
 
 
 def test_ci_runs_offline_argo_lint():
@@ -2012,7 +2019,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "PRESSURE_RESULT_MISSING" in check_command
     assert "PRESSURE_ATTEMPT_PENDING" in check_command
     assert "kubectl" in check_command
-    assert "zilliz.com/pressure-result=true" in check_command
+    assert (
+        "app.kubernetes.io/instance={{workflow.name}},"
+        "app.kubernetes.io/component=pressure-result" in check_command
+    )
     assert 'summary["fail_on_error"] and failed' not in check_command
 
     final_report = templates["generate-final-report"]
