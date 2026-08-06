@@ -52,3 +52,16 @@ pending、missing 和 unreadable attempt 会转换为无 metrics、无时间戳�
 2. 评估 pressure slice 长度对 failure span 的误差。
 3. 确定 `min_success_rate`、`max_failure_span_sec` 和 incomplete sample 策略。
 4. 仅对 HA promoted gate 启用硬 availability SLO。
+
+## 校准状态
+
+2026-08-06 已完成前三条场景的首轮 4am 校准，结果记录在
+`milvus_client/docs/reports/2026-08-06-upgrade-rollback-availability-calibration.md`。
+
+- 三条 run 的样本均完整且可用于校准。
+- Woodpecker 2CU HA run 通过；target-only 和 JSON Shredding run 因 strict
+  pressure 捕获到非连接类或 readiness 后持续的服务错误而失败。
+- 已给出仅面向 Woodpecker 2CU HA 的候选阈值，但在重复 2CU run 建立方差前
+  保持 `gate_enforced=false`。
+- 现有 10 秒 result slice 会把跨越窗口边界的整段操作归入 rollout，且阻塞
+  RPC 可让实际 slice 显著超过 10 秒；硬门禁前仍需重复运行或增加时间桶指标。
