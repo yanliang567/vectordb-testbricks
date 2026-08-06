@@ -8,7 +8,7 @@
 
 每个 scope 输出：
 
-- `sample_count` / `incomplete_sample_count` / `complete`
+- `sample_count` / `incomplete_sample_count` / `complete` / `calibration_eligible`
 - `operations_total` / `operations_succeeded` / `requests_failed`
 - `success_rate`
 - `failed_sample_count`
@@ -21,7 +21,7 @@ scope 包括：
 - `steady_state`：不与 rollout window 重叠的 result slice。
 - `rollout_windows`：`upgrade-rollout`、`post-upgrade-config-rollout` 和 `rollback-rollout`。
 
-缺少 result 时间戳的样本不归入 steady state 或 rollout window，并通过 `unassigned_sample_count` 单独暴露。进程级失败即使没有 request metrics，也会增加 `failed_sample_count` 和 `incomplete_sample_count`。
+pending、missing 和 unreadable attempt 会转换为无 metrics、无时间戳的占位样本。缺少 result 时间戳的样本不归入 steady state 或 rollout window，并通过 `unassigned_sample_count` 单独暴露。进程级失败即使没有 request metrics，也会增加 `failed_sample_count` 和 `incomplete_sample_count`。零样本或存在不完整样本时 `complete=false`、`calibration_eligible=false`，不得用于后续阈值校准。
 
 `measurement=overlapping_pressure_result_slices` 表明统计按 result slice 与窗口是否重叠归属。单个 slice 跨越窗口边界时，其操作计数整体计入该窗口，因此该指标适合趋势比较和阈值校准，不宣称请求级精确 outage duration。
 

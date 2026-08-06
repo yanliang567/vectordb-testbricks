@@ -107,10 +107,12 @@ def _availability_stats(results: list[dict[str, Any]]) -> dict[str, Any]:
         if first_failure is not None and last_failure is not None
         else 0.0
     )
+    complete = bool(results) and incomplete_sample_count == 0
     return {
         "sample_count": len(results),
         "incomplete_sample_count": incomplete_sample_count,
-        "complete": incomplete_sample_count == 0,
+        "complete": complete,
+        "calibration_eligible": complete and operations_total > 0,
         "operations_total": operations_total,
         "operations_succeeded": operations_succeeded,
         "requests_failed": requests_failed,
@@ -121,6 +123,70 @@ def _availability_stats(results: list[dict[str, Any]]) -> dict[str, Any]:
         "last_failure_at": last_failure.isoformat() if last_failure else None,
         "failure_span_sec": failure_span_sec,
     }
+
+
+def pressure_availability_samples(
+    parsed_results: dict[str, dict[str, Any]],
+    attempts: list[dict[str, Any]],
+    unreadable_results: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    unreadable_results = unreadable_results or {}
+    attempts_by_file = {
+        str(attempt.get("result_file")): attempt
+        for attempt in attempts
+        if attempt.get("result_file")
+    }
+    samples = list(parsed_results.values())
+
+    for result_file, error in sorted(unreadable_results.items()):
+        if result_file in parsed_results:
+            continue
+        attempt = attempts_by_file.get(result_file, {})
+        samples.append(
+            {
+                "file": result_file,
+                "brick": attempt.get("module"),
+                "status": "unreadable",
+                "metrics": {},
+                "failures": [
+                    {
+                        "type": "PRESSURE_RESULT_UNREADABLE",
+                        "message": error,
+                    }
+                ],
+            }
+        )
+
+    for attempt in attempts:
+        result_file = str(attempt.get("result_file") or "")
+        if not result_file:
+            continue
+        if result_file in parsed_results or result_file in unreadable_results:
+            continue
+        pending = attempt.get("return_code") == "pending"
+        samples.append(
+            {
+                "file": result_file,
+                "brick": attempt.get("module"),
+                "status": "pending_result" if pending else "missing_result",
+                "metrics": {},
+                "failures": [
+                    {
+                        "type": (
+                            "PRESSURE_ATTEMPT_PENDING"
+                            if pending
+                            else "PRESSURE_RESULT_MISSING"
+                        ),
+                        "message": (
+                            "pressure attempt was recorded but did not complete"
+                            if pending
+                            else "pressure attempt did not produce a result json"
+                        ),
+                    }
+                ],
+            }
+        )
+    return samples
 
 
 def build_pressure_availability_summary(

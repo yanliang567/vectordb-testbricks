@@ -320,7 +320,8 @@ def build_markdown(report: dict[str, Any]) -> str:
                     f"failed=`{overall.get('requests_failed')}`, "
                     f"success_rate=`{overall.get('success_rate')}`, "
                     f"failure_span_sec=`{overall.get('failure_span_sec')}`, "
-                    f"complete=`{overall.get('complete')}`"
+                    f"complete=`{overall.get('complete')}`, "
+                    f"calibration_eligible=`{overall.get('calibration_eligible')}`"
                 ),
                 f"- unassigned samples: `{availability.get('unassigned_sample_count')}`",
                 (
@@ -337,6 +338,7 @@ def build_markdown(report: dict[str, Any]) -> str:
                 f"failed=`{window.get('requests_failed')}`, "
                 f"success_rate=`{window.get('success_rate')}`, "
                 f"failure_span_sec=`{window.get('failure_span_sec')}`, "
+                f"complete=`{window.get('complete')}`, "
                 f"impacted_bricks=`{window.get('impacted_bricks')}`"
             )
     else:

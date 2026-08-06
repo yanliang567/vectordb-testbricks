@@ -1932,6 +1932,7 @@ spec:
             from milvus_client.common.pressure_maintenance import build_pressure_availability_summary
             from milvus_client.common.pressure_maintenance import classify_pressure_result
             from milvus_client.common.pressure_maintenance import maintenance_windows_from_workflow_nodes
+            from milvus_client.common.pressure_maintenance import pressure_availability_samples
             from milvus_client.common.pressure_maintenance import pressure_result_configmaps
             from milvus_client.common.pressure_maintenance import pressure_result_text_from_configmap
 
@@ -2017,7 +2018,8 @@ spec:
             failed = []
             excluded_failed = []
             passed = 0
-            parsed_results = []
+            parsed_results = {}
+            unreadable_results = {}
             attempt_files = [attempt["result_file"] for attempt in attempts if attempt.get("result_file")]
             if not files:
                 failed.append(
@@ -2053,8 +2055,9 @@ spec:
                     result = json.loads(path.read_text())
                 except Exception as exc:
                     failed.append({"file": path.name, "status": "unreadable", "error": str(exc)})
+                    unreadable_results[path.name] = str(exc)
                     continue
-                parsed_results.append(result)
+                parsed_results[path.name] = result
                 if result.get("status") == "passed":
                     passed += 1
                     continue
@@ -2078,6 +2081,11 @@ spec:
                             ],
                         }
                     )
+            availability_results = pressure_availability_samples(
+                parsed_results,
+                attempts,
+                unreadable_results,
+            )
             summary = {
                 "total": len(files),
                 "attempts": len(attempt_files),
@@ -2096,7 +2104,7 @@ spec:
                     }
                     for window in maintenance_windows
                 ],
-                "availability": build_pressure_availability_summary(parsed_results, maintenance_windows),
+                "availability": build_pressure_availability_summary(availability_results, maintenance_windows),
                 "fail_on_error": "{{workflow.parameters.pressure-fail-on-error}}" == "true",
             }
             Path("/tmp/milvus-bricks/pressure-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))

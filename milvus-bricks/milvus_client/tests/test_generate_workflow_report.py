@@ -261,6 +261,7 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
                     "success_rate": 0.983333,
                     "failure_span_sec": 4.0,
                     "complete": True,
+                    "calibration_eligible": True,
                 },
                 "steady_state": {
                     "operations_total": 200,
@@ -274,6 +275,7 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
                         "requests_failed": 5,
                         "success_rate": 0.95,
                         "failure_span_sec": 4.0,
+                        "complete": True,
                         "impacted_bricks": ["count_pressure"],
                     }
                 ],
@@ -383,7 +385,7 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert "- unassigned samples: `0`" in markdown
     assert (
         "- rollout `upgrade-rollout`: operations=`100`, failed=`5`, "
-        "success_rate=`0.95`, failure_span_sec=`4.0`, "
+        "success_rate=`0.95`, failure_span_sec=`4.0`, complete=`True`, "
         "impacted_bricks=`['count_pressure']`" in markdown
     )
 
@@ -408,6 +410,7 @@ def test_generate_workflow_report_keeps_observational_availability_out_of_gate_s
                     "success_rate": 0.5,
                     "failure_span_sec": 30.0,
                     "complete": True,
+                    "calibration_eligible": True,
                 },
                 "steady_state": {},
                 "rollout_windows": [],

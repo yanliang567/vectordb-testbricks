@@ -14,6 +14,7 @@ from milvus_client.common.pressure_maintenance import (
     build_pressure_availability_summary,
     classify_pressure_result,
     maintenance_windows_from_workflow_nodes,
+    pressure_availability_samples,
     pressure_result_configmaps,
     pressure_result_text_from_configmap,
     workflow_owned_configmaps,
@@ -106,6 +107,7 @@ def test_pressure_availability_summary_separates_rollout_and_steady_state():
         "sample_count": 3,
         "incomplete_sample_count": 0,
         "complete": True,
+        "calibration_eligible": True,
         "operations_total": 300,
         "operations_succeeded": 295,
         "requests_failed": 5,
@@ -139,10 +141,75 @@ def test_pressure_availability_summary_keeps_process_failures_incomplete_and_una
 
     assert summary["unassigned_sample_count"] == 1
     assert summary["overall"]["complete"] is False
+    assert summary["overall"]["calibration_eligible"] is False
     assert summary["overall"]["incomplete_sample_count"] == 1
     assert summary["overall"]["failed_sample_count"] == 1
     assert summary["overall"]["impacted_bricks"] == ["search_pressure"]
     assert summary["steady_state"]["sample_count"] == 0
+    assert summary["steady_state"]["complete"] is False
+
+
+def test_pressure_availability_samples_include_pending_missing_and_unreadable_attempts():
+    parsed = {
+        "search_pressure_1.json": {
+            "brick": "search_pressure",
+            "status": "passed",
+            "started_at": "2026-08-05T09:00:00+00:00",
+            "finished_at": "2026-08-05T09:00:09+00:00",
+            "metrics": {"operations_total": 100, "requests_failed": 0},
+        }
+    }
+    attempts = [
+        {
+            "module": "search_pressure",
+            "result_file": "search_pressure_1.json",
+            "return_code": "0",
+        },
+        {
+            "module": "query_pressure",
+            "result_file": "query_pressure_2.json",
+            "return_code": "pending",
+        },
+        {
+            "module": "count_pressure",
+            "result_file": "count_pressure_3.json",
+            "return_code": "1",
+        },
+        {
+            "module": "mixed_rw_pressure",
+            "result_file": "mixed_rw_pressure_4.json",
+            "return_code": "1",
+        },
+    ]
+
+    samples = pressure_availability_samples(
+        parsed,
+        attempts,
+        {"mixed_rw_pressure_4.json": "invalid json"},
+    )
+    summary = build_pressure_availability_summary(samples, [])
+
+    assert [sample["status"] for sample in samples] == [
+        "passed",
+        "unreadable",
+        "pending_result",
+        "missing_result",
+    ]
+    assert summary["overall"]["sample_count"] == 4
+    assert summary["overall"]["incomplete_sample_count"] == 3
+    assert summary["overall"]["complete"] is False
+    assert summary["overall"]["calibration_eligible"] is False
+    assert summary["overall"]["success_rate"] == 1.0
+    assert summary["unassigned_sample_count"] == 3
+
+
+def test_pressure_availability_summary_marks_zero_samples_incomplete():
+    summary = build_pressure_availability_summary([], [])
+
+    assert summary["overall"]["sample_count"] == 0
+    assert summary["overall"]["complete"] is False
+    assert summary["overall"]["calibration_eligible"] is False
+    assert summary["overall"]["success_rate"] is None
 
 
 def test_pressure_result_configmaps_filters_by_name_uid_and_result_label():
@@ -222,6 +289,8 @@ def test_pressure_daemon_compresses_configmap_results(template_name):
     assert "pressure_result_text_from_configmap" in check_command
     assert "pressure_result_configmaps" in check_command
     assert "build_pressure_availability_summary" in check_command
+    assert "pressure_availability_samples" in check_command
+    assert "unreadable_results[path.name] = str(exc)" in check_command
     assert '"availability": build_pressure_availability_summary(' in check_command
     assert 'if "result.json" in data' not in check_command
     assert '"get", "configmaps", "-o", "name"' in check_command
