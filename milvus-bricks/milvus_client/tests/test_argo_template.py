@@ -1,4 +1,6 @@
 import ast
+import base64
+import gzip
 import json
 import re
 import subprocess
@@ -11,9 +13,134 @@ import yaml
 from milvus_client.common.pressure_maintenance import (
     classify_pressure_result,
     maintenance_windows_from_workflow_nodes,
+    pressure_result_configmaps,
+    pressure_result_text_from_configmap,
+    workflow_owned_configmaps,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_pressure_result_configmap_decoder_supports_plain_and_gzip_payloads():
+    result_text = json.dumps(
+        {
+            "status": "failed",
+            "failures": [{"error": "repeated failure"}] * 5000,
+        }
+    )
+    compressed = gzip.compress(result_text.encode("utf-8"))
+
+    assert (
+        pressure_result_text_from_configmap({"data": {"result.json": result_text}})
+        == result_text
+    )
+    assert (
+        pressure_result_text_from_configmap(
+            {
+                "binaryData": {
+                    "result.json.gz": base64.b64encode(compressed).decode("ascii")
+                }
+            }
+        )
+        == result_text
+    )
+    assert len(compressed) < len(result_text) / 20
+    assert pressure_result_text_from_configmap({"data": {}}) is None
+
+
+def test_pressure_result_configmaps_filters_by_name_uid_and_result_label():
+    def item(name, workflow_uid="workflow-uid", pressure_result="true"):
+        return {
+            "metadata": {
+                "name": name,
+                "labels": {
+                    "zilliz.com/workflow-run-id": workflow_uid,
+                    "zilliz.com/pressure-result": pressure_result,
+                },
+            }
+        }
+
+    expected = item("workflow-name-pressure-1-search-pressure")
+    stop = item("workflow-name-pressure-stop", pressure_result=None)
+    payload = {
+        "items": [
+            expected,
+            item("other-workflow-pressure-1-search-pressure"),
+            item(
+                "workflow-name-pressure-canary-pressure-1-search-pressure",
+                workflow_uid="other-uid",
+            ),
+            stop,
+        ]
+    }
+
+    assert workflow_owned_configmaps(
+        payload, workflow_name="workflow-name", workflow_uid="workflow-uid"
+    ) == [expected, stop]
+    assert pressure_result_configmaps(
+        payload, workflow_name="workflow-name", workflow_uid="workflow-uid"
+    ) == [expected]
+
+
+def test_workflow_owned_configmaps_supports_single_configmap_cleanup_response():
+    single = {
+        "kind": "ConfigMap",
+        "metadata": {
+            "name": "workflow-name-pressure-1-search-pressure",
+            "labels": {
+                "zilliz.com/workflow-run-id": "workflow-uid",
+                "zilliz.com/pressure-result": "true",
+            },
+        },
+    }
+
+    assert workflow_owned_configmaps(
+        single, workflow_name="workflow-name", workflow_uid="workflow-uid"
+    ) == [single]
+    assert pressure_result_configmaps(
+        single, workflow_name="workflow-name", workflow_uid="workflow-uid"
+    ) == [single]
+
+
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
+def test_pressure_daemon_compresses_configmap_results(template_name):
+    template = yaml.safe_load((ROOT / "argo" / template_name).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+
+    daemon_command = templates["pressure-daemon"]["container"]["args"][0]
+    assert 'gzip -c "$result" > /tmp/pressure-result.json.gz' in daemon_command
+    assert "--from-file=result.json.gz=/tmp/pressure-result.json.gz" in daemon_command
+    assert '--from-file=result.json="$result"' not in daemon_command
+    assert daemon_command.count('app.kubernetes.io/instance="{{workflow.name}}"') == 2
+    assert daemon_command.count("app.kubernetes.io/component=pressure-result") == 2
+
+    check_command = templates["check-pressure-results"]["container"]["args"][0]
+    assert "pressure_result_text_from_configmap" in check_command
+    assert "pressure_result_configmaps" in check_command
+    assert 'if "result.json" in data' not in check_command
+    assert '"get", "configmaps", "-o", "name"' in check_command
+    assert 'prefix = "configmap/{{workflow.name}}-pressure-"' in check_command
+    assert '"get", *resource_names, "-o", "json"' in check_command
+    assert '"get", "configmaps", "-l"' not in check_command
+
+    cleanup_command = templates["maybe-cleanup"]["container"]["args"][0]
+    assert "workflow-configmaps-to-delete.txt" in cleanup_command
+    assert 'delete configmaps -l "$selector"' not in cleanup_command
+    assert '"get", *resource_names, "-o", "json"' in cleanup_command
+    assert 'labels.get("zilliz.com/workflow-run-id") != workflow_uid' in cleanup_command
+    assert cleanup_command.count("list_owned_workflow_configmaps >") == 3
+    assert 'if items is None and payload.get("kind") == "ConfigMap":' in cleanup_command
+    assert "items = [payload]" in cleanup_command
+    assert (
+        'awk -v prefix="configmap/{{workflow.name}}-pressure-"' not in cleanup_command
+    )
 
 
 def test_ci_runs_offline_argo_lint():
@@ -1960,7 +2087,8 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "PRESSURE_RESULT_MISSING" in check_command
     assert "PRESSURE_ATTEMPT_PENDING" in check_command
     assert "kubectl" in check_command
-    assert "zilliz.com/pressure-result=true" in check_command
+    assert 'prefix = "configmap/{{workflow.name}}-pressure-"' in check_command
+    assert "pressure_result_configmaps" in check_command
     assert 'summary["fail_on_error"] and failed' not in check_command
 
     final_report = templates["generate-final-report"]

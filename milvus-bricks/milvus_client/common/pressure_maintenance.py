@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import gzip
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -38,6 +40,53 @@ ROLLOUT_WINDOW_LABELS = {
     "post-upgrade-config-rollout",
     "rollback-rollout",
 }
+
+
+def workflow_owned_configmaps(
+    payload: dict[str, Any], *, workflow_name: str, workflow_uid: str
+) -> list[dict[str, Any]]:
+    prefix = f"{workflow_name}-pressure-"
+    items = payload.get("items")
+    if items is None and payload.get("kind") == "ConfigMap":
+        items = [payload]
+    matched = []
+    for item in items or []:
+        metadata = item.get("metadata") or {}
+        labels = metadata.get("labels") or {}
+        if not str(metadata.get("name") or "").startswith(prefix):
+            continue
+        if labels.get("zilliz.com/workflow-run-id") != workflow_uid:
+            continue
+        matched.append(item)
+    return matched
+
+
+def pressure_result_configmaps(
+    payload: dict[str, Any], *, workflow_name: str, workflow_uid: str
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in workflow_owned_configmaps(
+            payload, workflow_name=workflow_name, workflow_uid=workflow_uid
+        )
+        if ((item.get("metadata") or {}).get("labels") or {}).get(
+            "zilliz.com/pressure-result"
+        )
+        == "true"
+    ]
+
+
+def pressure_result_text_from_configmap(item: dict[str, Any]) -> str | None:
+    data = item.get("data") or {}
+    if "result.json" in data:
+        return data["result.json"]
+
+    binary_data = item.get("binaryData") or {}
+    encoded = binary_data.get("result.json.gz")
+    if encoded is None:
+        return None
+    compressed = base64.b64decode(encoded, validate=True)
+    return gzip.decompress(compressed).decode("utf-8")
 
 
 def parse_time(value: Any) -> datetime | None:

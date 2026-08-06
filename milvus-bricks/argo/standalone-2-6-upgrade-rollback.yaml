@@ -1745,6 +1745,8 @@ spec:
                 kubectl label --local -f /tmp/pressure-attempt.yaml \
                   app.kubernetes.io/managed-by=argo-workflow \
                   app.kubernetes.io/name=milvus-standalone-2-6-upgrade-rollback \
+                  app.kubernetes.io/instance="{{workflow.name}}" \
+                  app.kubernetes.io/component=pressure-result \
                   zilliz.com/workflow-run-id="{{workflow.uid}}" \
                   zilliz.com/pressure-result=true \
                   -o yaml | kubectl apply -f -
@@ -1787,16 +1789,19 @@ spec:
             EOF
                   fi
                 fi
+                gzip -c "$result" > /tmp/pressure-result.json.gz
                 kubectl -n "$pressure_ns" create configmap "$attempt_cm" \
                   --from-literal=module="$module" \
                   --from-literal=iteration="$iteration" \
                   --from-literal=result_file="$result_file" \
                   --from-literal=return_code="$rc" \
-                  --from-file=result.json="$result" \
+                  --from-file=result.json.gz=/tmp/pressure-result.json.gz \
                   --dry-run=client -o yaml > /tmp/pressure-result.yaml
                 kubectl label --local -f /tmp/pressure-result.yaml \
                   app.kubernetes.io/managed-by=argo-workflow \
                   app.kubernetes.io/name=milvus-standalone-2-6-upgrade-rollback \
+                  app.kubernetes.io/instance="{{workflow.name}}" \
+                  app.kubernetes.io/component=pressure-result \
                   zilliz.com/workflow-run-id="{{workflow.uid}}" \
                   zilliz.com/pressure-result=true \
                   -o yaml | kubectl apply -f -
@@ -1928,22 +1933,44 @@ spec:
             from pathlib import Path
             from milvus_client.common.pressure_maintenance import classify_pressure_result
             from milvus_client.common.pressure_maintenance import maintenance_windows_from_workflow_nodes
+            from milvus_client.common.pressure_maintenance import pressure_result_configmaps
+            from milvus_client.common.pressure_maintenance import pressure_result_text_from_configmap
 
             root = Path("/tmp/milvus-bricks")
             result_dir = root / "pressure-results"
             attempts_path = root / "pressure-attempts.jsonl"
             result_dir.mkdir(parents=True, exist_ok=True)
             attempts_path.parent.mkdir(parents=True, exist_ok=True)
-            selector = "zilliz.com/workflow-run-id={{workflow.uid}},zilliz.com/pressure-result=true"
-            completed = subprocess.run(
-                ["kubectl", "-n", "{{workflow.namespace}}", "get", "configmaps", "-l", selector, "-o", "json"],
+            listed = subprocess.run(
+                ["kubectl", "-n", "{{workflow.namespace}}", "get", "configmaps", "-o", "name"],
                 check=False,
                 text=True,
                 capture_output=True,
             )
-            if completed.returncode != 0:
-                raise SystemExit(completed.stderr or completed.stdout)
-            payload = json.loads(completed.stdout or '{"items":[]}')
+            if listed.returncode != 0:
+                raise SystemExit(listed.stderr or listed.stdout)
+            prefix = "configmap/{{workflow.name}}-pressure-"
+            resource_names = sorted(
+                line.strip()
+                for line in listed.stdout.splitlines()
+                if line.strip().startswith(prefix)
+            )
+            payload = {"items": []}
+            if resource_names:
+                completed = subprocess.run(
+                    ["kubectl", "-n", "{{workflow.namespace}}", "get", *resource_names, "-o", "json"],
+                    check=False,
+                    text=True,
+                    capture_output=True,
+                )
+                if completed.returncode != 0:
+                    raise SystemExit(completed.stderr or completed.stdout)
+                payload = json.loads(completed.stdout or '{"items":[]}')
+            payload["items"] = pressure_result_configmaps(
+                payload,
+                workflow_name="{{workflow.name}}",
+                workflow_uid="{{workflow.uid}}",
+            )
 
             def _workflow_nodes():
                 completed = subprocess.run(
@@ -1983,8 +2010,9 @@ spec:
                         "configmap": item["metadata"]["name"],
                     }
                 )
-                if "result.json" in data:
-                    (result_dir / result_file).write_text(data["result.json"])
+                result_text = pressure_result_text_from_configmap(item)
+                if result_text is not None:
+                    (result_dir / result_file).write_text(result_text)
             attempts_path.write_text("\n".join(json.dumps(attempt, sort_keys=True) for attempt in attempts) + ("\n" if attempts else ""))
             files = sorted(result_dir.glob("*.json"))
             failed = []
@@ -2112,7 +2140,7 @@ spec:
             kubectl -n "$ns" get persistentvolumeclaims -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/pvcs.txt 2>&1 || true
             kubectl -n "$ns" get deployments,statefulsets,replicasets -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/workloads.txt 2>&1 || true
             kubectl -n "$ns" get events --sort-by=.lastTimestamp > /tmp/milvus-bricks/k8s/events.txt 2>&1 || true
-            kubectl -n "{{workflow.namespace}}" get configmaps -l zilliz.com/workflow-run-id="{{workflow.uid}}" -o wide > /tmp/milvus-bricks/k8s/workflow_configmaps.txt 2>&1 || true
+            kubectl -n "{{workflow.namespace}}" get configmaps -o name | awk -v prefix="configmap/{{workflow.name}}-pressure-" 'index($0, prefix) == 1' > /tmp/milvus-bricks/k8s/workflow_configmaps.txt 2>&1 || true
         volumeMounts:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks
@@ -2333,9 +2361,56 @@ spec:
             ns="{{workflow.parameters.milvus-namespace}}"
             selector="zilliz.com/workflow-run-id={{workflow.uid}}"
             workflow_ns="{{workflow.namespace}}"
+            list_owned_workflow_configmaps() {
+              python3 - "$workflow_ns" "{{workflow.name}}" "{{workflow.uid}}" <<'PY'
+            import json
+            import subprocess
+            import sys
+
+            namespace, workflow_name, workflow_uid = sys.argv[1:]
+            listed = subprocess.run(
+                ["kubectl", "-n", namespace, "get", "configmaps", "-o", "name"],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            if listed.returncode != 0:
+                raise SystemExit(listed.stderr or listed.stdout)
+            prefix = f"configmap/{workflow_name}-pressure-"
+            resource_names = sorted(
+                line.strip()
+                for line in listed.stdout.splitlines()
+                if line.strip().startswith(prefix)
+            )
+            if not resource_names:
+                raise SystemExit(0)
+            completed = subprocess.run(
+                ["kubectl", "-n", namespace, "get", *resource_names, "-o", "json"],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            if completed.returncode != 0:
+                raise SystemExit(completed.stderr or completed.stdout)
+            payload = json.loads(completed.stdout or '{"items":[]}')
+            items = payload.get("items")
+            if items is None and payload.get("kind") == "ConfigMap":
+                items = [payload]
+            name_prefix = f"{workflow_name}-pressure-"
+            for item in items or []:
+                metadata = item.get("metadata") or {}
+                labels = metadata.get("labels") or {}
+                name = str(metadata.get("name") or "")
+                if not name.startswith(name_prefix):
+                    continue
+                if labels.get("zilliz.com/workflow-run-id") != workflow_uid:
+                    continue
+                print(f"configmap/{name}")
+            PY
+            }
             kubectl -n "$ns" get milvuses -l "$selector" -o wide > /tmp/milvus-bricks/k8s/owned_milvuses.txt 2>&1 || true
             kubectl -n "$ns" get pods,services,persistentvolumeclaims,deployments,statefulsets,replicasets -l app.kubernetes.io/instance="{{workflow.name}}" -o wide > /tmp/milvus-bricks/k8s/instance_resources.txt 2>&1 || true
-            kubectl -n "$workflow_ns" get configmaps -l "$selector" -o wide > /tmp/milvus-bricks/k8s/workflow_configmaps.txt 2>&1 || true
+            list_owned_workflow_configmaps > /tmp/milvus-bricks/k8s/workflow_configmaps.txt 2>&1 || true
             kubectl -n "$ns" get events --sort-by=.lastTimestamp > /tmp/milvus-bricks/k8s/events.txt 2>&1 || true
             cleanup_attempted=false
             cleanup_status="skipped"
@@ -2344,9 +2419,27 @@ spec:
             if [ "{{workflow.parameters.keep-milvus}}" = "false" ]; then
               cleanup_attempted=true
               if {
-                kubectl -n "$ns" delete milvuses -l "$selector" --ignore-not-found=true
-                kubectl -n "$ns" delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets -l app.kubernetes.io/instance="{{workflow.name}}" --ignore-not-found=true
-                kubectl -n "$workflow_ns" delete configmaps -l "$selector" --ignore-not-found=true
+                cleanup_failed=false
+                kubectl -n "$ns" delete milvuses -l "$selector" --ignore-not-found=true || cleanup_failed=true
+                kubectl -n "$ns" delete services,persistentvolumeclaims,deployments,statefulsets,configmaps,secrets -l app.kubernetes.io/instance="{{workflow.name}}" --ignore-not-found=true || cleanup_failed=true
+                if ! list_owned_workflow_configmaps > /tmp/milvus-bricks/k8s/workflow-configmaps-to-delete.txt; then
+                  cleanup_failed=true
+                  echo "failed to list workflow-owned ConfigMaps before cleanup"
+                  : > /tmp/milvus-bricks/k8s/workflow-configmaps-to-delete.txt
+                fi
+                while IFS= read -r configmap_resource; do
+                  [ -n "$configmap_resource" ] || continue
+                  kubectl -n "$workflow_ns" delete "$configmap_resource" --ignore-not-found=true || cleanup_failed=true
+                done < /tmp/milvus-bricks/k8s/workflow-configmaps-to-delete.txt
+                if ! list_owned_workflow_configmaps > /tmp/milvus-bricks/k8s/remaining-workflow-configmaps.txt; then
+                  cleanup_failed=true
+                  echo "failed to verify workflow-owned ConfigMap cleanup"
+                elif [ -s /tmp/milvus-bricks/k8s/remaining-workflow-configmaps.txt ]; then
+                  cleanup_failed=true
+                  echo "workflow ConfigMaps still exist after cleanup:"
+                  cat /tmp/milvus-bricks/k8s/remaining-workflow-configmaps.txt
+                fi
+                [ "$cleanup_failed" = "false" ]
               } > /tmp/milvus-bricks/k8s/cleanup.txt 2>&1; then
                 cleanup_status="completed"
               else
