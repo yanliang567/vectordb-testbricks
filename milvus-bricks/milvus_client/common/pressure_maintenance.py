@@ -42,6 +42,199 @@ ROLLOUT_WINDOW_LABELS = {
 }
 
 
+def _non_negative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _result_overlaps_window(result: dict[str, Any], window: dict[str, Any]) -> bool:
+    start, end = result_interval(result)
+    window_start = parse_time(window.get("started_at") or window.get("started_at_ts"))
+    window_end = parse_time(window.get("finished_at") or window.get("finished_at_ts"))
+    if start is None or end is None or window_start is None or window_end is None:
+        return False
+    return start <= window_end and end >= window_start
+
+
+def _availability_stats(results: list[dict[str, Any]]) -> dict[str, Any]:
+    operations_total = 0
+    requests_failed = 0
+    incomplete_sample_count = 0
+    failed_sample_count = 0
+    impacted_bricks: set[str] = set()
+    failure_starts: list[datetime] = []
+    failure_ends: list[datetime] = []
+
+    for result in results:
+        metrics = result.get("metrics") or {}
+        if "operations_total" not in metrics:
+            incomplete_sample_count += 1
+        operations_total += _non_negative_int(metrics.get("operations_total"))
+        result_failed = failed_metric_count(result)
+        requests_failed += result_failed
+        sample_failed = result_failed > 0 or result.get("status") not in {
+            "passed",
+            "skipped",
+        }
+        if not sample_failed:
+            continue
+        failed_sample_count += 1
+        brick = str(result.get("brick") or "")
+        if brick:
+            impacted_bricks.add(brick)
+        failures = result.get("failures") or []
+        intervals = [failure_interval(failure, result) for failure in failures]
+        if not intervals:
+            intervals = [result_interval(result)]
+        for start, end in intervals:
+            if start is not None:
+                failure_starts.append(start)
+            if end is not None:
+                failure_ends.append(end)
+
+    operations_succeeded = max(0, operations_total - requests_failed)
+    success_rate = (
+        round(operations_succeeded / operations_total, 6)
+        if operations_total > 0
+        else None
+    )
+    first_failure = min(failure_starts) if failure_starts else None
+    last_failure = max(failure_ends) if failure_ends else None
+    failure_span_sec = (
+        max(0.0, (last_failure - first_failure).total_seconds())
+        if first_failure is not None and last_failure is not None
+        else 0.0
+    )
+    complete = bool(results) and incomplete_sample_count == 0
+    return {
+        "sample_count": len(results),
+        "incomplete_sample_count": incomplete_sample_count,
+        "complete": complete,
+        "calibration_eligible": complete and operations_total > 0,
+        "operations_total": operations_total,
+        "operations_succeeded": operations_succeeded,
+        "requests_failed": requests_failed,
+        "success_rate": success_rate,
+        "failed_sample_count": failed_sample_count,
+        "impacted_bricks": sorted(impacted_bricks),
+        "first_failure_at": first_failure.isoformat() if first_failure else None,
+        "last_failure_at": last_failure.isoformat() if last_failure else None,
+        "failure_span_sec": failure_span_sec,
+    }
+
+
+def pressure_availability_samples(
+    parsed_results: dict[str, dict[str, Any]],
+    attempts: list[dict[str, Any]],
+    unreadable_results: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    unreadable_results = unreadable_results or {}
+    attempts_by_file = {
+        str(attempt.get("result_file")): attempt
+        for attempt in attempts
+        if attempt.get("result_file")
+    }
+    samples = list(parsed_results.values())
+
+    for result_file, error in sorted(unreadable_results.items()):
+        if result_file in parsed_results:
+            continue
+        attempt = attempts_by_file.get(result_file, {})
+        samples.append(
+            {
+                "file": result_file,
+                "brick": attempt.get("module"),
+                "status": "unreadable",
+                "metrics": {},
+                "failures": [
+                    {
+                        "type": "PRESSURE_RESULT_UNREADABLE",
+                        "message": error,
+                    }
+                ],
+            }
+        )
+
+    for attempt in attempts:
+        result_file = str(attempt.get("result_file") or "")
+        if not result_file:
+            continue
+        if result_file in parsed_results or result_file in unreadable_results:
+            continue
+        pending = attempt.get("return_code") == "pending"
+        samples.append(
+            {
+                "file": result_file,
+                "brick": attempt.get("module"),
+                "status": "pending_result" if pending else "missing_result",
+                "metrics": {},
+                "failures": [
+                    {
+                        "type": (
+                            "PRESSURE_ATTEMPT_PENDING"
+                            if pending
+                            else "PRESSURE_RESULT_MISSING"
+                        ),
+                        "message": (
+                            "pressure attempt was recorded but did not complete"
+                            if pending
+                            else "pressure attempt did not produce a result json"
+                        ),
+                    }
+                ],
+            }
+        )
+    return samples
+
+
+def build_pressure_availability_summary(
+    results: list[dict[str, Any]], maintenance_windows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    rollout_windows = [
+        window
+        for window in maintenance_windows
+        if str(window.get("label") or "") in ROLLOUT_WINDOW_LABELS
+    ]
+    window_summaries = []
+    for window in rollout_windows:
+        overlapping_results = [
+            result for result in results if _result_overlaps_window(result, window)
+        ]
+        window_summaries.append(
+            {
+                "label": window.get("label"),
+                "started_at": window.get("started_at"),
+                "finished_at": window.get("finished_at"),
+                "duration_sec": window.get("duration_sec"),
+                **_availability_stats(overlapping_results),
+            }
+        )
+    steady_state_results = [
+        result
+        for result in results
+        if all(value is not None for value in result_interval(result))
+        and not any(
+            _result_overlaps_window(result, window) for window in rollout_windows
+        )
+    ]
+    unassigned_sample_count = sum(
+        1
+        for result in results
+        if any(value is None for value in result_interval(result))
+    )
+    return {
+        "mode": "observational",
+        "gate_enforced": False,
+        "measurement": "overlapping_pressure_result_slices",
+        "unassigned_sample_count": unassigned_sample_count,
+        "overall": _availability_stats(results),
+        "steady_state": _availability_stats(steady_state_results),
+        "rollout_windows": window_summaries,
+    }
+
+
 def workflow_owned_configmaps(
     payload: dict[str, Any], *, workflow_name: str, workflow_uid: str
 ) -> list[dict[str, Any]]:
