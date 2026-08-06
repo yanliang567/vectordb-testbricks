@@ -9,6 +9,20 @@ Calibrate the observational upgrade/rollback availability metrics added in
 PR #20 with real 4am cluster workflows. Availability remains non-gating while
 the runs establish representative rollout and steady-state baselines.
 
+## Test Implementation
+
+- Repository: `https://github.com/yanliang567/vectordb-testbricks.git`
+- Requested revision: `main`
+- Resolved commit: `352f7ffbe339034368aae901918185a5be68a3d2`
+- WorkflowTemplate: `milvus-cluster-upgrade-rollback`
+- WorkflowTemplate source:
+  `milvus-bricks/argo/cluster-upgrade-rollback.yaml` at the resolved commit
+
+The workflow arguments used the mutable `main` reference. During the complete
+calibration execution window, `main` resolved to the commit above, so all
+availability calculations, pressure classification rules, scenario manifests,
+and WorkflowTemplate behavior in this report are tied to that implementation.
+
 Planned scenarios:
 
 1. Woodpecker 2CU HA 3.0 upgrade and rollback.
@@ -30,6 +44,13 @@ leave `availability.gate_enforced=false`.
 ## Woodpecker 2CU HA
 
 Workflow: `c30-2cu-ha-cjbmv`
+
+Scenario metadata:
+
+- Scenario ID:
+  `cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline`
+- Deploy profile:
+  `milvus_client/manifests/deploy_profiles/cluster-woodpecker-2cu.yaml`
 
 Images:
 
@@ -77,6 +98,13 @@ steady state, and the rollback rollout had no failed requests.
 ## Cluster Target-Only
 
 Workflow: `c26to-sl6ds`
+
+Scenario metadata:
+
+- Scenario ID:
+  `cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest`
+- Deploy profile:
+  `milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml`
 
 Images:
 
@@ -129,6 +157,13 @@ steady-state samples.
 ## Cluster JSON Shredding
 
 Workflow: `c30json-hxmjd`
+
+Scenario metadata:
+
+- Scenario ID:
+  `cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline`
+- Deploy profile:
+  `milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml`
 
 Images:
 
