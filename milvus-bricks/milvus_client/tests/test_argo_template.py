@@ -82,6 +82,26 @@ def test_pressure_result_configmaps_filters_by_name_uid_and_result_label():
     ) == [expected]
 
 
+def test_workflow_owned_configmaps_supports_single_configmap_cleanup_response():
+    single = {
+        "kind": "ConfigMap",
+        "metadata": {
+            "name": "workflow-name-pressure-1-search-pressure",
+            "labels": {
+                "zilliz.com/workflow-run-id": "workflow-uid",
+                "zilliz.com/pressure-result": "true",
+            },
+        },
+    }
+
+    assert workflow_owned_configmaps(
+        single, workflow_name="workflow-name", workflow_uid="workflow-uid"
+    ) == [single]
+    assert pressure_result_configmaps(
+        single, workflow_name="workflow-name", workflow_uid="workflow-uid"
+    ) == [single]
+
+
 @pytest.mark.parametrize(
     "template_name",
     [
@@ -116,6 +136,8 @@ def test_pressure_daemon_compresses_configmap_results(template_name):
     assert '"get", *resource_names, "-o", "json"' in cleanup_command
     assert 'labels.get("zilliz.com/workflow-run-id") != workflow_uid' in cleanup_command
     assert cleanup_command.count("list_owned_workflow_configmaps >") == 3
+    assert 'if items is None and payload.get("kind") == "ConfigMap":' in cleanup_command
+    assert "items = [payload]" in cleanup_command
     assert (
         'awk -v prefix="configmap/{{workflow.name}}-pressure-"' not in cleanup_command
     )

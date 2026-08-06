@@ -46,8 +46,11 @@ def workflow_owned_configmaps(
     payload: dict[str, Any], *, workflow_name: str, workflow_uid: str
 ) -> list[dict[str, Any]]:
     prefix = f"{workflow_name}-pressure-"
+    items = payload.get("items")
+    if items is None and payload.get("kind") == "ConfigMap":
+        items = [payload]
     matched = []
-    for item in payload.get("items", []):
+    for item in items or []:
         metadata = item.get("metadata") or {}
         labels = metadata.get("labels") or {}
         if not str(metadata.get("name") or "").startswith(prefix):

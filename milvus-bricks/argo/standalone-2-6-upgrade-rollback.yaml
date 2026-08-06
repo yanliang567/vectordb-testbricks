@@ -2393,8 +2393,11 @@ spec:
             if completed.returncode != 0:
                 raise SystemExit(completed.stderr or completed.stdout)
             payload = json.loads(completed.stdout or '{"items":[]}')
+            items = payload.get("items")
+            if items is None and payload.get("kind") == "ConfigMap":
+                items = [payload]
             name_prefix = f"{workflow_name}-pressure-"
-            for item in payload.get("items", []):
+            for item in items or []:
                 metadata = item.get("metadata") or {}
                 labels = metadata.get("labels") or {}
                 name = str(metadata.get("name") or "")
