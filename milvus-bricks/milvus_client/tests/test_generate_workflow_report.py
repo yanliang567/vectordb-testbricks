@@ -252,6 +252,33 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
                     "status": "failed",
                 }
             ],
+            "availability": {
+                "mode": "observational",
+                "gate_enforced": False,
+                "overall": {
+                    "operations_total": 300,
+                    "requests_failed": 5,
+                    "success_rate": 0.983333,
+                    "failure_span_sec": 4.0,
+                    "complete": True,
+                },
+                "steady_state": {
+                    "operations_total": 200,
+                    "requests_failed": 0,
+                    "success_rate": 1.0,
+                },
+                "rollout_windows": [
+                    {
+                        "label": "upgrade-rollout",
+                        "operations_total": 100,
+                        "requests_failed": 5,
+                        "success_rate": 0.95,
+                        "failure_span_sec": 4.0,
+                        "impacted_bricks": ["count_pressure"],
+                    }
+                ],
+                "unassigned_sample_count": 0,
+            },
         },
     )
     _write_json(tmp_path / "reports" / "env_snapshot.json", {"client_namespace": "qa"})
@@ -351,6 +378,53 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     )
     assert "## Pressure" in markdown
     assert "warning `search_pressure_2.json` `search_pressure`: failed" in markdown
+    assert "## Availability Observation" in markdown
+    assert "- hard gate enforced: `False`" in markdown
+    assert "- unassigned samples: `0`" in markdown
+    assert (
+        "- rollout `upgrade-rollout`: operations=`100`, failed=`5`, "
+        "success_rate=`0.95`, failure_span_sec=`4.0`, "
+        "impacted_bricks=`['count_pressure']`" in markdown
+    )
+
+
+def test_generate_workflow_report_keeps_observational_availability_out_of_gate_status(
+    tmp_path,
+):
+    _write_successful_validation(tmp_path)
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "availability": {
+                "mode": "observational",
+                "gate_enforced": False,
+                "overall": {
+                    "operations_total": 100,
+                    "requests_failed": 50,
+                    "success_rate": 0.5,
+                    "failure_span_sec": 30.0,
+                    "complete": True,
+                },
+                "steady_state": {},
+                "rollout_windows": [],
+                "unassigned_sample_count": 0,
+            },
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        _base_args(tmp_path, pressure_fail_on_error="true")
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 0
+    assert report["status"] == "passed"
+    assert report["pressure"]["availability"]["overall"]["success_rate"] == 0.5
 
 
 def test_generate_workflow_report_fails_pressure_failures_in_strict_mode(tmp_path):

@@ -276,6 +276,7 @@ def build_markdown(report: dict[str, Any]) -> str:
     workflow = report["workflow"]
     validation = report["validation"]["results"]
     pressure = report.get("pressure", {})
+    availability = pressure.get("availability", {})
     serviceability = report.get("serviceability", {}).get("results", {})
     config_matrix = params.get("config_matrix", {})
 
@@ -306,6 +307,40 @@ def build_markdown(report: dict[str, Any]) -> str:
             f"- maintenance window `{window.get('label')}`: "
             f"duration_sec=`{window.get('duration_sec')}`"
         )
+    availability_lines = []
+    if availability:
+        overall = availability.get("overall", {})
+        steady_state = availability.get("steady_state", {})
+        availability_lines.extend(
+            [
+                f"- mode: `{availability.get('mode')}`",
+                f"- hard gate enforced: `{availability.get('gate_enforced')}`",
+                (
+                    f"- overall: operations=`{overall.get('operations_total')}`, "
+                    f"failed=`{overall.get('requests_failed')}`, "
+                    f"success_rate=`{overall.get('success_rate')}`, "
+                    f"failure_span_sec=`{overall.get('failure_span_sec')}`, "
+                    f"complete=`{overall.get('complete')}`"
+                ),
+                f"- unassigned samples: `{availability.get('unassigned_sample_count')}`",
+                (
+                    f"- steady state: operations=`{steady_state.get('operations_total')}`, "
+                    f"failed=`{steady_state.get('requests_failed')}`, "
+                    f"success_rate=`{steady_state.get('success_rate')}`"
+                ),
+            ]
+        )
+        for window in availability.get("rollout_windows", []):
+            availability_lines.append(
+                f"- rollout `{window.get('label')}`: "
+                f"operations=`{window.get('operations_total')}`, "
+                f"failed=`{window.get('requests_failed')}`, "
+                f"success_rate=`{window.get('success_rate')}`, "
+                f"failure_span_sec=`{window.get('failure_span_sec')}`, "
+                f"impacted_bricks=`{window.get('impacted_bricks')}`"
+            )
+    else:
+        availability_lines = ["- no availability summary found"]
     serviceability_lines = []
     for name, payload in sorted(serviceability.items()):
         metrics = payload.get("metrics", {})
@@ -370,6 +405,9 @@ def build_markdown(report: dict[str, Any]) -> str:
         "",
         "## Pressure",
         *pressure_lines,
+        "",
+        "## Availability Observation",
+        *availability_lines,
         "",
         "## Artifacts",
         "- raw brick results: `/tmp/milvus-bricks/results`",

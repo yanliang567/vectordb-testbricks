@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from milvus_client.common.pressure_maintenance import (
+    build_pressure_availability_summary,
     classify_pressure_result,
     maintenance_windows_from_workflow_nodes,
     pressure_result_configmaps,
@@ -46,6 +47,102 @@ def test_pressure_result_configmap_decoder_supports_plain_and_gzip_payloads():
     )
     assert len(compressed) < len(result_text) / 20
     assert pressure_result_text_from_configmap({"data": {}}) is None
+
+
+def test_pressure_availability_summary_separates_rollout_and_steady_state():
+    results = [
+        {
+            "brick": "search_pressure",
+            "status": "passed",
+            "started_at": "2026-08-05T09:00:00+00:00",
+            "finished_at": "2026-08-05T09:00:09+00:00",
+            "metrics": {"operations_total": 100, "requests_failed": 0},
+        },
+        {
+            "brick": "count_pressure",
+            "status": "failed",
+            "started_at": "2026-08-05T09:00:10+00:00",
+            "finished_at": "2026-08-05T09:00:19+00:00",
+            "metrics": {
+                "operations_total": 100,
+                "requests_failed": 5,
+                "failed_count": 5,
+            },
+            "failures": [
+                {
+                    "started_at": "2026-08-05T09:00:12+00:00",
+                    "finished_at": "2026-08-05T09:00:16+00:00",
+                }
+            ],
+        },
+        {
+            "brick": "query_pressure",
+            "status": "passed",
+            "started_at": "2026-08-05T09:00:20+00:00",
+            "finished_at": "2026-08-05T09:00:29+00:00",
+            "metrics": {"operations_total": 100, "requests_failed": 0},
+        },
+    ]
+    windows = [
+        {
+            "label": "upgrade-rollout",
+            "started_at": "2026-08-05T09:00:10+00:00",
+            "finished_at": "2026-08-05T09:00:19+00:00",
+            "duration_sec": 9.0,
+        },
+        {
+            "label": "schema-evolution-forward",
+            "started_at": "2026-08-05T09:00:20+00:00",
+            "finished_at": "2026-08-05T09:00:21+00:00",
+            "duration_sec": 1.0,
+        },
+    ]
+
+    summary = build_pressure_availability_summary(results, windows)
+
+    assert summary["mode"] == "observational"
+    assert summary["gate_enforced"] is False
+    assert summary["overall"] == {
+        "sample_count": 3,
+        "incomplete_sample_count": 0,
+        "complete": True,
+        "operations_total": 300,
+        "operations_succeeded": 295,
+        "requests_failed": 5,
+        "success_rate": 0.983333,
+        "failed_sample_count": 1,
+        "impacted_bricks": ["count_pressure"],
+        "first_failure_at": "2026-08-05T09:00:12+00:00",
+        "last_failure_at": "2026-08-05T09:00:16+00:00",
+        "failure_span_sec": 4.0,
+    }
+    assert summary["steady_state"]["operations_total"] == 200
+    assert summary["steady_state"]["success_rate"] == 1.0
+    assert len(summary["rollout_windows"]) == 1
+    rollout = summary["rollout_windows"][0]
+    assert rollout["label"] == "upgrade-rollout"
+    assert rollout["operations_total"] == 100
+    assert rollout["requests_failed"] == 5
+    assert rollout["success_rate"] == 0.95
+    assert rollout["failure_span_sec"] == 4.0
+
+
+def test_pressure_availability_summary_keeps_process_failures_incomplete_and_unassigned():
+    result = {
+        "brick": "search_pressure",
+        "status": "failed",
+        "metrics": {},
+        "failures": [{"error": "pressure process exited before writing metrics"}],
+    }
+
+    summary = build_pressure_availability_summary([result], [])
+
+    assert summary["unassigned_sample_count"] == 1
+    assert summary["overall"]["complete"] is False
+    assert summary["overall"]["incomplete_sample_count"] == 1
+    assert summary["overall"]["failed_sample_count"] == 1
+    assert summary["overall"]["impacted_bricks"] == ["search_pressure"]
+    assert summary["steady_state"]["sample_count"] == 0
 
 
 def test_pressure_result_configmaps_filters_by_name_uid_and_result_label():
@@ -124,6 +221,8 @@ def test_pressure_daemon_compresses_configmap_results(template_name):
     check_command = templates["check-pressure-results"]["container"]["args"][0]
     assert "pressure_result_text_from_configmap" in check_command
     assert "pressure_result_configmaps" in check_command
+    assert "build_pressure_availability_summary" in check_command
+    assert '"availability": build_pressure_availability_summary(' in check_command
     assert 'if "result.json" in data' not in check_command
     assert '"get", "configmaps", "-o", "name"' in check_command
     assert 'prefix = "configmap/{{workflow.name}}-pressure-"' in check_command
