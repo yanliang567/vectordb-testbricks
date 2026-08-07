@@ -367,6 +367,7 @@ def test_render_negative_scenario_enables_explicit_unsafe_coverage_escape_hatch(
 
 def test_render_params_cli_writes_json(tmp_path):
     output = tmp_path / "params.json"
+    repo_revision = "c6c3ecee8e8bd17279c4e6909941c258cfad290b"
 
     rc = render_cli.main(
         [
@@ -374,6 +375,8 @@ def test_render_params_cli_writes_json(tmp_path):
             str(GATES),
             "--scenario-id",
             "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+            "--repo-revision",
+            repo_revision,
             "--format",
             "json",
             "--allow-placeholder",
@@ -385,6 +388,7 @@ def test_render_params_cli_writes_json(tmp_path):
     payload = json.loads(output.read_text())
     assert rc == 0
     assert payload["workflow_template"] == "milvus-standalone-2-6-upgrade-rollback"
+    assert payload["parameters"]["repo-revision"] == repo_revision
     assert (
         payload["parameters"]["rollback-milvus-image"]
         == "harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder"

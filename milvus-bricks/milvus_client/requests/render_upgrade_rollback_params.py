@@ -25,6 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--scenario-id", required=True)
     parser.add_argument(
+        "--repo-revision",
+        default=None,
+        help="Override the repository branch, tag, or commit SHA used by the workflow",
+    )
+    parser.add_argument(
         "--deploy-profile",
         default=None,
         help="Override the deploy profile selected by the scenario",
@@ -75,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
         submission = render_submission(
             scenario, manifest, allow_placeholder=args.allow_placeholder
         )
+        if args.repo_revision:
+            submission["parameters"]["repo-revision"] = args.repo_revision
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

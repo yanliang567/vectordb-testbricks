@@ -154,13 +154,17 @@ Generate arguments, then submit in the 4am Argo namespace:
 ```bash
 ARGS="$(PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
   --scenario-id cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline \
+  --repo-revision <full-commit-sha> \
   --format argo-args)"
 
 argo submit -n qa $ARGS
 ```
 
 Do not pass `--allow-placeholder` for a real submit path. The renderer should
-fail fast if any runnable image still contains `placeholder`.
+fail fast if any runnable image still contains `placeholder`. The checkout
+logic accepts a branch, tag, or commit SHA, but formal gates and calibration
+runs should pass a full commit SHA through `--repo-revision` so every workflow
+step executes the same reviewed test implementation.
 
 ## Safety rules
 

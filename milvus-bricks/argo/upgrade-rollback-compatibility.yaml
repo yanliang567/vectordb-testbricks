@@ -90,8 +90,12 @@ spec:
           command: [sh, -c]
           args:
             - |
-              git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" \
-                "{{workflow.parameters.repo-url}}" /workspace/repo
+              set -eu
+              mkdir -p /workspace/repo
+              git -C /workspace/repo init
+              git -C /workspace/repo remote add origin "{{workflow.parameters.repo-url}}"
+              git -C /workspace/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}"
+              git -C /workspace/repo checkout --detach FETCH_HEAD
           volumeMounts:
             - name: workspace
               mountPath: /workspace
@@ -161,8 +165,12 @@ spec:
           command: [sh, -c]
           args:
             - |
-              git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" \
-                "{{workflow.parameters.repo-url}}" /workspace/repo
+              set -eu
+              mkdir -p /workspace/repo
+              git -C /workspace/repo init
+              git -C /workspace/repo remote add origin "{{workflow.parameters.repo-url}}"
+              git -C /workspace/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}"
+              git -C /workspace/repo checkout --detach FETCH_HEAD
           volumeMounts:
             - name: workspace
               mountPath: /workspace

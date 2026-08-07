@@ -383,6 +383,22 @@ def test_argo_template_runs_compatibility_bricks():
     assert "milvus_client.scenarios.upgrade_rollback_compatibility" in command
     assert "forward_schema_matrix" in command
 
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    for runner_name in ("brick-runner", "scenario-runner"):
+        checkout = next(
+            item
+            for item in templates[runner_name]["initContainers"]
+            if item["name"] == "checkout"
+        )
+        checkout_command = checkout["args"][0]
+        assert "git -C /workspace/repo init" in checkout_command
+        assert (
+            'git -C /workspace/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}"'
+            in checkout_command
+        )
+        assert "git -C /workspace/repo checkout --detach FETCH_HEAD" in checkout_command
+        assert "git clone --depth 1 --branch" not in checkout_command
+
 
 def test_upgrade_rollback_pressure_results_exclude_rollout_connectivity_windows():
     for template_path in [
@@ -411,9 +427,11 @@ def test_upgrade_rollback_pressure_results_exclude_rollout_connectivity_windows(
         assert "metrics_only_failure_without_error_details" not in check_command
         assert "rm -rf /tmp/repo" in check_command
         assert (
-            'git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}"'
+            'git -C /tmp/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}"'
             in check_command
         )
+        assert "git -C /tmp/repo checkout --detach FETCH_HEAD" in check_command
+        assert "git clone --depth 1 --branch" not in check_command
         assert "cd /tmp/repo/milvus-bricks" in check_command
         assert "PYTHONPATH=. python3 - <<'PY'" in check_command
 
@@ -1553,23 +1571,38 @@ def test_pressure_maintenance_classifier_keeps_mixed_failure_strict():
     assert [failure["operation"] for failure in entry["excluded_failures"]] == ["query"]
 
 
-def test_upgrade_rollback_templates_retry_repo_clone():
-    for template_path in [
-        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
-        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
-        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
-    ]:
+def test_upgrade_rollback_templates_retry_repo_checkout():
+    expected_checkout_counts = {
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml": 7,
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml": 7,
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml": 9,
+    }
+    for template_path, expected_count in expected_checkout_counts.items():
         template = yaml.safe_load(template_path.read_text())
+        checkout_commands = []
         for template_item in template["spec"]["templates"]:
             container = template_item.get("container")
             if not container:
                 continue
             command = "\n".join(str(arg) for arg in container.get("args", []))
-            if "git clone --depth 1 --branch" not in command:
+            if "git -C /tmp/repo fetch --depth 1 origin" not in command:
                 continue
+            checkout_commands.append(command)
+            assert "git init /tmp/repo" in command
+            assert (
+                'git -C /tmp/repo remote add origin "{{workflow.parameters.repo-url}}"'
+                in command
+            )
+            assert (
+                'git -C /tmp/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}"'
+                in command
+            )
+            assert "git -C /tmp/repo checkout --detach FETCH_HEAD" in command
+            assert "git clone --depth 1 --branch" not in command
             assert "for attempt in 1 2 3 4 5; do" in command
             assert 'if [ "$attempt" = "5" ]; then' in command
             assert "sleep $((attempt * 5))" in command
+        assert len(checkout_commands) == expected_count
 
 
 def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
@@ -2745,7 +2778,7 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     assert "--reuse-values" in patch_command
     assert "--set-file extraConfigFiles.user\\\\.yaml=/tmp/user.yaml" in patch_command
     assert (
-        'git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}"'
+        'git -C /tmp/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}"'
         in patch_command
     )
     assert (
