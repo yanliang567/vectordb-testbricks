@@ -1605,6 +1605,18 @@ def test_upgrade_rollback_templates_retry_repo_checkout():
         assert len(checkout_commands) == expected_count
 
 
+def test_upgrade_rollback_gate_docs_require_manual_argo_argument_paste():
+    readme = (ROOT / "docs" / "upgrade-rollback-gates" / "README.md").read_text()
+
+    assert "--repo-revision <full-commit-sha>" in readme
+    assert "paste it directly\nafter `argo submit -n qa`" in readme
+    assert "shell command\nsubstitution, `eval`, or `xargs`" in readme
+    assert 'ARGS="$(' not in readme
+    assert "argo submit -n qa $ARGS" not in readme
+    assert "eval $(" not in readme
+    assert "| xargs argo submit" not in readme
+
+
 def test_standalone_2_6_upgrade_rollback_template_is_2_6_only():
     template = yaml.safe_load(
         (ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml").read_text()
