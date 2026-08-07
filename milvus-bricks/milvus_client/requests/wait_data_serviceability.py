@@ -53,6 +53,7 @@ def _validate_serviceable(client, checkpoint: dict, specs: dict[str, SchemaSpec]
         )
         min_pk = int(meta["min_pk"])
         max_pk = int(meta["max_pk"])
+        failure_count = len(report.failures)
         validate_collection_count(
             client,
             collection,
@@ -61,9 +62,25 @@ def _validate_serviceable(client, checkpoint: dict, specs: dict[str, SchemaSpec]
             filter_expr=pk_range_filter(primary_field, pk_value_fn(min_pk), pk_value_fn(max_pk)),
             metric_suffix="serviceable_count",
         )
+        if any(
+            is_transient_serviceability_failure(failure)
+            for failure in report.failures[failure_count:]
+        ):
+            return report
         mid_pk = min_pk + (max_pk - min_pk) // 2
-        sample_pks = meta.get("pk_samples") or [pk_value_fn(min_pk), pk_value_fn(mid_pk), pk_value_fn(max_pk)]
-        validate_pk_samples(client, collection, primary_field, sample_pks, report)
+        sample_pks = meta.get("pk_samples") or [
+            pk_value_fn(min_pk),
+            pk_value_fn(mid_pk),
+            pk_value_fn(max_pk),
+        ]
+        for sample_pk in sample_pks:
+            failure_count = len(report.failures)
+            validate_pk_samples(client, collection, primary_field, [sample_pk], report)
+            if any(
+                is_transient_serviceability_failure(failure)
+                for failure in report.failures[failure_count:]
+            ):
+                return report
     return report
 
 

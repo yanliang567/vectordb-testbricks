@@ -183,4 +183,10 @@ def test_transient_serviceability_failure_classifies_channel_unavailable_errors(
             "error": "no available shard leaders: channel not available",
         }
     )
+    assert is_transient_serviceability_failure(
+        {
+            "type": QUERY_FAILED,
+            "error": "lag(10m7.228s) max(3s): channel tsafe stalled[channel=dml_0]",
+        }
+    )
     assert not is_transient_serviceability_failure({"type": COUNT_DRIFT, "error": "channel not available"})

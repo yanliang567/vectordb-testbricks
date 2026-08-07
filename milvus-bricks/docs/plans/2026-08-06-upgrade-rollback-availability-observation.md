@@ -65,3 +65,9 @@ pending、missing 和 unreadable attempt 会转换为无 metrics、无时间戳�
   保持 `gate_enforced=false`。
 - 现有 10 秒 result slice 会把跨越窗口边界的整段操作归入 rollout，且阻塞
   RPC 可让实际 slice 显著超过 10 秒；硬门禁前仍需重复运行或增加时间桶指标。
+
+2026-08-07 使用固定 `v3.0.0` baseline digest 和两个不同 3.0 target build
+重复运行 Woodpecker 2CU HA gate。两次都在 rollback readiness 之后因
+`channel tsafe stalled` 未恢复而失败，未形成可校准样本；详见
+`milvus_client/docs/reports/2026-08-07-upgrade-rollback-availability-repeat-calibration.md`
+和 `milvus-io/milvus#52297`。硬 availability SLO 继续保持关闭。
