@@ -26,6 +26,17 @@ class CountDriftClient:
         return [{"id": 0}]
 
 
+class TSafeStalledClient:
+    def __init__(self):
+        self.query_calls = []
+
+    def query(self, **kwargs):
+        self.query_calls.append(kwargs)
+        raise RuntimeError(
+            "lag(10m7.228s) max(3s): channel tsafe stalled[channel=dml_0]"
+        )
+
+
 def _checkpoint(path):
     checkpoint = path / "seed_data.json"
     checkpoint.write_text(
@@ -114,6 +125,39 @@ def test_wait_data_serviceability_fails_fast_on_count_drift(monkeypatch, tmp_pat
     assert result["status"] == "failed"
     assert result["failures"][0]["type"] == "COUNT_DRIFT"
     assert result["metrics"]["recovered"] is False
+
+
+def test_serviceability_probe_stops_after_first_transient_query_failure():
+    checkpoint = {
+        "collections": {
+            "qa_dense_a": {
+                "schema_name": "dense",
+                "expected_count": 3,
+                "primary_field": "id",
+                "min_pk": 0,
+                "max_pk": 2,
+                "pk_samples": [0, 1, 2],
+            },
+            "qa_dense_b": {
+                "schema_name": "dense",
+                "expected_count": 3,
+                "primary_field": "id",
+                "min_pk": 0,
+                "max_pk": 2,
+                "pk_samples": [0, 1, 2],
+            },
+        }
+    }
+    client = TSafeStalledClient()
+
+    report = wait_data_serviceability._validate_serviceable(
+        client,
+        checkpoint,
+        {"dense": _spec()},
+    )
+
+    assert wait_data_serviceability._all_failures_transient(report)
+    assert len(client.query_calls) == 1
 
 
 def test_wait_data_serviceability_times_out_on_transient_errors(monkeypatch, tmp_path):

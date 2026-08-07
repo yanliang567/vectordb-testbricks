@@ -17,6 +17,7 @@ SERVICEABILITY_TIMEOUT = "SERVICEABILITY_TIMEOUT"
 TRANSIENT_SERVICEABILITY_PATTERNS = (
     "channel not available",
     "channel distribution is not serviceable",
+    "channel tsafe stalled",
     "no available shard leaders",
 )
 
