@@ -31,13 +31,16 @@ serviceability, or strict pressure gates.
 | --- | --- | --- | --- | --- | --- |
 | `c30-2cu-ha-7jf5g` | `efef556c96a570f01dd5737807d5cb8fc430e270` | `3.0-20260806-bb41eb52@sha256:56638970...d83bd6` | Failed at rollback serviceability | 50m35s | Ineligible |
 | `c30-2cu-ha-q8rn2` | `d178bb5dc33534068ff6fbc3222bf54679998f50` | `3.0-20260807-697431f2@sha256:e29d3275...d6db5a3` | Failed at rollback serviceability | 49m18s | Ineligible |
+| `c30-2cu-ha-h2m25` | `1aaf1541952b8a2c1104bf6079da1e59a11e312d` | `3.0-20260807-697431f2@sha256:e29d3275...d6db5a3` | Failed with bounded serviceability timeout | 57m00s | Ineligible |
 
-Both runs used full repository commit SHAs. The second revision is the merge
-commit of PR #23 and includes the reviewed commit-SHA checkout path.
+All runs used full repository commit SHAs. The second revision is the merge
+commit of PR #23 and includes the reviewed commit-SHA checkout path. The third
+revision contains the bounded tSafe serviceability retry and uses digest-pinned
+references for base, target, and rollback images.
 
 ## Common Gate Result
 
-Both runs completed the following required checks before rollback:
+All three runs completed the following required checks before rollback:
 
 - base deployment, configuration assertion, schema creation, seed data, and
   checkpoint validation;
@@ -48,8 +51,8 @@ Both runs completed the following required checks before rollback:
 - phase DML/DQL validation and existing-collection schema evolution;
 - strict pressure after upgrade and before rollback.
 
-The rollback Helm rollout and readiness checks also completed. The first
-baseline count/PK serviceability probe after rollback then failed.
+The rollback Helm rollout and readiness checks also completed. The baseline
+count/PK serviceability probe after rollback then failed.
 
 ## Rollback Serviceability Failure
 
@@ -57,6 +60,12 @@ baseline count/PK serviceability probe after rollback then failed.
 `c30-2cu-ha-q8rn2` recorded 16 query failures across four collections. Every
 failure was Milvus code 505 with `channel tsafe stalled`; observed channel lag
 in the second run ranged from about 5 to 13 minutes.
+
+`c30-2cu-ha-h2m25` runtime-validated the corrected retry behavior. The gate
+stopped each attempt after its first tSafe-stalled RPC, completed 24 transient
+attempts over 907.581 seconds, and then emitted both the final `QUERY_FAILED`
+evidence and `SERVICEABILITY_TIMEOUT`. The channel did not recover within the
+configured 900-second window.
 
 Example:
 
@@ -90,16 +99,16 @@ remain hard failures.
 
 ## Cleanup
 
-Both `onExit` reports recorded:
+All three `onExit` reports recorded:
 
 - `cleanup_attempted=true`
 - `cleanup_status=completed`
 - empty `cleanup_error`
 - empty `kept_resources`
 
-The second run was also checked by workflow UID after completion; no owned
-Pods, Services, Deployments, StatefulSets, PVCs, or pressure ConfigMaps
-remained.
+The second and third runs were also checked by workflow UID after completion;
+no owned Pods, Services, Deployments, StatefulSets, PVCs, or pressure
+ConfigMaps remained.
 
 ## Decision
 
@@ -109,7 +118,6 @@ aggregation, so they are not complete calibration samples.
 
 Keep the candidate Woodpecker 2CU HA policy observational until:
 
-1. the bounded tSafe serviceability retry is runtime-validated;
-2. the Milvus rollback issue is fixed or explicitly dispositioned;
-3. at least two additional complete 2CU runs establish rollout variance with
+1. the Milvus rollback issue is fixed or explicitly dispositioned;
+2. at least two additional complete 2CU runs establish rollout variance with
    the pinned `v3.0.0` baseline.
