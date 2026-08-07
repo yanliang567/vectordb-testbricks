@@ -45,7 +45,7 @@ image_aliases:
     image: harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder
     version: "2.6.0"
   milvus-3-0-baseline:
-    image: harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50
+    image: harbor.milvus.io/milvusdb/milvus:v3.0.0
     version: "3.0.0"
   milvus-3-0-latest:
     image: harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder

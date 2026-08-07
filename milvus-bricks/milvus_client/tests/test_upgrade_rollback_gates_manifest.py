@@ -522,6 +522,10 @@ def test_manifest_references_are_centralized():
         "milvus-3-0-baseline",
         "milvus-3-0-latest",
     }
+    assert manifest["image_aliases"]["milvus-3-0-baseline"] == {
+        "image": "harbor.milvus.io/milvusdb/milvus:v3.0.0",
+        "version": "3.0.0",
+    }
     for scenario in manifest["scenarios"]:
         for phase in ["base", "target", "rollback"]:
             assert "image_ref" in scenario[phase]

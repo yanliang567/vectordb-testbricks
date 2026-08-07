@@ -130,18 +130,12 @@ def test_render_cluster_3_0_gate_parameters():
         params["deploy-profile"]
         == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
     )
-    assert (
-        params["base-milvus-image"]
-        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
-    )
+    assert params["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v3.0.0"
     assert (
         params["target-milvus-image"]
         == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
     )
-    assert (
-        params["rollback-milvus-image"]
-        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
-    )
+    assert params["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v3.0.0"
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
     assert params["schema-evolution-existing-enabled"] == "true"
     assert params["rollback-forward-validation-enabled"] == "true"
@@ -252,18 +246,12 @@ def test_render_standalone_3_0_loon_vortex_gate_parameters():
     params = submission["parameters"]
 
     assert submission["workflow_template"] == "milvus-standalone-3-0-upgrade-rollback"
-    assert (
-        params["base-milvus-image"]
-        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
-    )
+    assert params["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v3.0.0"
     assert (
         params["target-milvus-image"]
         == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
     )
-    assert (
-        params["rollback-milvus-image"]
-        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
-    )
+    assert params["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v3.0.0"
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
     assert params["base-loon-ffi-enabled"] == "false"
     assert params["base-vortex-enabled"] == "false"
@@ -314,18 +302,12 @@ def test_render_cluster_3_0_loon_vortex_gate_parameters():
         params["deploy-profile"]
         == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
     )
-    assert (
-        params["base-milvus-image"]
-        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
-    )
+    assert params["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v3.0.0"
     assert (
         params["target-milvus-image"]
         == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
     )
-    assert (
-        params["rollback-milvus-image"]
-        == "harbor.milvus.io/milvusdb/milvus:3.0-20260723-77b26a50"
-    )
+    assert params["rollback-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v3.0.0"
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
     assert params["base-loon-ffi-enabled"] == "false"
     assert params["base-vortex-enabled"] == "false"

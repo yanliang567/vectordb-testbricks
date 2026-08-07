@@ -67,6 +67,11 @@ For normal branch or version updates, start here:
 4. `argo/*.yaml`
    - only when a new workflow parameter or DAG behavior is required.
 
+The `milvus-3-0-baseline` alias is pinned to the official multi-arch `v3.0.0`
+release tag. Do not use a retention-limited `3.0-YYYYMMDD-<sha>` branch build
+as the long-lived baseline alias; use those concrete build tags as explicit
+target or one-off phase overrides instead.
+
 If you add a new branch family such as `3.1` or `4.0`, add an image alias,
 add or reuse a schema matrix, register the new scenario IDs, then update the
 manifest and renderer tests.
