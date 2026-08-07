@@ -1099,9 +1099,13 @@ spec:
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
-            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+            if git init /tmp/repo &&
+              git -C /tmp/repo remote add origin "{{workflow.parameters.repo-url}}" &&
+              git -C /tmp/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}" &&
+              git -C /tmp/repo checkout --detach FETCH_HEAD; then
               break
             fi
+            rm -rf /tmp/repo
             if [ "$attempt" = "5" ]; then
               exit 128
             fi
@@ -1617,9 +1621,13 @@ spec:
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
-            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+            if git init /tmp/repo &&
+              git -C /tmp/repo remote add origin "{{workflow.parameters.repo-url}}" &&
+              git -C /tmp/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}" &&
+              git -C /tmp/repo checkout --detach FETCH_HEAD; then
               break
             fi
+            rm -rf /tmp/repo
             if [ "$attempt" = "5" ]; then
               exit 128
             fi
@@ -1668,9 +1676,13 @@ spec:
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
-            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+            if git init /tmp/repo &&
+              git -C /tmp/repo remote add origin "{{workflow.parameters.repo-url}}" &&
+              git -C /tmp/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}" &&
+              git -C /tmp/repo checkout --detach FETCH_HEAD; then
               break
             fi
+            rm -rf /tmp/repo
             if [ "$attempt" = "5" ]; then
               exit 128
             fi
@@ -1713,9 +1725,13 @@ spec:
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
-            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+            if git init /tmp/repo &&
+              git -C /tmp/repo remote add origin "{{workflow.parameters.repo-url}}" &&
+              git -C /tmp/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}" &&
+              git -C /tmp/repo checkout --detach FETCH_HEAD; then
               break
             fi
+            rm -rf /tmp/repo
             if [ "$attempt" = "5" ]; then
               exit 128
             fi
@@ -1831,9 +1847,13 @@ spec:
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
-            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+            if git init /tmp/repo &&
+              git -C /tmp/repo remote add origin "{{workflow.parameters.repo-url}}" &&
+              git -C /tmp/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}" &&
+              git -C /tmp/repo checkout --detach FETCH_HEAD; then
               break
             fi
+            rm -rf /tmp/repo
             if [ "$attempt" = "5" ]; then
               exit 128
             fi
@@ -1918,9 +1938,13 @@ spec:
             set -eu
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
-            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+            if git init /tmp/repo &&
+              git -C /tmp/repo remote add origin "{{workflow.parameters.repo-url}}" &&
+              git -C /tmp/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}" &&
+              git -C /tmp/repo checkout --detach FETCH_HEAD; then
               break
             fi
+            rm -rf /tmp/repo
             if [ "$attempt" = "5" ]; then
               exit 128
             fi
@@ -2184,9 +2208,13 @@ spec:
             python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
-            if git clone --depth 1 --branch "{{workflow.parameters.repo-revision}}" "{{workflow.parameters.repo-url}}" /tmp/repo; then
+            if git init /tmp/repo &&
+              git -C /tmp/repo remote add origin "{{workflow.parameters.repo-url}}" &&
+              git -C /tmp/repo fetch --depth 1 origin "{{workflow.parameters.repo-revision}}" &&
+              git -C /tmp/repo checkout --detach FETCH_HEAD; then
               break
             fi
+            rm -rf /tmp/repo
             if [ "$attempt" = "5" ]; then
               exit 128
             fi

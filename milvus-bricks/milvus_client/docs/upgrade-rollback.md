@@ -230,7 +230,7 @@ Submit example:
 ```bash
 kubectl apply -f argo/standalone-2-6-upgrade-rollback-rbac.yaml
 argo submit -n qa --from workflowtemplate/milvus-standalone-2-6-upgrade-rollback \
-  -p repo-revision=main \
+  -p repo-revision=<full-commit-sha> \
   -p base-milvus-image=harbor.milvus.io/milvusdb/milvus:v2.6.18 \
   -p target-milvus-image=harbor.milvus.io/milvusdb/milvus:3.0-YYYYMMDD-<sha> \
   -p target-version=3.0.0 \
@@ -247,11 +247,15 @@ argo submit -n qa --from workflowtemplate/milvus-standalone-2-6-upgrade-rollback
 ```bash
 kubectl apply -f argo/standalone-2-6-upgrade-rollback-rbac.yaml
 argo submit -n qa --from workflowtemplate/milvus-standalone-3-0-upgrade-rollback \
-  -p repo-revision=main \
+  -p repo-revision=<full-commit-sha> \
   -p base-milvus-image=harbor.milvus.io/milvusdb/milvus:3.0-20260701-d19d8484-47f6c14 \
   -p target-milvus-image=harbor.milvus.io/milvusdb/milvus:master-20260707-5617a46a \
   -p keep-milvus=false
 ```
+
+`repo-revision` accepts a branch, tag, or commit SHA. Use a full commit SHA for
+formal gates and calibration runs; mutable branch names such as `main` are
+appropriate only for exploratory execution.
 
 When enabling target-only forward workload, set `forward-collection-prefix` to a
 different value from `collection-prefix`. Forward create/seed/validate/schema
