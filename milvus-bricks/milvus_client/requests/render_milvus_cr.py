@@ -6,11 +6,18 @@ from pathlib import Path
 import sys
 
 from milvus_client.common.args import parse_bool
-from milvus_client.common.deploy import deploy_topology_summary, dump_yaml, load_deploy_profile, render_milvus_cr
+from milvus_client.common.deploy import (
+    deploy_topology_summary,
+    dump_yaml,
+    load_deploy_profile,
+    render_milvus_cr,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Render a Milvus Operator CR from a code-managed deploy profile")
+    parser = argparse.ArgumentParser(
+        description="Render a Milvus Operator CR from a code-managed deploy profile"
+    )
     parser.add_argument("--deploy-profile", required=True)
     parser.add_argument("--name", required=True)
     parser.add_argument("--namespace", required=True)
@@ -21,6 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json-shredding-enabled", type=parse_bool, default=False)
     parser.add_argument("--loon-ffi-enabled", type=parse_bool, default=False)
     parser.add_argument("--vortex-enabled", type=parse_bool, default=False)
+    parser.add_argument("--target-vec-index-version", type=int, default=-1)
+    parser.add_argument("--target-scalar-index-version", type=int, default=-1)
     parser.add_argument("--workflow-name", required=True)
     parser.add_argument("--workflow-uid", required=True)
     parser.add_argument("--app-name", default="")
@@ -54,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
         json_shredding_enabled=args.json_shredding_enabled,
         loon_ffi_enabled=args.loon_ffi_enabled,
         vortex_enabled=args.vortex_enabled,
+        target_vec_index_version=args.target_vec_index_version,
+        target_scalar_index_version=args.target_scalar_index_version,
         labels=labels,
         annotations=annotations,
     )

@@ -24,6 +24,15 @@ class FieldSpec:
     max_capacity: int | None = None
     enable_analyzer: bool | None = None
     analyzer_params: dict[str, Any] | None = None
+    value_profile: str | None = None
+
+
+@dataclass(frozen=True)
+class StructArraySpec:
+    name: str
+    fields: list[FieldSpec]
+    max_capacity: int
+    nullable: bool = False
 
 
 @dataclass(frozen=True)
@@ -31,7 +40,10 @@ class IndexSpec:
     field: str
     index_type: str
     metric_type: str | None = None
+    index_name: str | None = None
     params: dict[str, Any] = field(default_factory=dict)
+    search_params: dict[str, Any] = field(default_factory=dict)
+    expected_resolved_index_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -49,17 +61,20 @@ class SchemaSpec:
     name: str
     version: str
     fields: list[FieldSpec]
+    struct_arrays: list[StructArraySpec] = field(default_factory=list)
     indexes: list[IndexSpec] = field(default_factory=list)
     functions: list[FunctionSpec] = field(default_factory=list)
     feature_tags: list[str] = field(default_factory=list)
     compat_mode: str = "rollback_safe"
     required_capabilities: list[str] = field(default_factory=list)
     validators: list[str] = field(default_factory=list)
+    validator_params: dict[str, Any] = field(default_factory=dict)
     description: str = ""
     enable_dynamic_field: bool = False
     checksum_fields: list[str] = field(default_factory=list)
     num_partitions: int | None = None
     partitions: list[str] = field(default_factory=list)
+    properties: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -81,6 +96,16 @@ VECTOR_TYPES = {
     "INT8_VECTOR",
 }
 COMPAT_MODES = {"rollback_safe", "upgrade_only", "forward_only"}
+STRUCT_SCALAR_TYPES = {
+    "BOOL",
+    "INT8",
+    "INT16",
+    "INT32",
+    "INT64",
+    "FLOAT",
+    "DOUBLE",
+    "VARCHAR",
+}
 
 
 def _as_field_spec(payload: dict[str, Any]) -> FieldSpec:
@@ -97,6 +122,16 @@ def _as_field_spec(payload: dict[str, Any]) -> FieldSpec:
         max_capacity=payload.get("max_capacity"),
         enable_analyzer=payload.get("enable_analyzer"),
         analyzer_params=payload.get("analyzer_params"),
+        value_profile=payload.get("value_profile"),
+    )
+
+
+def _as_struct_array_spec(payload: dict[str, Any]) -> StructArraySpec:
+    return StructArraySpec(
+        name=payload["name"],
+        fields=[_as_field_spec(field) for field in payload.get("fields", [])],
+        max_capacity=int(payload.get("max_capacity", 0)),
+        nullable=bool(payload.get("nullable", False)),
     )
 
 
@@ -105,7 +140,10 @@ def _as_index_spec(payload: dict[str, Any]) -> IndexSpec:
         field=payload["field"],
         index_type=payload["index_type"],
         metric_type=payload.get("metric_type"),
+        index_name=payload.get("index_name"),
         params=payload.get("params", {}),
+        search_params=payload.get("search_params", {}),
+        expected_resolved_index_type=payload.get("expected_resolved_index_type"),
     )
 
 
@@ -137,6 +175,10 @@ def load_schema_matrix(path: str | Path) -> list[SchemaSpec]:
                 name=item["name"],
                 version=version,
                 fields=[_as_field_spec(field) for field in item.get("fields", [])],
+                struct_arrays=[
+                    _as_struct_array_spec(struct_array)
+                    for struct_array in item.get("struct_arrays", [])
+                ],
                 indexes=[_as_index_spec(index) for index in item.get("indexes", [])],
                 functions=[
                     _as_function_spec(function)
@@ -146,11 +188,13 @@ def load_schema_matrix(path: str | Path) -> list[SchemaSpec]:
                 compat_mode=item.get("compat_mode", "rollback_safe"),
                 required_capabilities=list(item.get("required_capabilities", [])),
                 validators=list(item.get("validators", [])),
+                validator_params=dict(item.get("validator_params", {})),
                 description=item.get("description", ""),
                 enable_dynamic_field=bool(item.get("enable_dynamic_field", False)),
                 checksum_fields=list(item.get("checksum_fields", [])),
                 num_partitions=item.get("num_partitions"),
                 partitions=list(item.get("partitions", [])),
+                properties=dict(item.get("properties", {})),
             )
         )
     return specs
@@ -178,6 +222,8 @@ def validate_schema_matrix(
     capabilities: set[str] | None = None,
 ) -> list[str]:
     errors = []
+    from milvus_client.common.feature_validators import unknown_validators
+
     names = set()
     for spec in specs:
         if spec.name in names:
@@ -186,6 +232,10 @@ def validate_schema_matrix(
 
         if spec.compat_mode not in COMPAT_MODES:
             errors.append(f"{spec.name}: invalid compat_mode {spec.compat_mode}")
+        if len(spec.validators) != len(set(spec.validators)):
+            errors.append(f"{spec.name}: validators contains duplicates")
+        for validator in unknown_validators(spec):
+            errors.append(f"{spec.name}: unknown validator {validator}")
 
         primary_fields = [field for field in spec.fields if field.primary]
         if len(primary_fields) != 1:
@@ -219,6 +269,15 @@ def validate_schema_matrix(
             )
 
         field_names = {field.name for field in spec.fields}
+        if len(field_names) != len(spec.fields):
+            errors.append(f"{spec.name}: duplicate top-level field name")
+        struct_names = {struct_array.name for struct_array in spec.struct_arrays}
+        if len(struct_names) != len(spec.struct_arrays):
+            errors.append(f"{spec.name}: duplicate StructArray field name")
+        for struct_name in sorted(field_names & struct_names):
+            errors.append(
+                f"{spec.name}: StructArray field name conflicts with top-level field {struct_name}"
+            )
         field_by_name = {field.name: field for field in spec.fields}
         if len(spec.checksum_fields) != len(set(spec.checksum_fields)):
             errors.append(f"{spec.name}: checksum_fields contains duplicates")
@@ -241,8 +300,66 @@ def validate_schema_matrix(
                 errors.append(
                     f"{spec.name}.{field_spec.name}: vector field requires dim"
                 )
+        for struct_array in spec.struct_arrays:
+            if struct_array.max_capacity <= 0:
+                errors.append(
+                    f"{spec.name}.{struct_array.name}: StructArray max_capacity must be positive"
+                )
+            nested_names = {field.name for field in struct_array.fields}
+            if len(nested_names) != len(struct_array.fields):
+                errors.append(
+                    f"{spec.name}.{struct_array.name}: duplicate StructArray sub-field name"
+                )
+            if not struct_array.fields:
+                errors.append(
+                    f"{spec.name}.{struct_array.name}: StructArray requires at least one sub-field"
+                )
+            for field_spec in struct_array.fields:
+                qualified_name = f"{struct_array.name}[{field_spec.name}]"
+                if (
+                    field_spec.primary
+                    or field_spec.auto_id
+                    or field_spec.is_partition_key
+                ):
+                    errors.append(
+                        f"{spec.name}.{qualified_name}: StructArray sub-field cannot be primary, auto-id, or partition key"
+                    )
+                if field_spec.dtype not in STRUCT_SCALAR_TYPES | VECTOR_TYPES:
+                    errors.append(
+                        f"{spec.name}.{qualified_name}: unsupported StructArray sub-field dtype {field_spec.dtype}"
+                    )
+                if (
+                    field_spec.dtype in VECTOR_TYPES
+                    and field_spec.dtype != "SPARSE_FLOAT_VECTOR"
+                    and not field_spec.dim
+                ):
+                    errors.append(
+                        f"{spec.name}.{qualified_name}: vector field requires dim"
+                    )
+                if field_spec.dtype == "SPARSE_FLOAT_VECTOR":
+                    errors.append(
+                        f"{spec.name}.{qualified_name}: sparse vector is not supported in StructArray"
+                    )
+            if version_family(spec.version) == "2.6":
+                if struct_array.nullable:
+                    errors.append(
+                        f"{spec.name}.{struct_array.name}: nullable StructArray requires Milvus 3.0 or later"
+                    )
+                for field_spec in struct_array.fields:
+                    qualified_name = f"{struct_array.name}[{field_spec.name}]"
+                    if field_spec.nullable:
+                        errors.append(
+                            f"{spec.name}.{qualified_name}: nullable StructArray sub-field requires Milvus 3.0 or later"
+                        )
+                    if (
+                        field_spec.dtype in VECTOR_TYPES
+                        and field_spec.dtype != "FLOAT_VECTOR"
+                    ):
+                        errors.append(
+                            f"{spec.name}.{qualified_name}: Milvus 2.6 StructArray only supports FLOAT_VECTOR sub-fields"
+                        )
         for index in spec.indexes:
-            if index.field not in field_names:
+            if resolve_field(spec, index.field) is None:
                 errors.append(
                     f"{spec.name}: index references unknown field {index.field}"
                 )
@@ -304,6 +421,26 @@ def dtype_to_milvus(dtype: str):
     return getattr(DataType, dtype)
 
 
+def qualified_field_map(spec: SchemaSpec) -> dict[str, FieldSpec]:
+    fields = {field.name: field for field in spec.fields}
+    for struct_array in spec.struct_arrays:
+        for nested_field in struct_array.fields:
+            fields[f"{struct_array.name}[{nested_field.name}]"] = nested_field
+    return fields
+
+
+def resolve_field(spec: SchemaSpec, field_name: str) -> FieldSpec | None:
+    return qualified_field_map(spec).get(field_name)
+
+
+def struct_array_for_field(spec: SchemaSpec, field_name: str) -> StructArraySpec | None:
+    for struct_array in spec.struct_arrays:
+        prefix = f"{struct_array.name}["
+        if field_name.startswith(prefix) and field_name.endswith("]"):
+            return struct_array
+    return None
+
+
 def build_milvus_schema(spec: SchemaSpec):
     from pymilvus import DataType, Function, FunctionType, MilvusClient
 
@@ -333,6 +470,27 @@ def build_milvus_schema(spec: SchemaSpec):
         if field_spec.analyzer_params is not None:
             kwargs["analyzer_params"] = field_spec.analyzer_params
         schema.add_field(**kwargs)
+    for struct_array in spec.struct_arrays:
+        struct_schema = MilvusClient.create_struct_field_schema()
+        for field_spec in struct_array.fields:
+            kwargs = {
+                "field_name": field_spec.name,
+                "datatype": dtype_to_milvus(field_spec.dtype),
+                "nullable": field_spec.nullable,
+            }
+            if field_spec.dim is not None:
+                kwargs["dim"] = field_spec.dim
+            if field_spec.max_length is not None:
+                kwargs["max_length"] = field_spec.max_length
+            struct_schema.add_field(**kwargs)
+        schema.add_field(
+            field_name=struct_array.name,
+            datatype=DataType.ARRAY,
+            element_type=DataType.STRUCT,
+            struct_schema=struct_schema,
+            max_capacity=struct_array.max_capacity,
+            nullable=struct_array.nullable,
+        )
     for function in spec.functions:
         schema.add_function(
             Function(
@@ -353,13 +511,16 @@ def build_index_params(spec: SchemaSpec):
     index_params = MilvusClient.prepare_index_params()
     for index in spec.indexes:
         params = dict(index.params)
-        if index.metric_type:
-            params["metric_type"] = index.metric_type
+        kwargs: dict[str, Any] = {
+            "field_name": index.field,
+            "index_type": index.index_type,
+            "metric_type": index.metric_type,
+            "params": params or None,
+        }
+        if index.index_name:
+            kwargs["index_name"] = index.index_name
         index_params.add_index(
-            field_name=index.field,
-            index_type=index.index_type,
-            metric_type=index.metric_type,
-            params=params or None,
+            **kwargs,
         )
     return index_params
 
@@ -368,6 +529,8 @@ def create_collection_kwargs(spec: SchemaSpec) -> dict[str, Any]:
     kwargs: dict[str, Any] = {}
     if spec.num_partitions is not None:
         kwargs["num_partitions"] = spec.num_partitions
+    if spec.properties:
+        kwargs["properties"] = dict(spec.properties)
     return kwargs
 
 

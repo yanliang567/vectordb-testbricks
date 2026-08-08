@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import sys
+from time import monotonic, sleep
 from typing import Any
 
 from milvus_client.common.args import build_common_parser, parse_bool
@@ -34,6 +35,7 @@ from milvus_client.common.validators import (
 )
 from milvus_client.common.workload import (
     assert_search_result,
+    function_input_query_value,
     metric_type_for_field,
     search_params_for_field,
 )
@@ -61,6 +63,8 @@ def add_args(parser):
     parser.add_argument("--new-start-id", type=int, default=60_000_000)
     parser.add_argument("--phase-checkpoint-file", default="")
     parser.add_argument("--validate-phase-checkpoint", type=parse_bool, default=False)
+    parser.add_argument("--visibility-timeout-sec", type=int, default=120)
+    parser.add_argument("--visibility-interval-sec", type=float, default=2.0)
     parser.add_argument(
         "--drop-new-collections-if-exist", type=parse_bool, default=True
     )
@@ -184,6 +188,22 @@ def _flush_and_load_best_effort(client: Any, target_collection: str) -> dict[str
             target_collection,
         ),
     }
+
+
+def _wait_for_validation(
+    validator: Any,
+    timeout_sec: int,
+    interval_sec: float,
+) -> tuple[ValidationReport, int]:
+    deadline = monotonic() + max(0, timeout_sec)
+    attempts = 0
+    while True:
+        attempts += 1
+        current = ValidationReport()
+        validator(current)
+        if current.passed or monotonic() >= deadline:
+            return current, attempts
+        sleep(max(0.0, interval_sec))
 
 
 def _create_new_collection(
@@ -341,8 +361,8 @@ def _run_searches(
     function_outputs = function_output_fields(spec)
     for vector_field in vector_fields(spec):
         metric_type = metric_type_for_field(spec, vector_field.name)
-        if vector_field.name in function_outputs and metric_type == "BM25":
-            query_vector = f"milvus phase dml dql token_{pk % 16}"
+        if vector_field.name in function_outputs:
+            query_vector = function_input_query_value(spec, vector_field.name, pk, seed)
         else:
             query_vector = stable_vector_value(vector_field, pk, seed)
         try:
@@ -560,6 +580,8 @@ def _run_existing_collection_dml_dql(
     batch_size: int,
     start_id: int,
     seed: int,
+    visibility_timeout_sec: int,
+    visibility_interval_sec: float,
     report: ValidationReport,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
@@ -581,6 +603,7 @@ def _run_existing_collection_dml_dql(
         "upsert_samples": {"field": None, "samples": []},
         "searches": 0,
         "upsert_skipped_auto_id": False,
+        "visibility_attempts": 0,
     }
     inserted_ids: list[Any] = []
 
@@ -632,9 +655,6 @@ def _run_existing_collection_dml_dql(
         remaining_values = inserted_ids[metrics["deleted"] : metrics["deleted"] + 3]
         metrics["remaining_count"] = max(0, metrics["inserted"] - metrics["deleted"])
         metrics["remaining_values"] = list(remaining_values)
-        validate_pk_samples(
-            client, target_collection, primary_name, remaining_values, report
-        )
     else:
         remaining_start_id = start_id + metrics["deleted"]
         min_pk = generate_primary_key_value(primary, remaining_start_id)
@@ -642,32 +662,11 @@ def _run_existing_collection_dml_dql(
         metrics["remaining_count"] = rows - metrics["deleted"]
         metrics["remaining_min_pk"] = min_pk
         metrics["remaining_max_pk"] = max_pk
-        validate_collection_count(
-            client,
-            target_collection,
-            rows - metrics["deleted"],
-            report,
-            filter_expr=pk_range_filter(primary_name, min_pk, max_pk),
-            metric_suffix="phase_existing_dml_count",
-        )
         sample_values = [
             generate_primary_key_value(primary, remaining_start_id),
             generate_primary_key_value(primary, start_id + rows - 1),
         ]
         metrics["remaining_values"] = sample_values
-        validate_pk_samples(
-            client, target_collection, primary_name, sample_values, report
-        )
-        _validate_upserted_values(
-            client,
-            spec,
-            target_collection,
-            primary,
-            start_id,
-            [metrics["deleted"], rows - 1],
-            seed,
-            report,
-        )
         metrics["upsert_samples"] = _upsert_sample_payload(
             spec,
             primary,
@@ -675,13 +674,64 @@ def _run_existing_collection_dml_dql(
             [metrics["deleted"], rows - 1],
             seed,
         )
-    _validate_deleted_pk_values(
-        client,
-        target_collection,
-        primary_name,
-        deleted_values,
-        report,
+
+    def validate_visibility(current: ValidationReport) -> None:
+        if auto_id_enabled(spec):
+            validate_pk_samples(
+                client,
+                target_collection,
+                primary_name,
+                metrics["remaining_values"],
+                current,
+            )
+        else:
+            validate_collection_count(
+                client,
+                target_collection,
+                rows - metrics["deleted"],
+                current,
+                filter_expr=pk_range_filter(
+                    primary_name,
+                    metrics["remaining_min_pk"],
+                    metrics["remaining_max_pk"],
+                ),
+                metric_suffix="phase_existing_dml_count",
+            )
+            validate_pk_samples(
+                client,
+                target_collection,
+                primary_name,
+                metrics["remaining_values"],
+                current,
+            )
+            _validate_upserted_values(
+                client,
+                spec,
+                target_collection,
+                primary,
+                start_id,
+                [metrics["deleted"], rows - 1],
+                seed,
+                current,
+            )
+        _validate_deleted_pk_values(
+            client,
+            target_collection,
+            primary_name,
+            deleted_values,
+            current,
+        )
+
+    visibility_report, visibility_attempts = _wait_for_validation(
+        validate_visibility,
+        visibility_timeout_sec,
+        visibility_interval_sec,
     )
+    metrics["visibility_attempts"] = visibility_attempts
+    report.metrics.update(visibility_report.metrics)
+    if not visibility_report.passed:
+        report.passed = False
+        report.failures.extend(visibility_report.failures)
     metrics["searches"] = _run_searches(
         client, spec, target_collection, seed, start_id + rows - 1, report
     )
@@ -1042,6 +1092,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.batch_size,
                 args.existing_start_id,
                 args.seed,
+                args.visibility_timeout_sec,
+                args.visibility_interval_sec,
                 report,
             )
             metrics["existing_collections"].append(existing_metrics)
@@ -1068,6 +1120,8 @@ def main(argv: list[str] | None = None) -> int:
                     args.batch_size,
                     carried_start_id,
                     args.seed + 31,
+                    args.visibility_timeout_sec,
+                    args.visibility_interval_sec,
                     report,
                 )
                 metrics["carried_collections"].append(carried_metrics)

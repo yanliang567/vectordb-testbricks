@@ -68,7 +68,7 @@ features:
   - id: nullable_vector
     domain: schema
     priority: P1
-    compat_mode: forward_only
+    compat_mode: rollback_safe
     required_capabilities: ["NullableVector"]
     bricks:
       - create_schema_matrix
@@ -80,7 +80,7 @@ features:
   - id: geometry
     domain: schema
     priority: P1
-    compat_mode: forward_only
+    compat_mode: rollback_safe
     required_capabilities: ["Geometry"]
     bricks:
       - create_schema_matrix
@@ -125,12 +125,58 @@ features:
     domain: struct_array
     priority: P1
     compat_mode: forward_only
-    required_capabilities: ["StructArray", "ElementHybridSearch"]
-    bricks: []
+    required_capabilities: ["StructArrayExtended", "ElementHybridSearch"]
+    bricks:
+      - create_schema_matrix
+      - seed_data
+      - validate_data_integrity
+      - validate_index_compatibility
+      - validate_schema_features
+
+  - id: struct_array
+    domain: struct_array
+    priority: P1
+    compat_mode: rollback_safe
+    required_capabilities: ["StructArray"]
+    bricks:
+      - create_schema_matrix
+      - seed_data
+      - validate_data_integrity
+      - validate_schema_features
+
+  - id: faiss_index
+    domain: index
+    priority: P1
+    compat_mode: forward_only
+    required_capabilities: ["FaissIndex"]
+    bricks:
+      - validate_index_compatibility
+
+  - id: minhash
+    domain: function
+    priority: P1
+    compat_mode: forward_only
+    required_capabilities: ["MinHash"]
+    bricks:
+      - validate_schema_features
+
+  - id: index_engine_v10_v4
+    domain: index
+    priority: P1
+    compat_mode: forward_only
+    required_capabilities: ["IndexEngineV10V4"]
+    bricks:
+      - validate_index_compatibility
+      - validate_schema_features
 
   - id: storage_v3
     domain: storage
     priority: P2
     compat_mode: forward_only
     required_capabilities: ["StorageV3"]
-    bricks: []
+    bricks:
+      - create_schema_matrix
+      - seed_data
+      - validate_data_integrity
+      - validate_index_compatibility
+      - validate_schema_features

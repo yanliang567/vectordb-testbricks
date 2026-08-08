@@ -24,7 +24,7 @@ spec:
       - name: client-image
         value: harbor.milvus.io/qa/fouram:2.1
       - name: python-deps
-        value: pymilvus==3.0.0 pyyaml numpy
+        value: pymilvus==3.0.1 pyyaml numpy
       - name: base-milvus-image
         value: harbor.milvus.io/milvusdb/milvus:3.0-20260701-d19d8484-47f6c14
       - name: rollback-milvus-image
@@ -55,6 +55,18 @@ spec:
         value: "false"
       - name: rollback-vortex-enabled
         value: "false"
+      - name: base-target-vec-index-version
+        value: "-1"
+      - name: target-target-vec-index-version
+        value: "-1"
+      - name: rollback-target-vec-index-version
+        value: "-1"
+      - name: base-target-scalar-index-version
+        value: "-1"
+      - name: target-target-scalar-index-version
+        value: "-1"
+      - name: rollback-target-scalar-index-version
+        value: "-1"
       - name: post-upgrade-config-toggle-enabled
         value: "false"
       - name: post-upgrade-json-shredding-enabled
@@ -248,8 +260,26 @@ spec:
                     --schema-matrix {{workflow.parameters.schema-matrix}}
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
 
-          - name: strict-pressure-before-upgrade
+          - name: validate-schema-features-base
             dependencies: [validate-before-upgrade]
+            template: run-brick
+            arguments:
+              parameters:
+                - name: brick-name
+                  value: validate_schema_features_base
+                - name: module
+                  value: milvus_client.requests.validate_schema_features
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --runtime-milvus-config /tmp/milvus-bricks/k8s/runtime-milvus-base.yaml
+                    --runtime-user-config /tmp/milvus-bricks/k8s/runtime-user-base.yaml
+
+          - name: strict-pressure-before-upgrade
+            dependencies: [validate-schema-features-base]
             template: run-pressure-suite
             arguments:
               parameters:
@@ -291,6 +321,10 @@ spec:
                   value: "{{workflow.parameters.target-loon-ffi-enabled}}"
                 - name: vortex-enabled
                   value: "{{workflow.parameters.target-vortex-enabled}}"
+                - name: target-vec-index-version
+                  value: "{{workflow.parameters.target-target-vec-index-version}}"
+                - name: target-scalar-index-version
+                  value: "{{workflow.parameters.target-target-scalar-index-version}}"
 
           - name: wait-upgrade-ready
             dependencies: [patch-upgrade, pressure-daemon]
@@ -415,8 +449,26 @@ spec:
                     --rebuild-index false
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
 
-          - name: validate-phase-dml-dql-after-upgrade
+          - name: validate-schema-features-after-upgrade
             dependencies: [validate-index-compatibility-after-upgrade, pressure-daemon]
+            template: run-brick
+            arguments:
+              parameters:
+                - name: brick-name
+                  value: validate_schema_features_after_upgrade
+                - name: module
+                  value: milvus_client.requests.validate_schema_features
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --runtime-milvus-config /tmp/milvus-bricks/k8s/runtime-milvus-after-upgrade.yaml
+                    --runtime-user-config /tmp/milvus-bricks/k8s/runtime-user-after-upgrade.yaml
+
+          - name: validate-phase-dml-dql-after-upgrade
+            dependencies: [validate-schema-features-after-upgrade, pressure-daemon]
             template: optional-run-brick
             arguments:
               parameters:
@@ -461,6 +513,7 @@ spec:
                     --schema-matrix {{workflow.parameters.schema-matrix}}
                     --rows-per-collection {{workflow.parameters.rows-per-collection}}
                     --batch-size {{workflow.parameters.batch-size}}
+                    --function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}
 
           - name: patch-post-upgrade-config
             dependencies: [schema-evolution-existing, pressure-daemon]
@@ -588,8 +641,28 @@ spec:
                     --rebuild-index false
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
 
-          - name: schema-evolution-forward
+          - name: validate-forward-schema-features-after-upgrade
             dependencies: [validate-forward-indexes-after-upgrade, pressure-daemon]
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.forward-workload-enabled}}"
+                - name: brick-name
+                  value: validate_forward_schema_features_after_upgrade
+                - name: module
+                  value: milvus_client.requests.validate_schema_features
+                - name: collection-prefix
+                  value: "{{workflow.parameters.forward-collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
+                    --runtime-milvus-config /tmp/milvus-bricks/k8s/runtime-milvus-post-upgrade-config.yaml
+                    --runtime-user-config /tmp/milvus-bricks/k8s/runtime-user-post-upgrade-config.yaml
+
+          - name: schema-evolution-forward
+            dependencies: [validate-forward-schema-features-after-upgrade, pressure-daemon]
             template: optional-run-brick
             arguments:
               parameters:
@@ -606,6 +679,7 @@ spec:
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
                     --rows-per-collection {{workflow.parameters.rows-per-collection}}
                     --batch-size {{workflow.parameters.batch-size}}
+                    --function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}
 
           - name: observe-before-rollback
             dependencies: [schema-evolution-forward, pressure-daemon]
@@ -649,6 +723,10 @@ spec:
                   value: "{{workflow.parameters.rollback-loon-ffi-enabled}}"
                 - name: vortex-enabled
                   value: "{{workflow.parameters.rollback-vortex-enabled}}"
+                - name: target-vec-index-version
+                  value: "{{workflow.parameters.rollback-target-vec-index-version}}"
+                - name: target-scalar-index-version
+                  value: "{{workflow.parameters.rollback-target-scalar-index-version}}"
 
           - name: wait-rollback-ready
             dependencies: [patch-rollback, pressure-daemon]
@@ -750,8 +828,27 @@ spec:
                     --rebuild-index false
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
 
-          - name: validate-phase-dml-dql-after-rollback
+          - name: validate-schema-features-after-rollback
             dependencies: [validate-index-compatibility-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
+            template: run-brick
+            arguments:
+              parameters:
+                - name: brick-name
+                  value: validate_schema_features_after_rollback
+                - name: module
+                  value: milvus_client.requests.validate_schema_features
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --runtime-milvus-config /tmp/milvus-bricks/k8s/runtime-milvus-after-rollback.yaml
+                    --runtime-user-config /tmp/milvus-bricks/k8s/runtime-user-after-rollback.yaml
+
+          - name: validate-phase-dml-dql-after-rollback
+            dependencies: [validate-schema-features-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: optional-run-brick
             arguments:
@@ -842,6 +939,27 @@ spec:
                     --rebuild-index false
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
 
+          - name: validate-forward-schema-features-after-rollback
+            dependencies: [validate-forward-indexes-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.rollback-forward-validation-enabled}}"
+                - name: brick-name
+                  value: validate_forward_schema_features_after_rollback
+                - name: module
+                  value: milvus_client.requests.validate_schema_features
+                - name: collection-prefix
+                  value: "{{workflow.parameters.forward-collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
+                    --runtime-milvus-config /tmp/milvus-bricks/k8s/runtime-milvus-after-rollback.yaml
+                    --runtime-user-config /tmp/milvus-bricks/k8s/runtime-user-after-rollback.yaml
+
           - name: wait-forward-rollback-serviceability
             dependencies: [wait-rollback-serviceability, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
@@ -864,7 +982,7 @@ spec:
                     --interval-sec {{workflow.parameters.rollback-serviceability-interval-sec}}
 
           - name: strict-pressure-after-rollback
-            dependencies: [validate-forward-indexes-after-rollback, pressure-daemon]
+            dependencies: [validate-forward-schema-features-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: run-pressure-suite
             arguments:
@@ -1121,6 +1239,8 @@ spec:
               --json-shredding-enabled "{{workflow.parameters.base-json-shredding-enabled}}" \
               --loon-ffi-enabled "{{workflow.parameters.base-loon-ffi-enabled}}" \
               --vortex-enabled "{{workflow.parameters.base-vortex-enabled}}" \
+              --target-vec-index-version "{{workflow.parameters.base-target-vec-index-version}}" \
+              --target-scalar-index-version "{{workflow.parameters.base-target-scalar-index-version}}" \
               --workflow-name "{{workflow.name}}" \
               --workflow-uid "{{workflow.uid}}" \
               --app-name milvus-standalone-3-0-upgrade-rollback \
@@ -1179,6 +1299,8 @@ spec:
           - name: json-shredding-enabled
           - name: loon-ffi-enabled
           - name: vortex-enabled
+          - name: target-vec-index-version
+          - name: target-scalar-index-version
       container:
         image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
@@ -1198,6 +1320,8 @@ spec:
 
             loon_ffi_enabled = json.loads("""{{inputs.parameters.loon-ffi-enabled}}""")
             vortex_enabled = json.loads("""{{inputs.parameters.vortex-enabled}}""")
+            target_vec_index_version = int("{{inputs.parameters.target-vec-index-version}}")
+            target_scalar_index_version = int("{{inputs.parameters.target-scalar-index-version}}")
             storage = {
                 "jsonShreddingEnabled": json.loads("""{{inputs.parameters.json-shredding-enabled}}"""),
                 "useLoonFFI": loon_ffi_enabled,
@@ -1216,6 +1340,12 @@ spec:
                 patch["spec"]["config"]["dataNode"] = {"storage": {"format": "vortex"}}
             else:
                 patch["spec"]["config"]["dataNode"] = {"storage": {"format": None}}
+            data_coord = {}
+            if target_vec_index_version >= 0:
+                data_coord["targetVecIndexVersion"] = target_vec_index_version
+            if target_scalar_index_version >= 0:
+                data_coord["targetScalarIndexVersion"] = target_scalar_index_version
+            patch["spec"]["config"]["dataCoord"] = data_coord or None
             Path("/tmp/milvus-patch.json").write_text(json.dumps(patch, indent=2, sort_keys=True))
             print(json.dumps(patch, indent=2, sort_keys=True))
             PY
@@ -1632,13 +1762,19 @@ spec:
             sleep $((attempt * 5))
             done
             cd /tmp/repo/milvus-bricks
+            set +e
             PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
               --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
               --collection-prefix "{{inputs.parameters.collection-prefix}}" \
               --checkpoint-dir /tmp/milvus-bricks/checkpoints \
               --output-json /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json \
               {{inputs.parameters.args}}
-            python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
+            rc=$?
+            set -e
+            if [ -f /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json ]; then
+              python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
+            fi
+            exit "$rc"
         volumeMounts:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks
@@ -1688,13 +1824,19 @@ spec:
             done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/results /tmp/milvus-bricks/checkpoints
+            set +e
             PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
               --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
               --collection-prefix "{{inputs.parameters.collection-prefix}}" \
               --checkpoint-dir /tmp/milvus-bricks/checkpoints \
               --output-json /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json \
               {{inputs.parameters.args}}
-            python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
+            rc=$?
+            set -e
+            if [ -f /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json ]; then
+              python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
+            fi
+            exit "$rc"
         volumeMounts:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks
@@ -2299,6 +2441,12 @@ spec:
               --base-vortex-enabled "{{workflow.parameters.base-vortex-enabled}}" \
               --target-vortex-enabled "{{workflow.parameters.target-vortex-enabled}}" \
               --rollback-vortex-enabled "{{workflow.parameters.rollback-vortex-enabled}}" \
+              --base-target-vec-index-version "{{workflow.parameters.base-target-vec-index-version}}" \
+              --target-target-vec-index-version "{{workflow.parameters.target-target-vec-index-version}}" \
+              --rollback-target-vec-index-version "{{workflow.parameters.rollback-target-vec-index-version}}" \
+              --base-target-scalar-index-version "{{workflow.parameters.base-target-scalar-index-version}}" \
+              --target-target-scalar-index-version "{{workflow.parameters.target-target-scalar-index-version}}" \
+              --rollback-target-scalar-index-version "{{workflow.parameters.rollback-target-scalar-index-version}}" \
               --post-upgrade-config-toggle-enabled "{{workflow.parameters.post-upgrade-config-toggle-enabled}}" \
               --post-upgrade-json-shredding-enabled "{{workflow.parameters.post-upgrade-json-shredding-enabled}}" \
               --forward-workload-enabled "{{workflow.parameters.forward-workload-enabled}}" \

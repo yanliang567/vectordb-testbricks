@@ -13,7 +13,7 @@ bricks:
     module: milvus_client.requests.create_schema_matrix
     category: schema
     milvus_versions: ["2.6", "3.0"]
-    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array"]
+    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array", "struct_array_element_hybrid_search", "storage_v3"]
     required_capabilities: []
     compat_mode: rollback_safe
     lifecycle_phases: ["before_upgrade", "after_upgrade"]
@@ -23,7 +23,7 @@ bricks:
     module: milvus_client.requests.seed_data
     category: dml
     milvus_versions: ["2.6", "3.0"]
-    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array"]
+    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array", "struct_array_element_hybrid_search", "storage_v3"]
     required_capabilities: []
     compat_mode: rollback_safe
     lifecycle_phases: ["before_upgrade", "after_upgrade"]
@@ -33,11 +33,31 @@ bricks:
     module: milvus_client.requests.validate_data_integrity
     category: validation
     milvus_versions: ["2.6", "3.0"]
-    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array"]
+    feature_tags: ["compat_basic_vector", "compat_multi_vector", "compat_json_array", "struct_array_element_hybrid_search", "storage_v3"]
     required_capabilities: []
     compat_mode: rollback_safe
     lifecycle_phases: ["before_upgrade", "after_upgrade", "before_rollback", "after_rollback", "steady_state"]
     destructive: false
+
+  - name: validate_index_compatibility
+    module: milvus_client.requests.validate_index_compatibility
+    category: validation
+    milvus_versions: ["2.6", "3.0"]
+    feature_tags: ["compat_multi_vector", "struct_array_element_hybrid_search", "faiss_index", "storage_v3", "index_engine_v10_v4"]
+    required_capabilities: []
+    compat_mode: rollback_safe
+    lifecycle_phases: ["after_upgrade", "after_rollback", "steady_state"]
+    destructive: optional
+
+  - name: validate_schema_features
+    module: milvus_client.requests.validate_schema_features
+    category: validation
+    milvus_versions: ["2.6", "3.0"]
+    feature_tags: ["struct_array", "struct_array_element_hybrid_search", "geometry", "nullable_vector", "timestamptz", "entity_ttl", "faiss_index", "minhash", "storage_v3", "index_engine_v10_v4"]
+    required_capabilities: []
+    compat_mode: rollback_safe
+    lifecycle_phases: ["before_upgrade", "after_upgrade", "after_rollback", "steady_state"]
+    destructive: optional
 
   - name: wait_data_serviceability
     module: milvus_client.requests.wait_data_serviceability

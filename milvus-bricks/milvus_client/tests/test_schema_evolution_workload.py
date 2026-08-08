@@ -11,7 +11,9 @@ class FakeClient:
         return True
 
     def add_collection_field(self, collection_name, field_name, data_type, **kwargs):
-        self.calls.append(("add_collection_field", collection_name, field_name, data_type, kwargs))
+        self.calls.append(
+            ("add_collection_field", collection_name, field_name, data_type, kwargs)
+        )
 
     def add_collection_function(self, collection_name, function, **kwargs):
         self.calls.append(("add_collection_function", collection_name, function.name))
@@ -24,7 +26,9 @@ class FakeClient:
         return {"upsert_count": len(data)}
 
     def query(self, collection_name, filter, output_fields, limit=None):
-        self.calls.append(("query", collection_name, filter, tuple(output_fields), limit))
+        self.calls.append(
+            ("query", collection_name, filter, tuple(output_fields), limit)
+        )
         return [{"id": 1}]
 
     def search(self, collection_name, data, anns_field, limit, search_params):
@@ -40,13 +44,33 @@ class FakeBm25DropRequiresFieldClient(FakeClient):
         )
 
 
+class FakeFunctionFieldClient(FakeClient):
+    def drop_function_field(self, collection_name, function_name, **kwargs):
+        self.calls.append(("drop_function_field", collection_name, function_name))
+
+    def add_function_field(
+        self, collection_name, field_schema, func, index_params, **kwargs
+    ):
+        self.calls.append(
+            (
+                "add_function_field",
+                collection_name,
+                field_schema.name,
+                func.name,
+                index_params,
+            )
+        )
+
+
 def _baseline_bm25_spec():
     return SchemaSpec(
         name="existing_bm25",
         version="2.6",
         fields=[
             FieldSpec(name="id", dtype="INT64", primary=True),
-            FieldSpec(name="text", dtype="VARCHAR", max_length=256, enable_analyzer=True),
+            FieldSpec(
+                name="text", dtype="VARCHAR", max_length=256, enable_analyzer=True
+            ),
             FieldSpec(name="sparse_bm25", dtype="SPARSE_FLOAT_VECTOR"),
             FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=8),
         ],
@@ -59,8 +83,44 @@ def _baseline_bm25_spec():
             )
         ],
         indexes=[
-            IndexSpec(field="sparse_bm25", index_type="SPARSE_INVERTED_INDEX", metric_type="BM25"),
+            IndexSpec(
+                field="sparse_bm25",
+                index_type="SPARSE_INVERTED_INDEX",
+                metric_type="BM25",
+            ),
             IndexSpec(field="embedding", index_type="AUTOINDEX", metric_type="COSINE"),
+        ],
+    )
+
+
+def _minhash_spec():
+    return SchemaSpec(
+        name="minhash",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(
+                name="document",
+                dtype="VARCHAR",
+                max_length=65535,
+                value_profile="minhash_documents",
+            ),
+            FieldSpec(name="minhash", dtype="BINARY_VECTOR", dim=4096),
+        ],
+        functions=[
+            FunctionSpec(
+                name="text_to_minhash",
+                function_type="MINHASH",
+                input_fields=["document"],
+                output_fields=["minhash"],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="minhash",
+                index_type="MINHASH_LSH",
+                metric_type="MHJACCARD",
+            )
         ],
     )
 
@@ -79,10 +139,23 @@ def test_schema_evolution_cycles_existing_collection_fields_functions_and_reads(
 
     call_names = [call[0] for call in client.calls]
     assert "add_collection_field" in call_names
-    assert ("drop_collection_function", "qa_existing_bm25", "text_bm25_emb") in client.calls
-    assert ("add_collection_function", "qa_existing_bm25", "text_bm25_emb") in client.calls
-    assert any(call[0] == "upsert" and call[1] == "qa_existing_bm25" for call in client.calls)
-    assert any(call[0] == "query" and "evo_nullable_varchar" in call[3] for call in client.calls)
+    assert (
+        "drop_collection_function",
+        "qa_existing_bm25",
+        "text_bm25_emb",
+    ) in client.calls
+    assert (
+        "add_collection_function",
+        "qa_existing_bm25",
+        "text_bm25_emb",
+    ) in client.calls
+    assert any(
+        call[0] == "upsert" and call[1] == "qa_existing_bm25" for call in client.calls
+    )
+    assert any(
+        call[0] == "query" and "evo_nullable_varchar" in call[3]
+        for call in client.calls
+    )
     assert any(call[0] == "search" and call[2] == "embedding" for call in client.calls)
     assert any(
         call[0] == "search" and call[2] == "sparse_bm25" and isinstance(call[4][0], str)
@@ -92,6 +165,83 @@ def test_schema_evolution_cycles_existing_collection_fields_functions_and_reads(
     assert metrics["failed_total"] == 0
     assert metrics["function_cycles_total"] == 1
     assert metrics["drop_field_skipped_total"] == 1
+
+
+def test_schema_evolution_uses_function_field_apis_when_available():
+    client = FakeFunctionFieldClient()
+
+    metrics = run_schema_evolution(
+        client,
+        [_baseline_bm25_spec()],
+        collection_prefix="qa",
+        rows_per_collection=2,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    assert metrics["failed_total"] == 0
+    assert metrics["function_cycles_total"] == 1
+    assert (
+        "drop_function_field",
+        "qa_existing_bm25",
+        "text_bm25_emb",
+    ) in client.calls
+    add_call = next(call for call in client.calls if call[0] == "add_function_field")
+    assert add_call[1:4] == (
+        "qa_existing_bm25",
+        "sparse_bm25",
+        "text_bm25_emb",
+    )
+    assert not any(call[0] == "drop_collection_function" for call in client.calls)
+    assert not any(call[0] == "add_collection_function" for call in client.calls)
+
+
+def test_schema_evolution_skips_function_field_cycle_when_disabled():
+    client = FakeFunctionFieldClient()
+
+    metrics = run_schema_evolution(
+        client,
+        [_baseline_bm25_spec()],
+        collection_prefix="qa",
+        rows_per_collection=2,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+        function_field_cycle_enabled=False,
+    )
+
+    assert metrics["failed_total"] == 0
+    assert metrics["function_cycles_total"] == 0
+    assert metrics["function_cycle_skipped_total"] == 1
+    assert metrics["collections"][0]["function_cycle_skip_reasons"] == [
+        "skipped_disabled"
+    ]
+    assert not any("function_field" in call[0] for call in client.calls)
+
+
+def test_schema_evolution_minhash_search_uses_function_input_text():
+    client = FakeFunctionFieldClient()
+
+    metrics = run_schema_evolution(
+        client,
+        [_minhash_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    searches = [call for call in client.calls if call[0] == "search"]
+    assert metrics["failed_total"] == 0
+    assert metrics["function_cycles_total"] == 0
+    assert metrics["function_cycle_skipped_total"] == 1
+    assert metrics["collections"][0]["function_cycle_skip_reasons"] == [
+        "skipped_only_vector_field"
+    ]
+    assert searches[0][2] == "minhash"
+    assert searches[0][4] == ["the quick brown fox jumps over the lazy dog"]
 
 
 def test_schema_evolution_skips_bm25_function_cycle_when_drop_function_field_api_is_missing():
@@ -110,7 +260,9 @@ def test_schema_evolution_skips_bm25_function_cycle_when_drop_function_field_api
     assert metrics["failed_total"] == 0
     assert metrics["function_cycles_total"] == 0
     assert metrics["function_cycle_skipped_total"] == 1
-    assert collection["function_cycle_skip_reasons"] == ["skipped_drop_function_field_api_missing"]
+    assert collection["function_cycle_skip_reasons"] == [
+        "skipped_drop_function_field_api_missing"
+    ]
     assert not any(call[0] == "add_collection_function" for call in client.calls)
 
 
@@ -124,7 +276,9 @@ def test_schema_evolution_updates_nullable_vector_collection():
             FieldSpec(name="category", dtype="INT64"),
             FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=8, nullable=True),
         ],
-        indexes=[IndexSpec(field="embedding", index_type="AUTOINDEX", metric_type="COSINE")],
+        indexes=[
+            IndexSpec(field="embedding", index_type="AUTOINDEX", metric_type="COSINE")
+        ],
         validators=["null_vector_semantics"],
     )
 
@@ -138,7 +292,9 @@ def test_schema_evolution_updates_nullable_vector_collection():
         seed=11,
     )
 
-    upsert_rows = [row for call in client.calls if call[0] == "upsert" for row in call[2]]
+    upsert_rows = [
+        row for call in client.calls if call[0] == "upsert" for row in call[2]
+    ]
     assert any(row["embedding"] is None for row in upsert_rows)
     assert any(row["embedding"] is not None for row in upsert_rows)
     assert metrics["nullable_updates_total"] == 4
@@ -154,7 +310,9 @@ def test_schema_evolution_formats_string_primary_key_filters():
             FieldSpec(name="pk", dtype="VARCHAR", primary=True, max_length=64),
             FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=8),
         ],
-        indexes=[IndexSpec(field="embedding", index_type="AUTOINDEX", metric_type="COSINE")],
+        indexes=[
+            IndexSpec(field="embedding", index_type="AUTOINDEX", metric_type="COSINE")
+        ],
     )
 
     metrics = run_schema_evolution(
@@ -168,5 +326,8 @@ def test_schema_evolution_formats_string_primary_key_filters():
     )
 
     query_filters = [call[2] for call in client.calls if call[0] == "query"]
-    assert any('pk >= "pk_00000000000000007000"' in filter_expr for filter_expr in query_filters)
+    assert any(
+        'pk >= "pk_00000000000000007000"' in filter_expr
+        for filter_expr in query_filters
+    )
     assert metrics["failed_total"] == 0

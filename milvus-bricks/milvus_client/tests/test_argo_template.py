@@ -23,6 +23,27 @@ from milvus_client.common.pressure_maintenance import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
+def test_brick_templates_print_result_json_before_propagating_failure(filename):
+    template = yaml.safe_load((ROOT / "argo" / filename).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+
+    for name in ("optional-run-brick", "run-brick"):
+        command = templates[name]["container"]["args"][0]
+        assert "set +e" in command
+        assert "rc=$?" in command
+        assert "python3 -m json.tool" in command
+        assert 'exit "$rc"' in command
+        assert command.index("rc=$?") < command.rindex("python3 -m json.tool")
+
+
 def test_pressure_result_configmap_decoder_supports_plain_and_gzip_payloads():
     result_text = json.dumps(
         {
@@ -742,8 +763,12 @@ def test_upgrade_templates_validate_forward_indexes_across_rollback(
         in upgrade_args["args"]
     )
     assert "--phase after-upgrade" in upgrade_args["args"]
-    assert tasks["schema-evolution-forward"]["dependencies"] == [
+    assert tasks["validate-forward-schema-features-after-upgrade"]["dependencies"] == [
         "validate-forward-indexes-after-upgrade",
+        "pressure-daemon",
+    ]
+    assert tasks["schema-evolution-forward"]["dependencies"] == [
+        "validate-forward-schema-features-after-upgrade",
         "pressure-daemon",
     ]
 
@@ -764,8 +789,12 @@ def test_upgrade_templates_validate_forward_indexes_across_rollback(
         "{{workflow.parameters.rollback-forward-validation-enabled}}"
     )
     assert "--phase after-rollback" in rollback_args["args"]
-    assert tasks["strict-pressure-after-rollback"]["dependencies"] == [
+    assert tasks["validate-forward-schema-features-after-rollback"]["dependencies"] == [
         "validate-forward-indexes-after-rollback",
+        "pressure-daemon",
+    ]
+    assert tasks["strict-pressure-after-rollback"]["dependencies"] == [
+        "validate-forward-schema-features-after-rollback",
         "pressure-daemon",
     ]
 
@@ -1721,6 +1750,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "create-compat-schema",
         "seed-compat-data",
         "validate-before-upgrade",
+        "validate-schema-features-base",
         "strict-pressure-before-upgrade",
         "pressure-daemon",
         "observe-before-upgrade",
@@ -1732,6 +1762,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "wait-upgrade-serviceability",
         "validate-after-upgrade",
         "validate-index-compatibility-after-upgrade",
+        "validate-schema-features-after-upgrade",
         "validate-phase-dml-dql-after-upgrade",
         "strict-pressure-after-upgrade",
         "schema-evolution-existing",
@@ -1743,6 +1774,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "seed-forward-data",
         "validate-forward-after-upgrade",
         "validate-forward-indexes-after-upgrade",
+        "validate-forward-schema-features-after-upgrade",
         "schema-evolution-forward",
         "observe-before-rollback",
         "strict-pressure-before-rollback",
@@ -1754,10 +1786,12 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "wait-rollback-serviceability",
         "validate-after-rollback",
         "validate-index-compatibility-after-rollback",
+        "validate-schema-features-after-rollback",
         "validate-phase-dml-dql-after-rollback",
         "wait-forward-rollback-serviceability",
         "validate-forward-after-rollback",
         "validate-forward-indexes-after-rollback",
+        "validate-forward-schema-features-after-rollback",
         "strict-pressure-after-rollback",
         "stop-pressure",
         "check-pressure-results",
@@ -1780,7 +1814,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert "volumeMounts" not in templates["run-pressure-suite"]["container"]
     assert "validator-daemon" not in templates
     assert tasks["strict-pressure-before-upgrade"]["dependencies"] == [
-        "validate-before-upgrade"
+        "validate-schema-features-base"
     ]
     assert tasks["pressure-daemon"]["dependencies"] == [
         "strict-pressure-before-upgrade"
@@ -1812,6 +1846,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "wait-upgrade-serviceability",
         "validate-after-upgrade",
         "validate-index-compatibility-after-upgrade",
+        "validate-schema-features-after-upgrade",
         "validate-phase-dml-dql-after-upgrade",
         "schema-evolution-existing",
         "patch-post-upgrade-config",
@@ -1822,6 +1857,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "seed-forward-data",
         "validate-forward-after-upgrade",
         "validate-forward-indexes-after-upgrade",
+        "validate-forward-schema-features-after-upgrade",
         "schema-evolution-forward",
         "observe-before-rollback",
         "patch-rollback",
@@ -1832,10 +1868,12 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "wait-rollback-serviceability",
         "validate-after-rollback",
         "validate-index-compatibility-after-rollback",
+        "validate-schema-features-after-rollback",
         "validate-phase-dml-dql-after-rollback",
         "wait-forward-rollback-serviceability",
         "validate-forward-after-rollback",
         "validate-forward-indexes-after-rollback",
+        "validate-forward-schema-features-after-rollback",
         "strict-pressure-after-rollback",
         "stop-pressure",
     ]
@@ -1850,7 +1888,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "pressure-daemon",
     ]
     assert tasks["validate-phase-dml-dql-after-upgrade"]["dependencies"] == [
-        "validate-index-compatibility-after-upgrade",
+        "validate-schema-features-after-upgrade",
         "pressure-daemon",
     ]
     assert tasks["schema-evolution-existing"]["dependencies"] == [
@@ -1869,7 +1907,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     assert tasks["create-forward-schema"]["template"] == "optional-run-brick"
     assert tasks["validate-forward-after-upgrade"]["template"] == "optional-run-brick"
     assert tasks["schema-evolution-forward"]["dependencies"] == [
-        "validate-forward-indexes-after-upgrade",
+        "validate-forward-schema-features-after-upgrade",
         "pressure-daemon",
     ]
     assert tasks["schema-evolution-forward"]["template"] == "optional-run-brick"
@@ -1903,7 +1941,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "pressure-daemon",
     ]
     assert tasks["validate-phase-dml-dql-after-rollback"]["dependencies"] == [
-        "validate-index-compatibility-after-rollback",
+        "validate-schema-features-after-rollback",
         "pressure-daemon",
     ]
     assert tasks["validate-after-rollback"]["dependencies"] == [
@@ -1919,7 +1957,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "pressure-daemon",
     ]
     assert tasks["strict-pressure-after-rollback"]["dependencies"] == [
-        "validate-forward-indexes-after-rollback",
+        "validate-forward-schema-features-after-rollback",
         "pressure-daemon",
     ]
     assert tasks["stop-pressure"]["dependencies"] == [
@@ -1938,6 +1976,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "validate-after-rollback",
         "validate-index-compatibility-after-rollback",
         "validate-phase-dml-dql-after-rollback",
+        "validate-schema-features-after-rollback",
         "strict-pressure-after-rollback",
     ]
     for task_name in rollback_gated_tasks:
@@ -1949,6 +1988,9 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
     )
     assert tasks["validate-forward-indexes-after-rollback"]["when"] == (
+        "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
+    )
+    assert tasks["validate-forward-schema-features-after-rollback"]["when"] == (
         "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
     )
     assert tasks["wait-forward-rollback-serviceability"]["when"] == (
@@ -2139,6 +2181,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "--schema-matrix {{workflow.parameters.schema-matrix}}"
         in schema_evolution_args["args"]
     )
+    assert (
+        "--function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}"
+        in schema_evolution_args["args"]
+    )
     forward_evolution_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["schema-evolution-forward"]["arguments"]["parameters"]
@@ -2149,6 +2195,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     )
     assert (
         "--schema-matrix {{workflow.parameters.forward-schema-matrix}}"
+        in forward_evolution_args["args"]
+    )
+    assert (
+        "--function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}"
         in forward_evolution_args["args"]
     )
     forward_validate_args = {
@@ -2516,7 +2566,7 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
         "pressure-daemon",
     ]
     assert tasks["validate-phase-dml-dql-after-upgrade"]["dependencies"] == [
-        "validate-index-compatibility-after-upgrade",
+        "validate-schema-features-after-upgrade",
         "pressure-daemon",
     ]
     assert tasks["strict-pressure-after-upgrade"]["dependencies"] == [
@@ -2528,7 +2578,7 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
         "pressure-daemon",
     ]
     assert tasks["validate-phase-dml-dql-after-rollback"]["dependencies"] == [
-        "validate-index-compatibility-after-rollback",
+        "validate-schema-features-after-rollback",
         "pressure-daemon",
     ]
     assert tasks["validate-after-rollback"]["dependencies"] == [
@@ -2540,7 +2590,7 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
         "pressure-daemon",
     ]
     assert tasks["schema-evolution-forward"]["dependencies"] == [
-        "validate-forward-indexes-after-upgrade",
+        "validate-forward-schema-features-after-upgrade",
         "pressure-daemon",
     ]
     assert tasks["validate-forward-indexes-after-rollback"]["dependencies"] == [
@@ -2548,7 +2598,7 @@ def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
         "pressure-daemon",
     ]
     assert tasks["strict-pressure-after-rollback"]["dependencies"] == [
-        "validate-forward-indexes-after-rollback",
+        "validate-forward-schema-features-after-rollback",
         "pressure-daemon",
     ]
     forward_index_upgrade_args = {
@@ -2882,7 +2932,7 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     )
     tasks = {task["name"]: task for task in main["dag"]["tasks"]}
     assert tasks["strict-pressure-before-upgrade"]["dependencies"] == [
-        "validate-before-upgrade"
+        "validate-schema-features-base"
     ]
     assert tasks["pressure-daemon"]["dependencies"] == [
         "strict-pressure-before-upgrade"
@@ -2901,7 +2951,7 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         "pressure-daemon",
     ]
     assert tasks["validate-phase-dml-dql-after-upgrade"]["dependencies"] == [
-        "validate-index-compatibility-after-upgrade",
+        "validate-schema-features-after-upgrade",
         "pressure-daemon",
     ]
     assert tasks["strict-pressure-after-upgrade"]["dependencies"] == [
@@ -2912,6 +2962,19 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         "strict-pressure-after-upgrade",
         "pressure-daemon",
     ]
+    post_config_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["patch-post-upgrade-config"]["arguments"]["parameters"]
+    }
+    assert post_config_args["target-vec-index-version"] == (
+        "{{workflow.parameters.target-target-vec-index-version}}"
+    )
+    assert post_config_args["target-scalar-index-version"] == (
+        "{{workflow.parameters.target-target-scalar-index-version}}"
+    )
+    post_config_command = templates["patch-milvus-config"]["container"]["args"][0]
+    assert 'config["dataCoord"]["targetVecIndexVersion"]' in post_config_command
+    assert 'config["dataCoord"]["targetScalarIndexVersion"]' in post_config_command
     assert tasks["validate-forward-after-rollback"]["when"] == (
         "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
     )
@@ -2941,7 +3004,7 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         "pressure-daemon",
     ]
     assert tasks["validate-phase-dml-dql-after-rollback"]["dependencies"] == [
-        "validate-index-compatibility-after-rollback",
+        "validate-schema-features-after-rollback",
         "pressure-daemon",
     ]
     assert tasks["validate-after-rollback"]["dependencies"] == [
@@ -2953,7 +3016,7 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         "pressure-daemon",
     ]
     assert tasks["strict-pressure-after-rollback"]["dependencies"] == [
-        "validate-forward-indexes-after-rollback",
+        "validate-forward-schema-features-after-rollback",
         "pressure-daemon",
     ]
     assert tasks["stop-pressure"]["dependencies"] == [

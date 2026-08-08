@@ -159,6 +159,24 @@ def render_argo_parameters(
         "rollback-vortex-enabled": _bool_str(
             scenario["rollback"].get("vortex_enabled", False)
         ),
+        "base-target-vec-index-version": str(
+            scenario["base"].get("target_vec_index_version", -1)
+        ),
+        "target-target-vec-index-version": str(
+            scenario["target"].get("target_vec_index_version", -1)
+        ),
+        "rollback-target-vec-index-version": str(
+            scenario["rollback"].get("target_vec_index_version", -1)
+        ),
+        "base-target-scalar-index-version": str(
+            scenario["base"].get("target_scalar_index_version", -1)
+        ),
+        "target-target-scalar-index-version": str(
+            scenario["target"].get("target_scalar_index_version", -1)
+        ),
+        "rollback-target-scalar-index-version": str(
+            scenario["rollback"].get("target_scalar_index_version", -1)
+        ),
         "post-upgrade-config-toggle-enabled": _bool_str(
             scenario.get("post_upgrade_config_toggle_enabled", False)
         ),
@@ -557,6 +575,10 @@ def _validate_scenario_bool_fields(scenario: dict[str, Any], *, source: str) -> 
         "loon_ffi_enabled",
         "vortex_enabled",
     }
+    phase_index_version_fields = {
+        "target_vec_index_version",
+        "target_scalar_index_version",
+    }
     validation_policy_bool_fields = {
         "pressure_fail_on_error",
         "gate_allow_warning",
@@ -575,6 +597,14 @@ def _validate_scenario_bool_fields(scenario: dict[str, Any], *, source: str) -> 
                 scenario_id=scenario_id,
                 prefix=phase,
             )
+        for field in phase_index_version_fields:
+            if field not in phase_payload:
+                continue
+            value = phase_payload[field]
+            if isinstance(value, bool) or not isinstance(value, int) or value < -1:
+                raise ValueError(
+                    f"{source}: scenario {scenario_id} {phase}.{field} must be an integer >= -1"
+                )
     validation_policy = scenario.get("validation_policy") or {}
     for field in validation_policy_bool_fields:
         _require_bool_if_present(

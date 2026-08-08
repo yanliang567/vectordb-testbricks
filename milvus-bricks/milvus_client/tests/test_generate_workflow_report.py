@@ -140,6 +140,14 @@ def _write_successful_validation(tmp_path: Path) -> None:
         tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"}
     )
     _write_json(
+        tmp_path / "results" / "validate_schema_features_base.json",
+        {"status": "passed"},
+    )
+    _write_json(
+        tmp_path / "results" / "validate_schema_features_after_upgrade.json",
+        {"status": "passed"},
+    )
+    _write_json(
         tmp_path / "results" / "validate_index_compatibility_after_upgrade.json",
         {"status": "passed"},
     )
@@ -163,6 +171,10 @@ def _write_successful_validation(tmp_path: Path) -> None:
         tmp_path / "results" / "validate_after_rollback.json", {"status": "passed"}
     )
     _write_json(
+        tmp_path / "results" / "validate_schema_features_after_rollback.json",
+        {"status": "passed"},
+    )
+    _write_json(
         tmp_path / "results" / "wait_rollback_serviceability.json",
         {
             "brick": "wait_data_serviceability",
@@ -184,11 +196,23 @@ def _write_successful_upgrade_only_validation(tmp_path: Path) -> None:
         tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"}
     )
     _write_json(
+        tmp_path / "results" / "validate_schema_features_base.json",
+        {"status": "passed"},
+    )
+    _write_json(
+        tmp_path / "results" / "validate_schema_features_after_upgrade.json",
+        {"status": "passed"},
+    )
+    _write_json(
         tmp_path / "results" / "validate_forward_after_upgrade.json",
         {"status": "passed"},
     )
     _write_json(
         tmp_path / "results" / "validate_forward_indexes_after_upgrade.json",
+        {"status": "passed"},
+    )
+    _write_json(
+        tmp_path / "results" / "validate_forward_schema_features_after_upgrade.json",
         {"status": "passed"},
     )
 
@@ -199,6 +223,14 @@ def _write_successful_upgrade_validation(tmp_path: Path) -> None:
     )
     _write_json(
         tmp_path / "results" / "validate_after_upgrade.json", {"status": "passed"}
+    )
+    _write_json(
+        tmp_path / "results" / "validate_schema_features_base.json",
+        {"status": "passed"},
+    )
+    _write_json(
+        tmp_path / "results" / "validate_schema_features_after_upgrade.json",
+        {"status": "passed"},
     )
 
 
@@ -216,6 +248,10 @@ def _write_successful_index_compatibility_validation(
             tmp_path / "results" / "validate_index_compatibility_after_rollback.json",
             {"status": "passed"},
         )
+        _write_json(
+            tmp_path / "results" / "validate_schema_features_after_rollback.json",
+            {"status": "passed"},
+        )
 
 
 def _write_successful_phase_dml_dql_validation(
@@ -230,6 +266,10 @@ def _write_successful_phase_dml_dql_validation(
     if after_rollback:
         _write_json(
             tmp_path / "results" / "validate_phase_dml_dql_after_rollback.json",
+            {"status": "passed"},
+        )
+        _write_json(
+            tmp_path / "results" / "validate_schema_features_after_rollback.json",
             {"status": "passed"},
         )
 
@@ -339,6 +379,12 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
         "base_vortex_enabled": False,
         "target_vortex_enabled": False,
         "rollback_vortex_enabled": False,
+        "base_target_vec_index_version": -1,
+        "target_target_vec_index_version": -1,
+        "rollback_target_vec_index_version": -1,
+        "base_target_scalar_index_version": -1,
+        "target_target_scalar_index_version": -1,
+        "rollback_target_scalar_index_version": -1,
         "post_upgrade_config_toggle_enabled": False,
         "post_upgrade_json_shredding_enabled": True,
         "forward_workload_enabled": False,
@@ -551,6 +597,39 @@ def test_generate_workflow_report_fails_when_required_rollback_validation_is_mis
     assert (
         report["failed_results"]["validate_after_rollback"]["failures"][0]["type"]
         == "VALIDATION_RESULT_MISSING"
+    )
+
+
+def test_generate_workflow_report_fails_when_required_validation_is_skipped(
+    tmp_path,
+):
+    _write_successful_validation(tmp_path)
+    _write_json(
+        tmp_path / "results" / "validate_schema_features_after_upgrade.json",
+        {"status": "skipped"},
+    )
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        _base_args(tmp_path, pressure_fail_on_error="true")
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 1
+    assert report["status"] == "failed"
+    assert (
+        report["failed_results"]["validate_schema_features_after_upgrade"]["status"]
+        == "skipped"
     )
 
 

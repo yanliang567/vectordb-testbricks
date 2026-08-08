@@ -189,6 +189,25 @@ Promoted gates do not drop/recreate baseline indexes while the pressure daemon
 is running; `--rebuild-index=true` remains available only for manual diagnostic
 runs outside strict pressure.
 
+Every promoted matrix also declares feature-semantic validators. The three
+WorkflowTemplates run them at base, after upgrade, and after rollback, plus the
+forward collection phases when enabled. These checks cover StructArray scalar
+round-trip, non-`MAX_SIM_*` element search `id + offset`, `MAX_SIM_*`
+`EmbeddingList` row-level search by expected PK, nested scalar `MATCH_ANY`
+predicates, nullable-vector null state, Geometry predicates, TEXT LOB hashes
+and lexical search, MinHash ranking, Entity TTL visibility, and runtime index
+engine target configuration. Unknown validator names fail closed during matrix
+validation.
+
+The dedicated matrices are:
+
+- `schema_matrix_3_0_storage_v3.yaml` for LoonFFI/Vortex TEXT LOB coverage.
+- `schema_matrix_3_0_index_v10_v4.yaml` for SINDI/Block-Max and JSON scalar
+  index coverage with target versions `10/4` configured in all three phases.
+  Milvus may resolve or clamp to a current engine version; exact build-version
+  evidence must come from preserved DataNode build logs because public SDK
+  index metadata does not expose it.
+
 When `phase-dml-dql-validation-enabled=true`, rollback workflows also exercise
 active request compatibility at both phase boundaries:
 

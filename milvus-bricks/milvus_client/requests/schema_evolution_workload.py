@@ -4,9 +4,15 @@ from dataclasses import replace
 import sys
 from typing import Any
 
-from milvus_client.common.args import build_common_parser
+from milvus_client.common.args import build_common_parser, parse_bool
 from milvus_client.common.client import create_client
-from milvus_client.common.data import generate_primary_key_value, generate_rows, stable_vector_value, vector_fields
+from milvus_client.common.data import (
+    generate_primary_key_value,
+    generate_rows,
+    indexed_vector_fields,
+    stable_vector_value,
+    vector_fields,
+)
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import (
     FieldSpec,
@@ -18,7 +24,12 @@ from milvus_client.common.schema import (
     function_output_fields,
 )
 from milvus_client.common.validators import format_filter_value, query_count
-from milvus_client.common.workload import metric_type_for_field, primary_field, search_params_for_field
+from milvus_client.common.workload import (
+    function_input_query_value,
+    metric_type_for_field,
+    primary_field,
+    search_params_for_field,
+)
 
 
 EVOLUTION_FIELD = FieldSpec(
@@ -39,6 +50,7 @@ def add_args(parser):
     parser.add_argument("--rows-per-collection", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--start-id", type=int, default=40_000_000)
+    parser.add_argument("--function-field-cycle-enabled", type=parse_bool, default=True)
 
 
 def _field_kwargs(field: FieldSpec) -> dict[str, Any]:
@@ -89,14 +101,82 @@ def _drop_field(client: Any, collection: str, field_name: str) -> str:
     return "dropped"
 
 
-def _function_cycle(client: Any, collection: str, function: FunctionSpec) -> str:
-    if not hasattr(client, "drop_collection_function") or not hasattr(client, "add_collection_function"):
+def _function_cycle(
+    client: Any, collection: str, spec: SchemaSpec, function: FunctionSpec
+) -> str:
+    if not hasattr(client, "drop_collection_function") or not hasattr(
+        client, "add_collection_function"
+    ):
         return "skipped"
     drop_function_field = getattr(client, "drop_function_field", None)
-    from pymilvus import Function, FunctionType
+    add_function_field = getattr(client, "add_function_field", None)
+    from pymilvus import Function, FunctionType, MilvusClient
+
+    function_schema = Function(
+        name=function.name,
+        function_type=getattr(FunctionType, function.function_type),
+        input_field_names=function.input_fields,
+        output_field_names=function.output_fields,
+        description=function.description,
+        params=function.params,
+    )
+    if drop_function_field is not None and add_function_field is not None:
+        output_names = set(function.output_fields)
+        if not any(
+            field_name not in output_names
+            for field_name, _ in indexed_vector_fields(spec)
+        ):
+            return "skipped_only_vector_field"
+        if len(function.output_fields) != 1:
+            return "skipped_unsupported_output_count"
+        output_field = next(
+            (field for field in spec.fields if field.name == function.output_fields[0]),
+            None,
+        )
+        output_index = next(
+            (
+                index
+                for index in spec.indexes
+                if index.field == function.output_fields[0]
+            ),
+            None,
+        )
+        if output_field is None or output_index is None:
+            return "skipped_missing_function_field_index"
+        field_kwargs: dict[str, Any] = {"nullable": output_field.nullable}
+        if output_field.dim is not None:
+            field_kwargs["dim"] = output_field.dim
+        field_schema = MilvusClient.create_field_schema(
+            name=output_field.name,
+            data_type=dtype_to_milvus(output_field.dtype),
+            **field_kwargs,
+        )
+        index_params = MilvusClient.prepare_index_params()
+        index_kwargs: dict[str, Any] = {
+            "field_name": output_index.field,
+            "index_type": output_index.index_type,
+            "metric_type": output_index.metric_type,
+            "params": dict(output_index.params) or None,
+        }
+        if output_index.index_name:
+            index_kwargs["index_name"] = output_index.index_name
+        index_params.add_index(**index_kwargs)
+        drop_function_field(
+            collection_name=collection,
+            function_name=function.name,
+        )
+        add_function_field(
+            collection_name=collection,
+            field_schema=field_schema,
+            func=function_schema,
+            index_params=index_params,
+        )
+        return "cycled"
 
     try:
-        client.drop_collection_function(collection_name=collection, function_name=function.name)
+        client.drop_collection_function(
+            collection_name=collection, function_name=function.name
+        )
     except Exception as exc:
         message = str(exc)
         if "drop_function_field" in message or "output field" in message:
@@ -111,14 +191,7 @@ def _function_cycle(client: Any, collection: str, function: FunctionSpec) -> str
             raise
     client.add_collection_function(
         collection_name=collection,
-        function=Function(
-            name=function.name,
-            function_type=getattr(FunctionType, function.function_type),
-            input_field_names=function.input_fields,
-            output_field_names=function.output_fields,
-            description=function.description,
-            params=function.params,
-        ),
+        function=function_schema,
     )
     return "cycled"
 
@@ -141,8 +214,12 @@ def _nullable_vector_update_rows(spec: SchemaSpec, rows: list[dict[str, Any]]) -
             if offset % 2 == 0:
                 row[field.name] = None
             else:
-                pk_value = row.get(primary_field(spec).name if primary_field(spec) else "id", offset)
-                row[field.name] = stable_vector_value(field, int(pk_value) if isinstance(pk_value, int) else offset, 17)
+                pk_value = row.get(
+                    primary_field(spec).name if primary_field(spec) else "id", offset
+                )
+                row[field.name] = stable_vector_value(
+                    field, int(pk_value) if isinstance(pk_value, int) else offset, 17
+                )
             updated += 1
     return updated
 
@@ -165,17 +242,25 @@ def _upsert_evolution_rows(
         count = min(batch_size, start_id + rows_per_collection - start)
         rows = generate_rows(evolved, start_id=start, count=count, seed=seed)
         for row in rows:
-            row[EVOLUTION_FIELD.name] = f"evo_{row.get(primary_field(spec).name if primary_field(spec) else 'id')}"
+            row[EVOLUTION_FIELD.name] = (
+                f"evo_{row.get(primary_field(spec).name if primary_field(spec) else 'id')}"
+            )
         nullable_updates += _nullable_vector_update_rows(evolved, rows)
         client.upsert(collection_name=collection, data=rows)
         upserted += len(rows)
     return (upserted, nullable_updates)
 
 
-def _read_validate(client: Any, spec: SchemaSpec, collection: str, start_id: int) -> tuple[int, int, int]:
+def _read_validate(
+    client: Any, spec: SchemaSpec, collection: str, start_id: int
+) -> tuple[int, int, int]:
     primary = primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
-    min_pk = generate_primary_key_value(primary, start_id) if primary is not None else start_id
+    min_pk = (
+        generate_primary_key_value(primary, start_id)
+        if primary is not None
+        else start_id
+    )
     output_fields = [primary_name, EVOLUTION_FIELD.name]
     client.query(
         collection_name=collection,
@@ -190,8 +275,10 @@ def _read_validate(client: Any, spec: SchemaSpec, collection: str, start_id: int
         if vector_field.nullable:
             continue
         metric_type = metric_type_for_field(spec, vector_field.name)
-        if vector_field.name in function_outputs and metric_type == "BM25":
-            query_vector = f"milvus schema evolution token_{start_id % 16}"
+        if vector_field.name in function_outputs:
+            query_vector = function_input_query_value(
+                spec, vector_field.name, start_id + 1, 23
+            )
         else:
             query_vector = stable_vector_value(vector_field, start_id + 1, 23)
         client.search(
@@ -199,7 +286,10 @@ def _read_validate(client: Any, spec: SchemaSpec, collection: str, start_id: int
             data=[query_vector],
             anns_field=vector_field.name,
             limit=5,
-            search_params={"metric_type": metric_type, "params": search_params_for_field(spec, vector_field.name)},
+            search_params={
+                "metric_type": metric_type,
+                "params": search_params_for_field(spec, vector_field.name),
+            },
         )
         searches += 1
     return (1, count, searches)
@@ -213,6 +303,7 @@ def run_schema_evolution(
     batch_size: int,
     start_id: int,
     seed: int,
+    function_field_cycle_enabled: bool = True,
 ) -> dict[str, Any]:
     metrics: dict[str, Any] = {
         "collections_total": len(specs),
@@ -232,44 +323,65 @@ def run_schema_evolution(
     }
     for spec in specs:
         collection = collection_name(collection_prefix, spec)
-        collection_metrics: dict[str, Any] = {"schema": spec.name, "collection": collection}
+        collection_metrics: dict[str, Any] = {
+            "schema": spec.name,
+            "collection": collection,
+        }
         try:
             if not client.has_collection(collection):
                 raise RuntimeError(f"{collection} does not exist")
             add_status = _add_field(client, collection, EVOLUTION_FIELD)
             collection_metrics["add_field"] = add_status
             metrics["field_add_total"] += 1
-            metrics[f"field_add_{add_status}_total"] = metrics.get(f"field_add_{add_status}_total", 0) + 1
+            metrics[f"field_add_{add_status}_total"] = (
+                metrics.get(f"field_add_{add_status}_total", 0) + 1
+            )
 
             drop_add_status = _add_field(client, collection, EVOLUTION_DROP_FIELD)
             drop_status = _drop_field(client, collection, EVOLUTION_DROP_FIELD.name)
-            collection_metrics["drop_field"] = drop_status if drop_add_status != "skipped" else "skipped"
+            collection_metrics["drop_field"] = (
+                drop_status if drop_add_status != "skipped" else "skipped"
+            )
             if collection_metrics["drop_field"] == "skipped":
                 metrics["drop_field_skipped_total"] += 1
 
             cycled = 0
             skipped = 0
             for function in spec.functions:
-                status = _function_cycle(client, collection, function)
+                status = (
+                    _function_cycle(client, collection, spec, function)
+                    if function_field_cycle_enabled
+                    else "skipped_disabled"
+                )
                 if status == "cycled":
                     cycled += 1
                 else:
                     skipped += 1
-                    collection_metrics.setdefault("function_cycle_skip_reasons", []).append(status)
+                    collection_metrics.setdefault(
+                        "function_cycle_skip_reasons", []
+                    ).append(status)
             metrics["function_cycles_total"] += cycled
             metrics["function_cycle_skipped_total"] += skipped
             collection_metrics["function_cycles"] = cycled
             collection_metrics["function_cycle_skipped"] = skipped
 
             upserted, nullable_updates = _upsert_evolution_rows(
-                client, spec, collection, rows_per_collection, batch_size, start_id, seed
+                client,
+                spec,
+                collection,
+                rows_per_collection,
+                batch_size,
+                start_id,
+                seed,
             )
             collection_metrics["upserted"] = upserted
             collection_metrics["nullable_updates"] = nullable_updates
             metrics["upserted_total"] += upserted
             metrics["nullable_updates_total"] += nullable_updates
 
-            queries, count, searches = _read_validate(client, spec, collection, start_id)
+            queries, count, searches = _read_validate(
+                client, spec, collection, start_id
+            )
             collection_metrics["query_checks"] = queries
             collection_metrics["count"] = count
             collection_metrics["searches"] = searches
@@ -284,7 +396,9 @@ def run_schema_evolution(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_common_parser("Run schema evolution workload against existing Milvus collections")
+    parser = build_common_parser(
+        "Run schema evolution workload against existing Milvus collections"
+    )
     add_args(parser)
     args = parser.parse_args(argv)
     result = result_from_args(args, "schema_evolution_workload")
@@ -300,6 +414,7 @@ def main(argv: list[str] | None = None) -> int:
             args.batch_size,
             args.start_id,
             args.seed,
+            args.function_field_cycle_enabled,
         )
         result.metrics = metrics
         result.status = FAILED if metrics["failed_total"] else PASSED
@@ -316,7 +431,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if result.status == FAILED else 0
     except Exception as exc:
         result.status = FAILED
-        result.mark_failed("SCHEMA_EVOLUTION_FAILED", "unexpected schema evolution failure", error=str(exc))
+        result.mark_failed(
+            "SCHEMA_EVOLUTION_FAILED",
+            "unexpected schema evolution failure",
+            error=str(exc),
+        )
         result.write(args.output_json)
         return 4
 

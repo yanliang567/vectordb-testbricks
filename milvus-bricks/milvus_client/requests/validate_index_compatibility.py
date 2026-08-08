@@ -11,6 +11,8 @@ from milvus_client.common.client import create_client
 from milvus_client.common.data import (
     generate_field_value,
     generate_primary_key_value,
+    generate_struct_array_value,
+    prepare_struct_vector_query,
 )
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import (
@@ -22,6 +24,8 @@ from milvus_client.common.schema import (
     build_index_params,
     function_output_fields,
     load_schema_matrix,
+    resolve_field,
+    struct_array_for_field,
 )
 from milvus_client.common.validators import (
     ValidationReport,
@@ -67,29 +71,29 @@ def _primary_field(spec: SchemaSpec) -> FieldSpec | None:
     return None
 
 
-def _field_by_name(spec: SchemaSpec) -> dict[str, FieldSpec]:
-    return {field.name: field for field in spec.fields}
-
-
 def _indexed_fields(spec: SchemaSpec) -> list[str]:
     return list(dict.fromkeys(index.field for index in spec.indexes))
 
 
-def _indexed_vector_fields(spec: SchemaSpec) -> list[FieldSpec]:
-    fields = _field_by_name(spec)
+def _indexed_vector_indexes(spec: SchemaSpec) -> list[tuple[IndexSpec, FieldSpec]]:
     return [
-        fields[field_name]
-        for field_name in _indexed_fields(spec)
-        if field_name in fields and fields[field_name].dtype in VECTOR_TYPES
+        (index, field)
+        for index in spec.indexes
+        if (field := resolve_field(spec, index.field)) is not None
+        and field.dtype in VECTOR_TYPES
     ]
 
 
+def _indexed_vector_fields(spec: SchemaSpec) -> list[FieldSpec]:
+    return [field for _, field in _indexed_vector_indexes(spec)]
+
+
 def _indexed_scalar_indexes(spec: SchemaSpec) -> list[tuple[IndexSpec, FieldSpec]]:
-    fields = _field_by_name(spec)
     return [
-        (index, fields[index.field])
+        (index, field)
         for index in spec.indexes
-        if index.field in fields and fields[index.field].dtype not in VECTOR_TYPES
+        if (field := resolve_field(spec, index.field)) is not None
+        and field.dtype not in VECTOR_TYPES
     ]
 
 
@@ -185,9 +189,24 @@ def _describe_index(
         index_params = index_param.get("params") or {}
         if isinstance(index_params, dict):
             params.update(index_params)
-    for key in ("json_path", "json_cast_type"):
+    for key in (
+        "json_path",
+        "json_cast_type",
+        "faiss_index_name",
+        "inverted_index_algo",
+        "mh_lsh_band",
+        "with_raw_data",
+        "sq_type",
+        "refine",
+        "refine_type",
+        "resolved_index_type",
+        "min_gram",
+        "max_gram",
+    ):
         if payload.get(key) is not None:
             params[key] = payload[key]
+        if isinstance(index_param, dict) and index_param.get(key) is not None:
+            params[key] = index_param[key]
     metadata = {
         "index_name": str(
             payload.get("index_name")
@@ -257,12 +276,146 @@ def _index_identity(index: dict[str, Any]) -> dict[str, Any]:
         "metric_type": index.get("metric_type"),
     }
     params = index.get("params") or {}
-    json_params = {
-        key: params[key] for key in ("json_path", "json_cast_type") if key in params
+    compatibility_params = {
+        key: params[key]
+        for key in (
+            "json_path",
+            "json_cast_type",
+            "faiss_index_name",
+            "inverted_index_algo",
+            "mh_lsh_band",
+            "with_raw_data",
+            "sq_type",
+            "refine",
+            "refine_type",
+            "resolved_index_type",
+            "min_gram",
+            "max_gram",
+        )
+        if key in params
     }
-    if json_params:
-        identity["json_params"] = json_params
+    if compatibility_params:
+        identity["compatibility_params"] = compatibility_params
     return identity
+
+
+def _validate_resolved_index_types(
+    collection: str,
+    spec: SchemaSpec,
+    actual_indexes: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    actual_by_field = {}
+    for actual_index in actual_indexes:
+        params = actual_index.get("params") or {}
+        resolved = (
+            params.get("resolved_index_type")
+            or params.get("index_type")
+            or actual_index.get("index_type")
+        )
+        actual_by_field[str(actual_index.get("field_name"))] = str(resolved)
+    for index in spec.indexes:
+        expected = index.expected_resolved_index_type
+        if not expected:
+            continue
+        actual = actual_by_field.get(index.field)
+        if actual != expected:
+            report.fail(
+                INDEX_METADATA_MISMATCH,
+                "resolved index type differs from schema matrix expectation",
+                collection=collection,
+                field=index.field,
+                expected_resolved_index_type=expected,
+                actual_index_type=actual,
+            )
+
+
+def _metadata_value_matches(expected: Any, actual: Any) -> bool:
+    if isinstance(expected, bool):
+        if isinstance(actual, str):
+            return actual.lower() == str(expected).lower()
+        return actual is expected
+    if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+        try:
+            return float(actual) == float(expected)
+        except (TypeError, ValueError):
+            return False
+    return str(actual) == str(expected)
+
+
+def _validate_index_metadata_matches_spec(
+    collection: str,
+    spec: SchemaSpec,
+    actual_indexes: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    actual_by_field = {str(index.get("field_name")): index for index in actual_indexes}
+    compatibility_keys = {
+        "json_path",
+        "json_cast_type",
+        "faiss_index_name",
+        "inverted_index_algo",
+        "mh_lsh_band",
+        "with_raw_data",
+        "sq_type",
+        "refine",
+        "refine_type",
+        "min_gram",
+        "max_gram",
+    }
+    for expected in spec.indexes:
+        actual = actual_by_field.get(expected.field)
+        if actual is None:
+            continue
+        actual_type = actual.get("index_type")
+        accepted_types = {expected.index_type}
+        if expected.expected_resolved_index_type:
+            accepted_types.add(expected.expected_resolved_index_type)
+        if str(actual_type) not in accepted_types:
+            report.fail(
+                INDEX_METADATA_MISMATCH,
+                "actual index type differs from the schema matrix",
+                collection=collection,
+                field=expected.field,
+                expected_index_types=sorted(accepted_types),
+                actual_index_type=actual_type,
+            )
+        actual_metric = actual.get("metric_type")
+        if (
+            expected.metric_type is not None
+            and str(actual_metric) != expected.metric_type
+        ):
+            report.fail(
+                INDEX_METADATA_MISMATCH,
+                "actual index metric differs from the schema matrix",
+                collection=collection,
+                field=expected.field,
+                expected_metric_type=expected.metric_type,
+                actual_metric_type=actual_metric,
+            )
+        if expected.index_name and actual.get("index_name") != expected.index_name:
+            report.fail(
+                INDEX_METADATA_MISMATCH,
+                "actual index name differs from the schema matrix",
+                collection=collection,
+                field=expected.field,
+                expected_index_name=expected.index_name,
+                actual_index_name=actual.get("index_name"),
+            )
+        actual_params = actual.get("params") or {}
+        for key in compatibility_keys & set(expected.params):
+            expected_value = expected.params[key]
+            actual_value = actual_params.get(key)
+            if not _metadata_value_matches(expected_value, actual_value):
+                report.fail(
+                    INDEX_METADATA_MISMATCH,
+                    "actual index parameter differs from the schema matrix",
+                    collection=collection,
+                    field=expected.field,
+                    parameter=key,
+                    expected_value=expected_value,
+                    actual_value=actual_value,
+                )
 
 
 def _validate_index_metadata_matches_checkpoint(
@@ -437,14 +590,26 @@ def _hit_distance(hit: Any) -> float | None:
     return None
 
 
+def _hit_offset(hit: Any) -> int | None:
+    value = _hit_value(hit, "offset")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _validate_vector_search_hit(
     response: Any,
     collection: str,
     field_name: str,
     primary_name: str,
     expected_pk: Any,
+    expected_offset: int | None,
     metric_type: str,
     report: ValidationReport,
+    index_type: str = "",
 ) -> None:
     assert_search_result(response, collection, field_name)
     hits = response[0]
@@ -453,7 +618,10 @@ def _validate_vector_search_hit(
     for hit in hits:
         hit_pk = _hit_primary_key(hit, primary_name)
         hit_pks.append(hit_pk)
-        if hit_pk == expected_pk:
+        hit_offset = _hit_offset(hit)
+        if hit_pk == expected_pk and (
+            expected_offset is None or hit_offset == expected_offset
+        ):
             expected_hit = hit
             break
     if expected_hit is None:
@@ -463,57 +631,93 @@ def _validate_vector_search_hit(
             collection=collection,
             field=field_name,
             expected_pk=expected_pk,
+            expected_offset=expected_offset,
             actual_pks=hit_pks,
+            actual_offsets=[_hit_offset(hit) for hit in hits],
         )
         return
 
     distance = _hit_distance(expected_hit)
     if distance is None:
         return
-    metric = metric_type.upper()
-    if metric in {"L2", "HAMMING", "JACCARD"} and distance > 1e-3:
+    metric = metric_type.upper().removeprefix("MAX_SIM_")
+    lossy_index = index_type.upper() in {
+        "IVF_PQ",
+        "IVF_SQ8",
+        "HNSW_SQ",
+        "IVF_RABITQ",
+        "SCANN",
+    }
+    max_distance = 0.5 if lossy_index and metric == "L2" else 1e-3
+    min_score = 0.5 if lossy_index and metric in {"COSINE", "IP"} else 0.9
+    if metric in {"L2", "HAMMING", "JACCARD"} and distance > max_distance:
         report.fail(
             INDEX_SEARCH_FAILED,
             "indexed vector self-search distance is higher than expected",
             collection=collection,
             field=field_name,
             metric_type=metric_type,
+            index_type=index_type,
             expected_pk=expected_pk,
             distance=distance,
-            max_distance=1e-3,
+            max_distance=max_distance,
         )
-    if metric in {"COSINE", "IP"} and distance < 0.9:
+    if metric in {"COSINE", "IP"} and distance < min_score:
         report.fail(
             INDEX_SEARCH_FAILED,
             "indexed vector self-search score is lower than expected",
             collection=collection,
             field=field_name,
             metric_type=metric_type,
+            index_type=index_type,
             expected_pk=expected_pk,
             distance=distance,
-            min_score=0.9,
+            min_score=min_score,
         )
 
 
 def _vector_index_probe(
     spec: SchemaSpec,
     meta: dict[str, Any],
+    index: IndexSpec,
     vector_field: FieldSpec,
     seed: int,
-) -> tuple[int, Any, Any] | None:
+) -> tuple[int, Any, Any, int | None] | None:
     function_outputs = function_output_fields(spec)
     data_min_pk, data_max_pk = _data_pk_range(meta)
     for data_pk_number in range(data_min_pk, data_max_pk + 1):
         expected_pk = _expected_primary_value(spec, meta, data_pk_number)
         if vector_field.name in function_outputs:
+            function = next(
+                item
+                for item in spec.functions
+                if vector_field.name in item.output_fields
+            )
+            input_field = resolve_field(spec, function.input_fields[0])
+            if input_field is None:
+                return None
             return (
                 data_pk_number,
                 expected_pk,
-                f"milvus compatibility upgrade rollback token_{data_pk_number % 16}",
+                generate_field_value(input_field, data_pk_number, seed),
+                None,
             )
+        struct_array = struct_array_for_field(spec, index.field)
+        if struct_array is not None:
+            value = generate_struct_array_value(struct_array, data_pk_number, seed)
+            if value is None:
+                continue
+            for offset, element in enumerate(value):
+                vector = element.get(vector_field.name)
+                if vector is not None:
+                    query, expected_offset = prepare_struct_vector_query(
+                        index.metric_type or "COSINE", vector, offset
+                    )
+                    return data_pk_number, expected_pk, query, expected_offset
+            continue
         value = generate_field_value(vector_field, data_pk_number, seed)
         if value is not None:
-            return data_pk_number, expected_pk, value
+            return data_pk_number, expected_pk, value, None
     return None
 
 
@@ -531,42 +735,44 @@ def _validate_index_searches(
         primary.name if primary is not None else "id"
     )
     function_outputs = function_output_fields(spec)
-    for vector_field in _indexed_vector_fields(spec):
-        metric_type = metric_type_for_field(spec, vector_field.name)
-        probe = _vector_index_probe(spec, meta, vector_field, seed)
+    for index, vector_field in _indexed_vector_indexes(spec):
+        metric_type = metric_type_for_field(spec, index.field)
+        probe = _vector_index_probe(spec, meta, index, vector_field, seed)
         if probe is None:
             report.fail(
                 INDEX_SEARCH_FAILED,
                 "could not build deterministic vector index probe",
                 collection=collection,
-                field=vector_field.name,
+                field=index.field,
             )
             continue
-        data_pk_number, expected_pk, query_vector = probe
+        data_pk_number, expected_pk, query_vector, expected_offset = probe
         filter_expr = f"{primary_name} == {format_filter_value(expected_pk)}"
         try:
             response = client.search(
                 collection_name=collection,
                 data=[query_vector],
-                anns_field=vector_field.name,
+                anns_field=index.field,
                 filter=filter_expr,
                 limit=5,
                 search_params={
                     "metric_type": metric_type,
-                    "params": search_params_for_field(spec, vector_field.name),
+                    "params": search_params_for_field(spec, index.field),
                 },
             )
             if vector_field.name in function_outputs and metric_type == "BM25":
-                assert_search_result(response, collection, vector_field.name)
+                assert_search_result(response, collection, index.field)
             else:
                 _validate_vector_search_hit(
                     response,
                     collection,
-                    vector_field.name,
+                    index.field,
                     primary_name,
                     expected_pk,
+                    expected_offset,
                     metric_type,
                     report,
+                    index_type=index.index_type,
                 )
             searches += 1
         except Exception as exc:
@@ -574,7 +780,7 @@ def _validate_index_searches(
                 INDEX_SEARCH_FAILED,
                 "indexed vector search failed",
                 collection=collection,
-                field=vector_field.name,
+                field=index.field,
                 metric_type=metric_type,
                 data_pk=data_pk_number,
                 expected_pk=expected_pk,
@@ -611,14 +817,37 @@ def _json_path_value(value: Any, keys: list[str]) -> Any:
     return current
 
 
+def _format_timestamptz_filter_value(value: Any) -> str:
+    escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
+    return f"ISO '{escaped}'"
+
+
 def _scalar_index_filter(
-    index: IndexSpec, field: FieldSpec, pk: int, seed: int
+    spec: SchemaSpec, index: IndexSpec, field: FieldSpec, pk: int, seed: int
 ) -> str | None:
+    struct_array = struct_array_for_field(spec, index.field)
+    if struct_array is not None:
+        value = generate_struct_array_value(struct_array, pk, seed)
+        if not value:
+            return None
+        nested_value = value[0].get(field.name)
+        operator = (
+            ">="
+            if index.index_type == "STL_SORT"
+            and field.dtype in {"INT8", "INT16", "INT32", "INT64", "FLOAT", "DOUBLE"}
+            else "=="
+        )
+        return (
+            f"MATCH_ANY({struct_array.name}, $[{field.name}] {operator} "
+            f"{format_filter_value(nested_value)})"
+        )
     if field.dtype == "JSON":
         value = generate_field_value(field, pk, seed)
         json_path = str(index.params.get("json_path") or f"{field.name}['bucket']")
         path_value = _json_path_value(value, _json_path_keys(json_path, field.name))
         if path_value is not None:
+            if index.index_type == "NGRAM" and isinstance(path_value, str):
+                return f"{json_path} LIKE {format_filter_value('%' + path_value + '%')}"
             return f"{json_path} == {format_filter_value(path_value)}"
         return None
     if field.dtype == "ARRAY":
@@ -635,6 +864,8 @@ def _scalar_index_filter(
     value = generate_field_value(field, pk, seed)
     if value is None:
         return f"{field.name} is null"
+    if field.dtype == "TIMESTAMPTZ":
+        return f"{field.name} == {_format_timestamptz_filter_value(value)}"
     return f"{field.name} == {format_filter_value(value)}"
 
 
@@ -648,7 +879,7 @@ def _scalar_index_probe(
     data_min_pk, data_max_pk = _data_pk_range(meta)
     null_fallback: tuple[int, Any, str] | None = None
     for data_pk_number in range(data_min_pk, data_max_pk + 1):
-        filter_expr = _scalar_index_filter(index, field, data_pk_number, seed)
+        filter_expr = _scalar_index_filter(spec, index, field, data_pk_number, seed)
         if not filter_expr:
             continue
         expected_pk = _expected_primary_value(spec, meta, data_pk_number)
@@ -680,7 +911,7 @@ def _validate_scalar_index_queries(
                 INDEX_SCALAR_QUERY_FAILED,
                 "could not build deterministic scalar index probe",
                 collection=collection,
-                field=field.name,
+                field=index.field,
             )
             continue
         data_pk_number, expected_pk, scalar_filter_expr = probe
@@ -700,7 +931,7 @@ def _validate_scalar_index_queries(
                     INDEX_SCALAR_QUERY_FAILED,
                     "indexed scalar filter query returned no matches",
                     collection=collection,
-                    field=field.name,
+                    field=index.field,
                     filter=scalar_filter_expr,
                     data_pk=data_pk_number,
                     expected_pk=expected_pk,
@@ -717,7 +948,7 @@ def _validate_scalar_index_queries(
                     INDEX_SCALAR_QUERY_FAILED,
                     "indexed scalar filter query did not return expected primary key",
                     collection=collection,
-                    field=field.name,
+                    field=index.field,
                     filter=filter_expr,
                     scalar_filter=scalar_filter_expr,
                     data_pk=data_pk_number,
@@ -730,7 +961,7 @@ def _validate_scalar_index_queries(
                 INDEX_SCALAR_QUERY_FAILED,
                 "indexed scalar filter query failed",
                 collection=collection,
-                field=field.name,
+                field=index.field,
                 filter=filter_expr,
                 error=str(exc),
             )
@@ -918,6 +1149,18 @@ def main(argv: list[str] | None = None) -> int:
                     actual_indexes,
                     report,
                 )
+                _validate_index_metadata_matches_spec(
+                    collection,
+                    spec,
+                    actual_indexes,
+                    report,
+                )
+                _validate_resolved_index_types(
+                    collection,
+                    spec,
+                    actual_indexes,
+                    report,
+                )
                 if args.phase == "after-rollback":
                     _validate_index_metadata_matches_checkpoint(
                         collection,
@@ -951,7 +1194,7 @@ def main(argv: list[str] | None = None) -> int:
                         index.get("field_name") for index in actual_indexes
                     ],
                     "indexed_vector_fields": [
-                        field.name for field in _indexed_vector_fields(spec)
+                        index.field for index, _ in _indexed_vector_indexes(spec)
                     ],
                     "release_status": release_status,
                 }

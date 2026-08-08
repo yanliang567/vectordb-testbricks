@@ -41,12 +41,14 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+        "standalone-3-0-index-v10-v4-upgrade-rollback",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
+        "cluster-3-0-index-v10-v4-upgrade-rollback",
     } <= set(scenarios)
     for scenario_id in [
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
@@ -54,12 +56,14 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+        "standalone-3-0-index-v10-v4-upgrade-rollback",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
+        "cluster-3-0-index-v10-v4-upgrade-rollback",
     ]:
         scenario = scenarios[scenario_id]
         assert scenario["classification"] == "gate"
@@ -187,7 +191,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 6
+    assert len(cluster_scenarios) == 7
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-rollback-2-6-latest"]["deploy_profile"]
@@ -221,6 +225,10 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         by_id[
             "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline"
         ]["deploy_profile"]
+        == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+    )
+    assert (
+        by_id["cluster-3-0-index-v10-v4-upgrade-rollback"]["deploy_profile"]
         == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
     )
     for scenario in cluster_scenarios:
@@ -562,8 +570,39 @@ def test_3_0_loon_vortex_gate_scenarios_keep_storage_features_enabled_after_upgr
         assert scenario["rollback"]["loon_ffi_enabled"] is True
         assert scenario["rollback"]["vortex_enabled"] is True
         assert scenario["rollback"]["image"] == scenario["base"]["image"]
+        assert scenario["forward_workload_enabled"] is True
+        assert scenario["rollback_forward_validation_enabled"] is True
+        assert scenario["forward_schema_matrix"] == (
+            "milvus_client/manifests/schema_matrix_3_0_storage_v3.yaml"
+        )
         assert scenario["validation_policy"]["pressure_fail_on_error"] is True
         assert scenario["validation_policy"]["gate_allow_warning"] is False
+
+
+@pytest.mark.parametrize(
+    "scenario_id",
+    [
+        "standalone-3-0-index-v10-v4-upgrade-rollback",
+        "cluster-3-0-index-v10-v4-upgrade-rollback",
+    ],
+)
+def test_index_v10_v4_scenarios_pin_runtime_versions_in_every_phase(scenario_id):
+    manifest = _manifest()
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+    parameters = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+
+    assert scenario["schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_3_0_index_v10_v4.yaml"
+    )
+    for phase in ("base", "target", "rollback"):
+        assert scenario[phase]["target_vec_index_version"] == 10
+        assert scenario[phase]["target_scalar_index_version"] == 4
+    assert parameters["base-target-vec-index-version"] == "10"
+    assert parameters["target-target-vec-index-version"] == "10"
+    assert parameters["rollback-target-vec-index-version"] == "10"
+    assert parameters["base-target-scalar-index-version"] == "4"
+    assert parameters["target-target-scalar-index-version"] == "4"
+    assert parameters["rollback-target-scalar-index-version"] == "4"
 
 
 def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle():
