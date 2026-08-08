@@ -817,6 +817,11 @@ def _json_path_value(value: Any, keys: list[str]) -> Any:
     return current
 
 
+def _format_timestamptz_filter_value(value: Any) -> str:
+    escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
+    return f"ISO '{escaped}'"
+
+
 def _scalar_index_filter(
     spec: SchemaSpec, index: IndexSpec, field: FieldSpec, pk: int, seed: int
 ) -> str | None:
@@ -859,6 +864,8 @@ def _scalar_index_filter(
     value = generate_field_value(field, pk, seed)
     if value is None:
         return f"{field.name} is null"
+    if field.dtype == "TIMESTAMPTZ":
+        return f"{field.name} == {_format_timestamptz_filter_value(value)}"
     return f"{field.name} == {format_filter_value(value)}"
 
 

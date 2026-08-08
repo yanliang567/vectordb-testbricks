@@ -1458,6 +1458,29 @@ def test_struct_scalar_index_filters_use_match_any():
     )
 
 
+def test_timestamptz_scalar_index_filter_uses_iso_literal():
+    field = FieldSpec(
+        name="event_time",
+        dtype="TIMESTAMPTZ",
+        value_profile="future_timestamptz",
+    )
+    spec = SchemaSpec(
+        name="timestamptz",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            field,
+        ],
+        indexes=[IndexSpec(field="event_time", index_type="STL_SORT")],
+    )
+
+    filter_expr = validate_index_compatibility._scalar_index_filter(
+        spec, spec.indexes[0], field, 1, 7
+    )
+
+    assert filter_expr == "event_time == ISO '2100-01-01T00:00:01Z'"
+
+
 def test_struct_max_sim_probe_uses_embedding_list_without_offset_requirement():
     spec = _struct_index_spec("MAX_SIM_COSINE")
     index = spec.indexes[0]
