@@ -153,3 +153,41 @@ def test_feature_validator_fails_when_declared_target_is_absent():
 
     assert not report.passed
     assert report.failures[0]["type"] == "FEATURE_VALIDATION_TARGET_MISSING"
+
+
+def test_nullable_vector_search_uses_primary_key_filter_without_is_not_null():
+    class Client:
+        search_kwargs = None
+
+        def query(self, **kwargs):
+            if kwargs["filter"] == "id == 0":
+                return [{"id": 0, "embedding": None}]
+            return [{"id": 1, "embedding": [1.0, 0.0, 0.0, 0.0]}]
+
+        def search(self, **kwargs):
+            self.search_kwargs = kwargs
+            return [[{"id": 1, "distance": 1.0}]]
+
+    spec = SchemaSpec(
+        name="nullable_vector",
+        version="2.6",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4, nullable=True),
+        ],
+        indexes=[IndexSpec(field="embedding", index_type="HNSW", metric_type="COSINE")],
+    )
+    client = Client()
+    report = ValidationReport()
+
+    validate_nullable_vector_semantics(
+        client,
+        "qa_nullable_vector",
+        spec,
+        {"min_pk": 0, "max_pk": 1},
+        7,
+        report,
+    )
+
+    assert report.passed
+    assert client.search_kwargs["filter"] == "id == 1"

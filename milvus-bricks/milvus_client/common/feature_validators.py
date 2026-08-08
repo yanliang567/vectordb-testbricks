@@ -215,10 +215,7 @@ def validate_nullable_vector_semantics(
             collection_name=collection,
             data=[query_vector],
             anns_field=field.name,
-            filter=(
-                f"{field.name} is not null && "
-                f"{primary.name} == {format_filter_value(actual_pk)}"
-            ),
+            filter=f"{primary.name} == {format_filter_value(actual_pk)}",
             limit=5,
             search_params={
                 "metric_type": metric_type_for_field(spec, field.name),
