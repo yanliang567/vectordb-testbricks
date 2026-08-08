@@ -139,6 +139,57 @@ def test_bm25_function_output_search_uses_text_query():
     assert client.search_calls[0]["search_params"]["metric_type"] == "BM25"
 
 
+def test_minhash_function_output_search_uses_text_query():
+    spec = SchemaSpec(
+        name="minhash",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(
+                name="document",
+                dtype="VARCHAR",
+                max_length=65535,
+                value_profile="minhash_documents",
+            ),
+            FieldSpec(name="minhash", dtype="BINARY_VECTOR", dim=4096),
+        ],
+        functions=[
+            FunctionSpec(
+                name="text_to_minhash",
+                function_type="MINHASH",
+                input_fields=["document"],
+                output_fields=["minhash"],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="minhash",
+                index_type="MINHASH_LSH",
+                metric_type="MHJACCARD",
+            )
+        ],
+    )
+
+    class SearchClient:
+        def __init__(self):
+            self.search_calls = []
+
+        def search(self, **kwargs):
+            self.search_calls.append(kwargs)
+            return [[{"id": 4}]]
+
+    client = SearchClient()
+
+    op, count = run_operation(client, spec, "qa_minhash", "search", 7, 10, 3)
+
+    assert op == "search"
+    assert count == 1
+    assert client.search_calls[0]["data"] == [
+        "the quick brown fox jumps over a lazy dog"
+    ]
+    assert client.search_calls[0]["search_params"]["metric_type"] == "MHJACCARD"
+
+
 def test_search_operation_covers_struct_array_only_vector_index():
     spec = SchemaSpec(
         name="struct_only",

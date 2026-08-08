@@ -1,7 +1,8 @@
 import json
 import re
 
-from milvus_client.common.schema import FieldSpec, IndexSpec, SchemaSpec
+from milvus_client.common.schema import FieldSpec, FunctionSpec, IndexSpec, SchemaSpec
+from milvus_client.common.validators import ValidationReport
 from milvus_client.requests import validate_phase_dml_dql
 
 
@@ -181,6 +182,38 @@ def _explicit_partition_spec() -> SchemaSpec:
     )
 
 
+def _minhash_spec() -> SchemaSpec:
+    return SchemaSpec(
+        name="minhash",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(
+                name="document",
+                dtype="VARCHAR",
+                max_length=65535,
+                value_profile="minhash_documents",
+            ),
+            FieldSpec(name="minhash", dtype="BINARY_VECTOR", dim=4096),
+        ],
+        functions=[
+            FunctionSpec(
+                name="text_to_minhash",
+                function_type="MINHASH",
+                input_fields=["document"],
+                output_fields=["minhash"],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="minhash",
+                index_type="MINHASH_LSH",
+                metric_type="MHJACCARD",
+            )
+        ],
+    )
+
+
 def _checkpoint(tmp_path):
     path = tmp_path / "seed_data.json"
     path.write_text(
@@ -280,6 +313,26 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
     assert "upsert" in call_names
     assert "delete" in call_names
     assert "search" in call_names
+
+
+def test_phase_dml_dql_minhash_search_uses_function_input_text():
+    client = PhaseClient()
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._run_searches(
+        client,
+        _minhash_spec(),
+        "qa_minhash",
+        seed=7,
+        pk=6_000_001,
+        report=report,
+    )
+
+    search_call = next(call[1] for call in client.calls if call[0] == "search")
+    assert report.passed
+    assert searches == 1
+    assert search_call["data"] == ["the quick brown fox jumps over a lazy dog"]
+    assert search_call["search_params"]["metric_type"] == "MHJACCARD"
 
 
 def test_wait_for_validation_retries_until_dml_becomes_visible(monkeypatch):

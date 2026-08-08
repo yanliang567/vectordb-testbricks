@@ -166,6 +166,25 @@ def search_params_for_field(spec: SchemaSpec, field_name: str) -> dict[str, Any]
     return {}
 
 
+def function_input_query_value(
+    spec: SchemaSpec, output_field_name: str, pk: int, seed: int
+) -> Any:
+    function = next(
+        (item for item in spec.functions if output_field_name in item.output_fields),
+        None,
+    )
+    if function is None or not function.input_fields:
+        raise AssertionError(
+            f"{spec.name}.{output_field_name}: function input field is missing"
+        )
+    input_field = resolve_field(spec, function.input_fields[0])
+    if input_field is None:
+        raise AssertionError(
+            f"{spec.name}.{output_field_name}: function input field is missing"
+        )
+    return generate_field_value(input_field, pk, seed)
+
+
 def assert_search_result(result: Any, collection: str, field_name: str) -> None:
     if not isinstance(result, list) or len(result) != 1:
         raise AssertionError(
@@ -258,26 +277,18 @@ def _search_operation(
         expected_offset = None
         probe_pk = data_pk
 
-        def advance_probe_pk() -> int:
+        def advance_probe_pk(current_probe_pk: int) -> int:
             if baseline_rows_per_collection > 0:
                 offset = (
-                    probe_pk - baseline_start_id + 1
+                    current_probe_pk - baseline_start_id + 1
                 ) % baseline_rows_per_collection
                 return baseline_start_id + offset
-            return probe_pk + 1
+            return current_probe_pk + 1
 
-        if vector_field.name in function_outputs and metric_type == "BM25":
-            function = next(
-                item
-                for item in spec.functions
-                if vector_field.name in item.output_fields
+        if vector_field.name in function_outputs:
+            query_vector = function_input_query_value(
+                spec, vector_field.name, probe_pk, seed
             )
-            input_field = resolve_field(spec, function.input_fields[0])
-            if input_field is None:
-                raise AssertionError(
-                    f"{collection}.{field_name}: function input field is missing"
-                )
-            query_vector = generate_field_value(input_field, probe_pk, seed)
         elif (struct_array := struct_array_for_field(spec, field_name)) is not None:
             probe = None
             for _ in range(10):
@@ -293,7 +304,7 @@ def _search_operation(
                     )
                 if probe is not None:
                     break
-                probe_pk = advance_probe_pk()
+                probe_pk = advance_probe_pk(probe_pk)
             if probe is None:
                 raise AssertionError(
                     f"{collection}.{field_name}: no non-null StructArray vector probe"
@@ -308,7 +319,7 @@ def _search_operation(
                 query_vector = generate_field_value(vector_field, probe_pk, seed)
                 if query_vector is not None:
                     break
-                probe_pk = advance_probe_pk()
+                probe_pk = advance_probe_pk(probe_pk)
             if query_vector is None:
                 raise AssertionError(
                     f"{collection}.{field_name}: no non-null vector probe"

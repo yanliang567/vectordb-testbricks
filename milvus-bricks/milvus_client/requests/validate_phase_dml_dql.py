@@ -35,6 +35,7 @@ from milvus_client.common.validators import (
 )
 from milvus_client.common.workload import (
     assert_search_result,
+    function_input_query_value,
     metric_type_for_field,
     search_params_for_field,
 )
@@ -360,8 +361,8 @@ def _run_searches(
     function_outputs = function_output_fields(spec)
     for vector_field in vector_fields(spec):
         metric_type = metric_type_for_field(spec, vector_field.name)
-        if vector_field.name in function_outputs and metric_type == "BM25":
-            query_vector = f"milvus phase dml dql token_{pk % 16}"
+        if vector_field.name in function_outputs:
+            query_vector = function_input_query_value(spec, vector_field.name, pk, seed)
         else:
             query_vector = stable_vector_value(vector_field, pk, seed)
         try:
