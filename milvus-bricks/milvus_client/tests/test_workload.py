@@ -190,6 +190,35 @@ def test_minhash_function_output_search_uses_text_query():
     assert client.search_calls[0]["search_params"]["metric_type"] == "MHJACCARD"
 
 
+def test_faiss_search_params_only_set_nprobe_for_ivf_factory_indexes():
+    spec = SchemaSpec(
+        name="faiss",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="float_ivf", dtype="FLOAT_VECTOR", dim=64),
+            FieldSpec(name="binary_flat", dtype="BINARY_VECTOR", dim=64),
+        ],
+        indexes=[
+            IndexSpec(
+                field="float_ivf",
+                index_type="FAISS",
+                metric_type="L2",
+                params={"faiss_index_name": "IVF64,Flat"},
+            ),
+            IndexSpec(
+                field="binary_flat",
+                index_type="FAISS",
+                metric_type="HAMMING",
+                params={"faiss_index_name": "BFlat"},
+            ),
+        ],
+    )
+
+    assert search_params_for_field(spec, "float_ivf") == {"nprobe": 8}
+    assert search_params_for_field(spec, "binary_flat") == {}
+
+
 def test_search_operation_covers_struct_array_only_vector_index():
     spec = SchemaSpec(
         name="struct_only",

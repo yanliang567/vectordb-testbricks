@@ -146,6 +146,10 @@ def search_params_for_field(spec: SchemaSpec, field_name: str) -> dict[str, Any]
         if index.field == field_name and index.search_params:
             return dict(index.search_params)
     index_type = index_type_for_field(spec, field_name)
+    if index_type == "FAISS":
+        index = next(item for item in spec.indexes if item.field == field_name)
+        faiss_index_name = str(index.params.get("faiss_index_name", "")).upper()
+        return {"nprobe": 8} if "IVF" in faiss_index_name else {}
     if index_type in {"HNSW", "HNSW_SQ", "HNSW_PQ", "HNSW_PRQ"}:
         return {"ef": 32}
     if index_type == "IVF_RABITQ":
@@ -158,7 +162,6 @@ def search_params_for_field(spec: SchemaSpec, field_name: str) -> dict[str, Any]
         "IVF_SQ8",
         "IVF_PQ",
         "SCANN",
-        "FAISS",
     }:
         return {"nprobe": 8}
     if index_type in {"SPARSE_INVERTED_INDEX", "SPARSE_WAND"}:
