@@ -227,6 +227,10 @@ def _args(tmp_path, checkpoint):
         "1",
         "--batch-size",
         "2",
+        "--visibility-timeout-sec",
+        "0",
+        "--visibility-interval-sec",
+        "0",
     ]
 
 
@@ -276,6 +280,29 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
     assert "upsert" in call_names
     assert "delete" in call_names
     assert "search" in call_names
+
+
+def test_wait_for_validation_retries_until_dml_becomes_visible(monkeypatch):
+    attempts = 0
+
+    def validate(report):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 2:
+            report.fail("COUNT_DRIFT", "DML is not visible yet")
+
+    times = iter([0.0, 0.1])
+    monkeypatch.setattr(validate_phase_dml_dql, "monotonic", lambda: next(times))
+    monkeypatch.setattr(validate_phase_dml_dql, "sleep", lambda _: None)
+
+    report, actual_attempts = validate_phase_dml_dql._wait_for_validation(
+        validate,
+        timeout_sec=1,
+        interval_sec=0,
+    )
+
+    assert report.passed
+    assert actual_attempts == 2
 
 
 def test_phase_dml_dql_upserts_explicit_partition_rows_in_original_partitions():

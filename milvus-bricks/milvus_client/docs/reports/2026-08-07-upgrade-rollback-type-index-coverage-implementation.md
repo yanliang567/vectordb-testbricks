@@ -143,6 +143,7 @@ PYTHONPATH=. /tmp/vectordb-testbricks-pymilvus301-py39/bin/python -m pytest -q \
   milvus_client/tests/test_mixed_rw_pressure.py \
   milvus_client/tests/test_argo_template.py \
   milvus_client/tests/test_validate_index_compatibility.py \
+  milvus_client/tests/test_validate_phase_dml_dql.py \
   milvus_client/tests/test_feature_validators.py \
   milvus_client/tests/test_validate_schema_features.py \
   milvus_client/tests/test_generate_workflow_report.py \
@@ -150,7 +151,7 @@ PYTHONPATH=. /tmp/vectordb-testbricks-pymilvus301-py39/bin/python -m pytest -q \
   milvus_client/tests/test_brick_catalog.py
 ```
 
-Result: `151 passed, 1 warning`.
+Result: `160 passed, 1 warning`.
 
 ### Full Offline Unit Test Set
 
@@ -161,7 +162,7 @@ PYTHONPATH=. /tmp/vectordb-testbricks-pymilvus301-py39/bin/python -m pytest \
   -k 'not test_rendered_cluster_helm_values_apply_metadata_to_chart_resources and not test_rendered_pulsar_broker_role_is_covered_by_workflow_manager_rbac'
 ```
 
-Result: `310 passed, 2 deselected, 1 warning`.
+Result: `311 passed, 2 deselected, 1 warning`.
 
 The warning is the local Python 3.9 LibreSSL warning emitted by urllib3 and is unrelated to the implementation.
 
@@ -201,15 +202,15 @@ rendered_schemas=19
 
 ```bash
 cd milvus-bricks
-/tmp/vectordb-testbricks-pymilvus301-py39/bin/ruff check <21 affected Python files>
-/tmp/vectordb-testbricks-pymilvus301-py39/bin/ruff format --check <21 affected Python files>
+/tmp/vectordb-testbricks-pymilvus301-py39/bin/ruff check <23 affected Python files>
+/tmp/vectordb-testbricks-pymilvus301-py39/bin/ruff format --check <23 affected Python files>
 ```
 
 Result:
 
 ```text
 All checks passed!
-21 files already formatted
+23 files already formatted
 ```
 
 ```bash

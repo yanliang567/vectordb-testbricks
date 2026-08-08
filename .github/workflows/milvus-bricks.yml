@@ -62,6 +62,7 @@ jobs:
             milvus_client/requests/render_milvus_cr.py \
             milvus_client/requests/render_milvus_helm_values.py \
             milvus_client/requests/validate_index_compatibility.py \
+            milvus_client/requests/validate_phase_dml_dql.py \
             milvus_client/requests/validate_schema_features.py \
             milvus_client/tests/test_data_generation.py \
             milvus_client/tests/test_feature_validators.py \
@@ -71,6 +72,7 @@ jobs:
             milvus_client/tests/test_schema_manifest.py \
             milvus_client/tests/test_upgrade_rollback_gates_manifest.py \
             milvus_client/tests/test_validate_index_compatibility.py \
+            milvus_client/tests/test_validate_phase_dml_dql.py \
             milvus_client/tests/test_validate_schema_features.py \
             milvus_client/tests/test_workload.py
 
@@ -88,6 +90,7 @@ jobs:
             milvus_client/requests/render_milvus_cr.py \
             milvus_client/requests/render_milvus_helm_values.py \
             milvus_client/requests/validate_index_compatibility.py \
+            milvus_client/requests/validate_phase_dml_dql.py \
             milvus_client/requests/validate_schema_features.py \
             milvus_client/tests/test_data_generation.py \
             milvus_client/tests/test_feature_validators.py \
@@ -97,5 +100,6 @@ jobs:
             milvus_client/tests/test_schema_manifest.py \
             milvus_client/tests/test_upgrade_rollback_gates_manifest.py \
             milvus_client/tests/test_validate_index_compatibility.py \
+            milvus_client/tests/test_validate_phase_dml_dql.py \
             milvus_client/tests/test_validate_schema_features.py \
             milvus_client/tests/test_workload.py
