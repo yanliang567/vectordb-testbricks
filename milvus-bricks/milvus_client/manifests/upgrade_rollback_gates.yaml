@@ -35,6 +35,8 @@ deploy_profiles:
 schema_matrices:
   "2.6": milvus_client/manifests/schema_matrix_2_6.yaml
   "3.0": milvus_client/manifests/schema_matrix_3_0.yaml
+  3.0_storage_v3: milvus_client/manifests/schema_matrix_3_0_storage_v3.yaml
+  3.0_index_v10_v4: milvus_client/manifests/schema_matrix_3_0_index_v10_v4.yaml
   json_shredding: milvus_client/manifests/schema_matrix_json_shredding.yaml
 
 image_aliases:
@@ -163,9 +165,10 @@ scenarios:
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
     schema_matrix_ref: "3.0"
+    forward_schema_matrix_ref: 3.0_storage_v3
     collection_prefix: qa_gate_30_to_30latest_lv
-    forward_workload_enabled: false
-    schema_evolution_existing_enabled: true
+    forward_workload_enabled: true
+    schema_evolution_existing_enabled: false
     schema_evolution_forward_enabled: false
     rollback_forward_validation_enabled: true
     base:
@@ -182,6 +185,37 @@ scenarios:
       json_shredding_enabled: false
       loon_ffi_enabled: true
       vortex_enabled: true
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: standalone-3-0-index-v10-v4-upgrade-rollback
+    description: "3.0 index engine gate with vector index version 10 and scalar index version 4 fixed across base, target, and rollback."
+    mode: standalone
+    classification: gate
+    support_status: supported
+    workflow_template_ref: standalone_3_0
+    deploy_profile_ref: standalone
+    schema_matrix_ref: 3.0_index_v10_v4
+    collection_prefix: qa_gate_30_index_v10_v4
+    forward_workload_enabled: false
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-baseline
+      target_vec_index_version: 10
+      target_scalar_index_version: 4
+    target:
+      image_ref: milvus-3-0-latest
+      target_vec_index_version: 10
+      target_scalar_index_version: 4
+    rollback:
+      image_ref: milvus-3-0-baseline
+      target_vec_index_version: 10
+      target_scalar_index_version: 4
     validation_policy:
       data_integrity: strict
       serviceability: strict
@@ -413,9 +447,10 @@ scenarios:
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
     schema_matrix_ref: "3.0"
+    forward_schema_matrix_ref: 3.0_storage_v3
     collection_prefix: qa_gate_cluster_30_to_30latest_lv
-    forward_workload_enabled: false
-    schema_evolution_existing_enabled: true
+    forward_workload_enabled: true
+    schema_evolution_existing_enabled: false
     schema_evolution_forward_enabled: false
     rollback_forward_validation_enabled: true
     base:
@@ -432,6 +467,38 @@ scenarios:
       json_shredding_enabled: false
       loon_ffi_enabled: true
       vortex_enabled: true
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: cluster-3-0-index-v10-v4-upgrade-rollback
+    description: "Cluster 3.0 index engine gate with vector index version 10 and scalar index version 4 fixed across all phases."
+    mode: cluster
+    classification: gate
+    support_status: supported
+    submit_generate_name: c30-index-v10-v4-
+    workflow_template_ref: cluster
+    deploy_profile_ref: cluster_woodpecker_1cu
+    schema_matrix_ref: 3.0_index_v10_v4
+    collection_prefix: qa_gate_cluster_30_index_v10_v4
+    forward_workload_enabled: false
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-baseline
+      target_vec_index_version: 10
+      target_scalar_index_version: 4
+    target:
+      image_ref: milvus-3-0-latest
+      target_vec_index_version: 10
+      target_scalar_index_version: 4
+    rollback:
+      image_ref: milvus-3-0-baseline
+      target_vec_index_version: 10
+      target_scalar_index_version: 4
     validation_policy:
       data_integrity: strict
       serviceability: strict

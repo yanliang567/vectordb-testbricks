@@ -5,9 +5,9 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 ## Current scenario set
 
-The manifest currently registers 12 scenarios:
+The manifest currently registers 14 scenarios:
 
-- 11 promoted gate scenarios
+- 13 promoted gate scenarios
 - 1 negative coverage scenario
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
@@ -23,6 +23,8 @@ The manifest currently registers 12 scenarios:
 | `standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
 | `cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
 | `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
+| `standalone-3-0-index-v10-v4-upgrade-rollback` | standalone | gate | `3.0 baseline + index v10/v4 -> 3.0 latest + index v10/v4 -> 3.0 baseline + index v10/v4` | SINDI/Block-Max and scalar index v4 are validated against runtime config. |
+| `cluster-3-0-index-v10-v4-upgrade-rollback` | cluster | gate | `3.0 baseline + index v10/v4 -> 3.0 latest + index v10/v4 -> 3.0 baseline + index v10/v4` | Distributed equivalent of the index engine version gate. |
 | `standalone-3-0-loon-vortex-to-2-6-negative` | standalone | negative | `2.6.18 -> 3.0 latest + LoonFFI/Vortex -> 2.6 latest` | Unsupported negative coverage only; not a promoted gate. |
 
 For the 3.0 LoonFFI/Vortex gates, the rollback phase uses the 3.0 baseline
@@ -42,6 +44,24 @@ data only after the post-upgrade configuration rollout has enabled JSON
 Shredding. The rollback phase keeps the setting enabled and requires the
 forward data, dynamic JSON fields, JSON path indexes, and filters to remain
 usable.
+
+The LoonFFI/Vortex gates create forward collections from
+`schema_matrix_3_0_storage_v3.yaml`. They validate TEXT payloads below, at, and
+above 64 KiB plus a 1 MiB value, then rerun payload hash, lexical filter, BM25,
+index, and feature-semantic checks after rollback.
+Workflow clients use `pymilvus==3.0.1`; the 3.0.0 wheel predates the client-side
+`DataType.TEXT` backport and cannot render this matrix.
+
+The regular matrices include the promoted type/index coverage:
+
+- `schema_matrix_2_6.yaml`: StructArray scalar round-trip and element search,
+  all six nullable vector types, Geometry/RTREE, and explicit legacy indexes.
+- `schema_matrix_3_0.yaml`: StructArray nested scalar indexes including
+  `FLOAT + STL_SORT/INVERTED` and `VARCHAR + INVERTED/BITMAP`, EmbList DISKANN,
+  FAISS, MinHash, and TIMESTAMPTZ entity TTL.
+- `schema_matrix_3_0_index_v10_v4.yaml`: SINDI, Block-Max sparse algorithms,
+  JSON scalar indexes, and resolved HYBRID AutoIndex under runtime index
+  versions `10/4`.
 
 The Woodpecker 2CU gate reuses the cluster Helm rolling upgrade workflow with
 a multi-replica data plane. Its scenario contract rejects deploy-profile
@@ -200,6 +220,12 @@ The current gates validate:
     formats;
   - mismatched LoonFFI/storage v3 or Vortex settings fail the gate before
     baseline seed, precheck, DML/DQL, or index compatibility validation;
+- schema feature semantics at base, after upgrade, and after rollback:
+  - StructArray searches require the expected primary key and element offset;
+  - nested scalar indexes execute real `MATCH_ANY` filters;
+  - unknown validator names fail manifest validation rather than silently pass;
+  - index engine scenarios verify `dataCoord.targetVecIndexVersion` and
+    `dataCoord.targetScalarIndexVersion` from merged runtime pod config;
 - baseline seed data after upgrade and after rollback;
 - phase checkpoints for data written after upgrade before rollback;
 - new collections created after upgrade and after rollback;

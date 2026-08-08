@@ -1,7 +1,13 @@
 import json
 
 from milvus_client.common.data import stable_vector_value
-from milvus_client.common.schema import FieldSpec, IndexSpec, SchemaSpec
+from milvus_client.common.schema import (
+    FieldSpec,
+    IndexSpec,
+    SchemaSpec,
+    StructArraySpec,
+)
+from milvus_client.common.validators import ValidationReport
 from milvus_client.requests import validate_index_compatibility
 
 
@@ -1405,3 +1411,157 @@ def test_scalar_index_query_fails_when_result_is_empty(monkeypatch, tmp_path):
     assert any(
         failure["type"] == "INDEX_SCALAR_QUERY_FAILED" for failure in result["failures"]
     )
+
+
+def _struct_index_spec():
+    return SchemaSpec(
+        name="struct_indexes",
+        version="3.0",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        struct_arrays=[
+            StructArraySpec(
+                name="attributes",
+                max_capacity=8,
+                fields=[
+                    FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+                    FieldSpec(name="score_sort", dtype="FLOAT"),
+                    FieldSpec(name="category_inverted", dtype="VARCHAR"),
+                ],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="attributes[embedding]",
+                index_type="HNSW",
+                metric_type="MAX_SIM_COSINE",
+                search_params={"ef": 48},
+            ),
+            IndexSpec(field="attributes[score_sort]", index_type="STL_SORT"),
+            IndexSpec(field="attributes[category_inverted]", index_type="INVERTED"),
+        ],
+    )
+
+
+def test_struct_scalar_index_filters_use_match_any():
+    spec = _struct_index_spec()
+
+    score_filter = validate_index_compatibility._scalar_index_filter(
+        spec, spec.indexes[1], spec.struct_arrays[0].fields[1], 3, 7
+    )
+    category_filter = validate_index_compatibility._scalar_index_filter(
+        spec, spec.indexes[2], spec.struct_arrays[0].fields[2], 3, 7
+    )
+
+    assert score_filter == "MATCH_ANY(attributes, $[score_sort] >= 3.0)"
+    assert category_filter == (
+        'MATCH_ANY(attributes, $[category_inverted] == "category_3")'
+    )
+
+
+def test_struct_vector_probe_and_hit_require_matching_offset():
+    spec = _struct_index_spec()
+    index = spec.indexes[0]
+    field = spec.struct_arrays[0].fields[0]
+    meta = {
+        "primary_field": "id",
+        "min_pk": 3,
+        "max_pk": 3,
+        "data_min_pk": 3,
+        "data_max_pk": 3,
+    }
+
+    data_pk, expected_pk, vector, offset = (
+        validate_index_compatibility._vector_index_probe(
+            spec, meta, index, field, seed=7
+        )
+    )
+    report = ValidationReport()
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": expected_pk, "offset": offset, "distance": 1.0}]],
+        "qa_struct",
+        index.field,
+        "id",
+        expected_pk,
+        offset,
+        "MAX_SIM_COSINE",
+        report,
+    )
+
+    assert data_pk == 3
+    assert offset == 0
+    assert vector == stable_vector_value(field, 3000, 7)
+    assert report.passed
+
+    mismatch = ValidationReport()
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": expected_pk, "offset": 1, "distance": 1.0}]],
+        "qa_struct",
+        index.field,
+        "id",
+        expected_pk,
+        offset,
+        "MAX_SIM_COSINE",
+        mismatch,
+    )
+    assert not mismatch.passed
+    assert mismatch.failures[0]["expected_offset"] == 0
+
+
+def test_describe_index_preserves_top_level_compatibility_params():
+    class Client:
+        def describe_index(self, **kwargs):
+            return {
+                "index_name": "faiss_idx",
+                "field_name": "embedding",
+                "index_type": "FAISS",
+                "metric_type": "COSINE",
+                "faiss_index_name": "OPQ16,IVF64,PQ16x4",
+                "refine": True,
+            }
+
+    metadata = validate_index_compatibility._describe_index(
+        Client(), "qa", "embedding", "faiss_idx"
+    )
+
+    assert metadata["params"] == {
+        "faiss_index_name": "OPQ16,IVF64,PQ16x4",
+        "refine": True,
+    }
+    assert (
+        validate_index_compatibility._index_identity(metadata)["compatibility_params"]
+        == metadata["params"]
+    )
+
+
+def test_resolved_autoindex_type_uses_server_resolved_params():
+    spec = SchemaSpec(
+        name="json_auto",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="json_auto", dtype="JSON"),
+        ],
+        indexes=[
+            IndexSpec(
+                field="json_auto",
+                index_type="AUTOINDEX",
+                expected_resolved_index_type="HYBRID",
+            )
+        ],
+    )
+    report = ValidationReport()
+
+    validate_index_compatibility._validate_resolved_index_types(
+        "qa_json_auto",
+        spec,
+        [
+            {
+                "field_name": "json_auto",
+                "index_type": "AUTOINDEX",
+                "params": {"index_type": "HYBRID"},
+            }
+        ],
+        report,
+    )
+
+    assert report.passed

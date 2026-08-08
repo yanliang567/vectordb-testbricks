@@ -4,7 +4,7 @@ schemas:
     feature_tags: ["nullable_vector"]
     compat_mode: forward_only
     required_capabilities: ["NullableVector"]
-    validators: ["count", "pk_sample", "null_vector_semantics"]
+    validators: ["count", "pk_sample", "nullable_vector_semantics"]
     fields:
       - {name: id, dtype: INT64, primary: true, auto_id: false}
       - {name: category, dtype: INT64}
@@ -16,7 +16,7 @@ schemas:
     feature_tags: ["geometry"]
     compat_mode: forward_only
     required_capabilities: ["Geometry"]
-    validators: ["count", "pk_sample"]
+    validators: ["count", "pk_sample", "geometry_filter"]
     fields:
       - {name: id, dtype: INT64, primary: true, auto_id: false}
       - {name: location, dtype: GEOMETRY}
@@ -25,17 +25,18 @@ schemas:
       - {field: location, index_type: RTREE}
       - {field: embedding, index_type: AUTOINDEX, metric_type: COSINE}
 
-  - name: timestamptz_ttl
+  - name: timestamptz_entity_ttl
     feature_tags: ["timestamptz", "entity_ttl"]
     compat_mode: forward_only
     required_capabilities: ["TimeSeries", "EntityTTL"]
-    validators: ["count", "pk_sample"]
+    validators: ["count", "pk_sample", "entity_ttl"]
+    properties: {ttl_field: event_time, timezone: UTC}
     fields:
       - {name: id, dtype: INT64, primary: true, auto_id: false}
-      - {name: event_time, dtype: TIMESTAMPTZ}
-      - {name: expire_at, dtype: INT64}
+      - {name: event_time, dtype: TIMESTAMPTZ, nullable: true, value_profile: future_timestamptz}
       - {name: embedding, dtype: FLOAT_VECTOR, dim: 128}
     indexes:
+      - {field: event_time, index_type: STL_SORT}
       - {field: embedding, index_type: AUTOINDEX, metric_type: COSINE}
 
   - name: bm25_schema_evolution
@@ -55,3 +56,91 @@ schemas:
     indexes:
       - {field: sparse_bm25, index_type: SPARSE_INVERTED_INDEX, metric_type: BM25, params: {drop_ratio_build: 0.0}}
       - {field: embedding, index_type: AUTOINDEX, metric_type: COSINE}
+
+  - name: struct_array_scalar_indexes
+    description: "3.0 StructArray extended vectors and common nested scalar indexes"
+    feature_tags: ["struct_array_element_hybrid_search"]
+    compat_mode: forward_only
+    required_capabilities: ["StructArrayExtended", "ElementHybridSearch"]
+    validators:
+      - count
+      - pk_sample
+      - struct_array_scalar_round_trip
+      - struct_array_scalar_index_queries
+      - struct_array_element_search
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: normal_vector, dtype: FLOAT_VECTOR, dim: 64}
+    struct_arrays:
+      - name: attributes
+        max_capacity: 8
+        nullable: true
+        fields:
+          - {name: embedding, dtype: FLOAT_VECTOR, dim: 64}
+          - {name: score_sort, dtype: FLOAT}
+          - {name: score_inverted, dtype: FLOAT}
+          - {name: category_inverted, dtype: VARCHAR, max_length: 128}
+          - {name: tag_bitmap, dtype: VARCHAR, max_length: 64}
+          - {name: rank_sort, dtype: INT64}
+          - {name: enabled_bitmap, dtype: BOOL}
+    indexes:
+      - {field: normal_vector, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+      - {field: "attributes[embedding]", index_type: HNSW, metric_type: MAX_SIM_COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+      - {field: "attributes[score_sort]", index_type: STL_SORT}
+      - {field: "attributes[score_inverted]", index_type: INVERTED}
+      - {field: "attributes[category_inverted]", index_type: INVERTED}
+      - {field: "attributes[tag_bitmap]", index_type: BITMAP}
+      - {field: "attributes[rank_sort]", index_type: STL_SORT}
+      - {field: "attributes[enabled_bitmap]", index_type: BITMAP}
+
+  - name: struct_array_float16_diskann
+    description: "3.0 EmbList FLOAT16 DISKANN element-level search"
+    feature_tags: ["struct_array_element_hybrid_search"]
+    compat_mode: forward_only
+    required_capabilities: ["StructArrayExtended", "ElementHybridSearch"]
+    validators: ["count", "pk_sample", "struct_array_element_search"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+    struct_arrays:
+      - name: embeddings
+        max_capacity: 4
+        fields:
+          - {name: vector, dtype: FLOAT16_VECTOR, dim: 64}
+          - {name: label, dtype: VARCHAR, max_length: 64}
+    indexes:
+      - {field: "embeddings[vector]", index_type: DISKANN, metric_type: MAX_SIM_COSINE, params: {search_list_size: 64}, search_params: {search_list_size: 64}}
+
+  - name: faiss_float_binary
+    description: "Explicit FAISS dense and binary factory coverage"
+    feature_tags: ["faiss_index"]
+    compat_mode: forward_only
+    required_capabilities: ["FaissIndex"]
+    validators: ["count", "pk_sample", "search_smoke"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: float_ivf_flat, dtype: FLOAT_VECTOR, dim: 64}
+      - {name: float_opq_pq, dtype: FLOAT_VECTOR, dim: 64}
+      - {name: binary_flat, dtype: BINARY_VECTOR, dim: 64}
+    indexes:
+      - {field: float_ivf_flat, index_type: FAISS, metric_type: L2, params: {faiss_index_name: "IVF64,Flat"}, search_params: {nprobe: 8}}
+      - {field: float_opq_pq, index_type: FAISS, metric_type: COSINE, params: {faiss_index_name: "OPQ16,IVF64,PQ16x4"}, search_params: {nprobe: 8}}
+      - {field: binary_flat, index_type: FAISS, metric_type: HAMMING, params: {faiss_index_name: BFlat}}
+
+  - name: minhash_lsh
+    description: "MinHash function output and MINHASH_LSH near-duplicate search"
+    feature_tags: ["minhash"]
+    compat_mode: forward_only
+    required_capabilities: ["MinHash"]
+    validators: ["count", "pk_sample", "minhash_search"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: document, dtype: VARCHAR, max_length: 65535, enable_analyzer: true, analyzer_params: {type: standard}, value_profile: minhash_documents}
+      - {name: minhash, dtype: BINARY_VECTOR, dim: 4096}
+    functions:
+      - name: text_to_minhash
+        function_type: MINHASH
+        input_fields: [document]
+        output_fields: [minhash]
+        params: {num_hashes: 128, shingle_size: 3}
+    indexes:
+      - {field: minhash, index_type: MINHASH_LSH, metric_type: MHJACCARD, params: {mh_lsh_band: 8, with_raw_data: true}, search_params: {mh_search_with_jaccard: true}}

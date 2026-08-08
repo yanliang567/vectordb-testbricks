@@ -7,4 +7,4 @@
 ```
 
 请以该文档和 `../../manifests/upgrade_rollback_gates.yaml` 为准；其中包含当前
-11 条 promoted gate 和 1 条 negative coverage scenario。
+13 条 promoted gate 和 1 条 negative coverage scenario。

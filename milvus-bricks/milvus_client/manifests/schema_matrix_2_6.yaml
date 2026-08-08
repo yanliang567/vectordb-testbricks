@@ -102,3 +102,90 @@ schemas:
       - {field: nullable_flag, index_type: BITMAP}
       - {field: tags, index_type: INVERTED}
       - {field: embedding_hnsw, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}}
+
+  - name: struct_array_element_rollback_safe
+    description: "2.6 StructArray scalar round-trip and element-level vector search coverage"
+    feature_tags: ["struct_array"]
+    compat_mode: rollback_safe
+    required_capabilities: ["StructArray"]
+    validators:
+      - count
+      - pk_sample
+      - struct_array_scalar_round_trip
+      - struct_array_element_search
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: normal_vector, dtype: FLOAT_VECTOR, dim: 64}
+    struct_arrays:
+      - name: items
+        max_capacity: 8
+        fields:
+          - {name: embedding, dtype: FLOAT_VECTOR, dim: 64}
+          - {name: score, dtype: FLOAT}
+          - {name: category, dtype: VARCHAR, max_length: 128}
+          - {name: rank, dtype: INT64}
+          - {name: enabled, dtype: BOOL}
+    indexes:
+      - {field: normal_vector, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+      - {field: "items[embedding]", index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+
+  - name: nullable_vectors_all
+    description: "All six nullable vector data types available in Milvus 2.6.18"
+    feature_tags: ["nullable_vector"]
+    compat_mode: rollback_safe
+    required_capabilities: ["NullableVector"]
+    validators: ["count", "pk_sample", "nullable_vector_semantics"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: nullable_float, dtype: FLOAT_VECTOR, dim: 64, nullable: true}
+      - {name: nullable_float16, dtype: FLOAT16_VECTOR, dim: 64, nullable: true}
+      - {name: nullable_bfloat16, dtype: BFLOAT16_VECTOR, dim: 64, nullable: true}
+      - {name: nullable_int8, dtype: INT8_VECTOR, dim: 64, nullable: true}
+      - {name: nullable_binary, dtype: BINARY_VECTOR, dim: 64, nullable: true}
+      - {name: nullable_sparse, dtype: SPARSE_FLOAT_VECTOR, nullable: true}
+    indexes:
+      - {field: nullable_float, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+      - {field: nullable_float16, index_type: HNSW_SQ, metric_type: COSINE, params: {M: 8, efConstruction: 64, sq_type: SQ8}, search_params: {ef: 32}}
+      - {field: nullable_bfloat16, index_type: DISKANN, metric_type: L2, params: {search_list_size: 64}, search_params: {search_list_size: 64}}
+      - {field: nullable_int8, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+      - {field: nullable_binary, index_type: BIN_FLAT, metric_type: HAMMING}
+      - {field: nullable_sparse, index_type: SPARSE_WAND, metric_type: IP, params: {drop_ratio_build: 0.0}, search_params: {drop_ratio_search: 0.0}}
+
+  - name: geometry_rtree_rollback_safe
+    description: "Geometry RTREE metadata and spatial predicate rollback coverage"
+    feature_tags: ["geometry"]
+    compat_mode: rollback_safe
+    required_capabilities: ["Geometry"]
+    validators: ["count", "pk_sample", "geometry_filter"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: location, dtype: GEOMETRY}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 64}
+    indexes:
+      - {field: location, index_type: RTREE}
+      - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+
+  - name: legacy_index_rollback_safe
+    description: "Explicit legacy dense, binary, sparse, and scalar index families"
+    feature_tags: ["compat_multi_vector"]
+    compat_mode: rollback_safe
+    validators: ["count", "pk_sample", "search_smoke"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: flat_vector, dtype: FLOAT_VECTOR, dim: 64}
+      - {name: ivf_flat_vector, dtype: FLOAT_VECTOR, dim: 64}
+      - {name: ivf_sq8_vector, dtype: FLOAT_VECTOR, dim: 64}
+      - {name: ivf_pq_vector, dtype: FLOAT_VECTOR, dim: 64}
+      - {name: scann_vector, dtype: FLOAT_VECTOR, dim: 64}
+      - {name: hnsw_sq_vector, dtype: FLOAT_VECTOR, dim: 64}
+      - {name: binary_flat, dtype: BINARY_VECTOR, dim: 64}
+      - {name: sparse_wand, dtype: SPARSE_FLOAT_VECTOR}
+    indexes:
+      - {field: flat_vector, index_type: FLAT, metric_type: L2}
+      - {field: ivf_flat_vector, index_type: IVF_FLAT, metric_type: L2, params: {nlist: 32}, search_params: {nprobe: 8}}
+      - {field: ivf_sq8_vector, index_type: IVF_SQ8, metric_type: L2, params: {nlist: 32}, search_params: {nprobe: 8}}
+      - {field: ivf_pq_vector, index_type: IVF_PQ, metric_type: L2, params: {nlist: 32, m: 8, nbits: 8}, search_params: {nprobe: 8}}
+      - {field: scann_vector, index_type: SCANN, metric_type: L2, params: {nlist: 32}, search_params: {nprobe: 8, reorder_k: 32}}
+      - {field: hnsw_sq_vector, index_type: HNSW_SQ, metric_type: COSINE, params: {M: 8, efConstruction: 64, sq_type: SQ8}, search_params: {ef: 32}}
+      - {field: binary_flat, index_type: BIN_FLAT, metric_type: HAMMING}
+      - {field: sparse_wand, index_type: SPARSE_WAND, metric_type: IP, params: {drop_ratio_build: 0.0}, search_params: {drop_ratio_search: 0.0}}

@@ -1,7 +1,13 @@
 from pathlib import Path
 
-from milvus_client.common.schema import FieldSpec, FunctionSpec, IndexSpec, SchemaSpec, load_schema_matrix
-from milvus_client.common.workload import run_operation
+from milvus_client.common.schema import (
+    FieldSpec,
+    FunctionSpec,
+    IndexSpec,
+    SchemaSpec,
+    load_schema_matrix,
+)
+from milvus_client.common.workload import run_operation, search_params_for_field
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,7 +109,13 @@ def test_bm25_function_output_search_uses_text_query():
                 output_fields=["sparse_bm25"],
             )
         ],
-        indexes=[IndexSpec(field="sparse_bm25", index_type="SPARSE_INVERTED_INDEX", metric_type="BM25")],
+        indexes=[
+            IndexSpec(
+                field="sparse_bm25",
+                index_type="SPARSE_INVERTED_INDEX",
+                metric_type="BM25",
+            )
+        ],
     )
 
     class SearchClient:
@@ -158,7 +170,10 @@ def test_count_operation_checks_seed_pk_range_exactly():
 
     assert op == "count"
     assert count == 1
-    assert client.query_calls[0]["filter"] == 'pk >= "pk_00000000000000000000" && pk <= "pk_00000000000000000004"'
+    assert (
+        client.query_calls[0]["filter"]
+        == 'pk >= "pk_00000000000000000000" && pk <= "pk_00000000000000000004"'
+    )
 
 
 def test_count_operation_fails_on_baseline_count_drift():
@@ -223,3 +238,27 @@ def test_count_operation_checks_auto_id_minimum_total_count():
     assert op == "count"
     assert count == 1
     assert client.query_calls[0]["filter"] == ""
+
+
+def test_search_params_prefer_explicit_matrix_values():
+    spec = SchemaSpec(
+        name="faiss",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=64),
+        ],
+        indexes=[
+            IndexSpec(
+                field="embedding",
+                index_type="FAISS",
+                metric_type="COSINE",
+                search_params={"nprobe": 16, "refine_k": 2},
+            )
+        ],
+    )
+
+    assert search_params_for_field(spec, "embedding") == {
+        "nprobe": 16,
+        "refine_k": 2,
+    }

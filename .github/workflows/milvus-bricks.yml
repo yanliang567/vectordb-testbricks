@@ -25,7 +25,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest pyyaml numpy pymilvus==3.0.0 ruff==0.15.22
+          python -m pip install pytest pyyaml numpy pymilvus==3.0.1 ruff==0.15.22
 
       - name: Install Helm
         run: |

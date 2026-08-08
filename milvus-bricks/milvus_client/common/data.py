@@ -11,6 +11,7 @@ from milvus_client.common.schema import (
     VECTOR_TYPES,
     FieldSpec,
     SchemaSpec,
+    StructArraySpec,
     function_output_fields,
 )
 
@@ -137,6 +138,23 @@ def generate_primary_key_value(field: FieldSpec, pk: int) -> Any:
     return pk
 
 
+def _text_lob_boundary_value(pk: int) -> str:
+    boundary_slot = pk % 1000
+    if boundary_slot == 1:
+        return ""
+    if boundary_slot == 2:
+        return "Milvus Unicode compatibility: \u4e2d\u6587 \u65e5\u672c\u8a9e \ud55c\uad6d\uc5b4"
+    if boundary_slot == 3:
+        return "a" * (64 * 1024 - 1)
+    if boundary_slot == 4:
+        return "b" * (64 * 1024)
+    if boundary_slot == 5:
+        return "c" * (64 * 1024 + 1)
+    if boundary_slot == 6:
+        return "d" * (1024 * 1024)
+    return f"text lob document {pk} milvus upgrade rollback token_{pk % 16}"
+
+
 def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
     if field.primary:
         return generate_primary_key_value(field, pk)
@@ -153,6 +171,15 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
     if field.dtype == "BOOL":
         return pk % 2 == 0
     if field.dtype in {"VARCHAR", "STRING", "TEXT"}:
+        if field.value_profile == "text_lob_boundary":
+            return _text_lob_boundary_value(pk)
+        if field.value_profile == "minhash_documents":
+            variants = (
+                "the quick brown fox jumps over the lazy dog",
+                "the quick brown fox jumps over a lazy dog",
+                "distributed vector databases provide scalable similarity search",
+            )
+            return variants[pk % len(variants)]
         if field.name in {"text", "document"}:
             return (
                 f"document {pk} milvus compatibility upgrade rollback token_{pk % 16}"
@@ -161,6 +188,20 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
             return f"tenant_{pk % 16}"
         return f"{field.name}_{pk}"
     if field.dtype == "JSON":
+        if field.name == "json_bool":
+            return {"active": pk % 2 == 0, "pk": pk}
+        if field.name == "json_double":
+            return {"score": float(pk % 1000) / 10.0, "pk": pk}
+        if field.name == "json_varchar":
+            return {"label": f"label_{pk % 8}", "pk": pk}
+        if field.name == "json_auto":
+            return {
+                "active": pk % 2 == 0,
+                "score": float(pk % 1000) / 10.0,
+                "label": f"label_{pk % 8}",
+                "bucket": pk % 16,
+                "pk": pk,
+            }
         if field.name == "json_nested":
             return {
                 "pk": pk,
@@ -187,9 +228,57 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
         lat = 37.0 + (pk % 100) * 0.001
         return f"POINT ({lon:g} {lat:g})"
     if field.dtype == "TIMESTAMPTZ":
-        timestamp = datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=pk)
+        base = (
+            datetime(2100, 1, 1, tzinfo=timezone.utc)
+            if field.value_profile == "future_timestamptz"
+            else datetime(2024, 1, 1, tzinfo=timezone.utc)
+        )
+        timestamp = base + timedelta(seconds=pk)
         return timestamp.isoformat().replace("+00:00", "Z")
     raise ValueError(f"Unsupported generated dtype: {field.dtype}")
+
+
+def generate_struct_field_value(
+    field: FieldSpec,
+    pk: int,
+    offset: int,
+    seed: int,
+) -> Any:
+    nested_pk = pk * 1000 + offset
+    if field.nullable and (pk + offset) % 10 == 0:
+        return None
+    if field.dtype in VECTOR_TYPES:
+        return stable_vector_value(field, nested_pk, seed)
+    if field.dtype in {"FLOAT", "DOUBLE"}:
+        return float((pk % 1000) * 10 + offset) / 10.0
+    if field.dtype in {"INT64", "INT32", "INT16", "INT8"}:
+        return pk * 10 + offset
+    if field.dtype == "BOOL":
+        return (pk + offset) % 2 == 0
+    if field.dtype in {"VARCHAR", "STRING"}:
+        if "category" in field.name:
+            return f"category_{(pk + offset) % 8}"
+        if "tag" in field.name:
+            return f"tag_{(pk + offset) % 4}"
+        return f"{field.name}_{pk}_{offset}"
+    raise ValueError(f"Unsupported generated StructArray dtype: {field.dtype}")
+
+
+def generate_struct_array_value(
+    struct_array: StructArraySpec,
+    pk: int,
+    seed: int,
+) -> list[dict[str, Any]] | None:
+    if struct_array.nullable and pk % 10 == 0:
+        return None
+    length = min(struct_array.max_capacity, 1 + pk % 4)
+    return [
+        {
+            field.name: generate_struct_field_value(field, pk, offset, seed)
+            for field in struct_array.fields
+        }
+        for offset in range(length)
+    ]
 
 
 def generate_rows(
@@ -207,6 +296,8 @@ def generate_rows(
             if (field.primary and field.auto_id) or field.name in function_outputs:
                 continue
             row[field.name] = generate_field_value(field, pk, seed)
+        for struct_array in spec.struct_arrays:
+            row[struct_array.name] = generate_struct_array_value(struct_array, pk, seed)
         if spec.enable_dynamic_field:
             row.update(generate_dynamic_fields(pk))
         rows.append(row)
@@ -230,3 +321,17 @@ def first_vector_field(spec: SchemaSpec) -> FieldSpec | None:
 
 def vector_fields(spec: SchemaSpec) -> list[FieldSpec]:
     return [field for field in spec.fields if field.dtype in VECTOR_TYPES]
+
+
+def text_payload_metadata(value: str | None) -> dict[str, Any]:
+    if value is None:
+        return {"state": "null", "bytes": 0, "chars": 0, "sha256": None}
+    encoded = value.encode("utf-8")
+    return {
+        "state": "empty" if value == "" else "value",
+        "bytes": len(encoded),
+        "chars": len(value),
+        "prefix": value[:32],
+        "suffix": value[-32:] if value else "",
+        "sha256": sha256(encoded).hexdigest(),
+    }

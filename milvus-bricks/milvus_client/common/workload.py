@@ -138,14 +138,24 @@ def index_type_for_field(spec: SchemaSpec, field_name: str) -> str:
 
 
 def search_params_for_field(spec: SchemaSpec, field_name: str) -> dict[str, Any]:
+    for index in spec.indexes:
+        if index.field == field_name and index.search_params:
+            return dict(index.search_params)
     index_type = index_type_for_field(spec, field_name)
-    if index_type == "HNSW":
+    if index_type in {"HNSW", "HNSW_SQ", "HNSW_PQ", "HNSW_PRQ"}:
         return {"ef": 32}
     if index_type == "IVF_RABITQ":
         return {"nprobe": 8}
     if index_type == "DISKANN":
         return {"search_list_size": 64}
-    if index_type in {"BIN_IVF_FLAT", "IVF_FLAT"}:
+    if index_type in {
+        "BIN_IVF_FLAT",
+        "IVF_FLAT",
+        "IVF_SQ8",
+        "IVF_PQ",
+        "SCANN",
+        "FAISS",
+    }:
         return {"nprobe": 8}
     if index_type in {"SPARSE_INVERTED_INDEX", "SPARSE_WAND"}:
         return {"drop_ratio_search": 0.0}
