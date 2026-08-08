@@ -187,6 +187,7 @@ def test_minhash_function_output_search_uses_text_query():
     assert client.search_calls[0]["data"] == [
         "the quick brown fox jumps over a lazy dog"
     ]
+    assert "filter" not in client.search_calls[0]
     assert client.search_calls[0]["search_params"]["metric_type"] == "MHJACCARD"
 
 
@@ -217,6 +218,52 @@ def test_faiss_search_params_only_set_nprobe_for_ivf_factory_indexes():
 
     assert search_params_for_field(spec, "float_ivf") == {"nprobe": 8}
     assert search_params_for_field(spec, "binary_flat") == {}
+
+
+def test_lossy_faiss_pressure_search_does_not_require_exact_self_recall():
+    spec = SchemaSpec(
+        name="faiss_lossy",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=64),
+        ],
+        indexes=[
+            IndexSpec(
+                field="embedding",
+                index_type="FAISS",
+                metric_type="COSINE",
+                params={"faiss_index_name": "OPQ16,IVF64,PQ16x4"},
+                search_params={"nprobe": 8},
+            )
+        ],
+    )
+
+    class SearchClient:
+        def __init__(self):
+            self.search_calls = []
+
+        def search(self, **kwargs):
+            self.search_calls.append(kwargs)
+            return [[{"id": 99, "distance": 0.8}]]
+
+    client = SearchClient()
+
+    op, count = run_operation(
+        client,
+        spec,
+        "qa_faiss_lossy",
+        "search",
+        7,
+        10,
+        3,
+        baseline_start_id=0,
+        baseline_rows_per_collection=100,
+    )
+
+    assert op == "search"
+    assert count == 1
+    assert "filter" not in client.search_calls[0]
 
 
 def test_search_operation_covers_struct_array_only_vector_index():

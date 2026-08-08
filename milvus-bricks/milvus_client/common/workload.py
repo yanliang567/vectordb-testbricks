@@ -141,6 +141,25 @@ def index_type_for_field(spec: SchemaSpec, field_name: str) -> str:
     return "AUTOINDEX"
 
 
+def approximate_recall_index(spec: SchemaSpec, field_name: str) -> bool:
+    index = next((item for item in spec.indexes if item.field == field_name), None)
+    if index is None:
+        return False
+    if index.index_type in {
+        "IVF_PQ",
+        "IVF_SQ8",
+        "HNSW_SQ",
+        "IVF_RABITQ",
+        "SCANN",
+        "MINHASH_LSH",
+    }:
+        return True
+    if index.index_type == "FAISS":
+        faiss_index_name = str(index.params.get("faiss_index_name", "")).upper()
+        return "PQ" in faiss_index_name or "SQ" in faiss_index_name
+    return False
+
+
 def search_params_for_field(spec: SchemaSpec, field_name: str) -> dict[str, Any]:
     for index in spec.indexes:
         if index.field == field_name and index.search_params:
@@ -344,13 +363,16 @@ def _search_operation(
                 "params": search_params_for_field(spec, field_name),
             },
         }
-        if expected_pk is not None:
+        exact_self_match = expected_pk is not None and not approximate_recall_index(
+            spec, field_name
+        )
+        if exact_self_match:
             search_kwargs["filter"] = (
                 f"{primary_name} == {format_filter_value(expected_pk)}"
             )
         result = client.search(**search_kwargs)
         assert_search_result(result, collection, field_name)
-        if expected_pk is not None:
+        if exact_self_match:
             matched = False
             for hit in result[0]:
                 hit_pk = None
