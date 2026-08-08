@@ -150,7 +150,7 @@ PYTHONPATH=. /tmp/vectordb-testbricks-pymilvus301-py39/bin/python -m pytest -q \
   milvus_client/tests/test_brick_catalog.py
 ```
 
-Result: `150 passed, 1 warning`.
+Result: `151 passed, 1 warning`.
 
 ### Full Offline Unit Test Set
 
@@ -161,7 +161,7 @@ PYTHONPATH=. /tmp/vectordb-testbricks-pymilvus301-py39/bin/python -m pytest \
   -k 'not test_rendered_cluster_helm_values_apply_metadata_to_chart_resources and not test_rendered_pulsar_broker_role_is_covered_by_workflow_manager_rbac'
 ```
 
-Result: `309 passed, 2 deselected, 1 warning`.
+Result: `310 passed, 2 deselected, 1 warning`.
 
 The warning is the local Python 3.9 LibreSSL warning emitted by urllib3 and is unrelated to the implementation.
 

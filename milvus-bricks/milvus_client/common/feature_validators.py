@@ -99,7 +99,7 @@ def _normalize(value: Any) -> Any:
     if isinstance(value, bytes):
         return value.hex()
     if isinstance(value, float):
-        return round(value, 5)
+        return float(f"{value:.6g}")
     if isinstance(value, dict):
         return {str(key): _normalize(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):

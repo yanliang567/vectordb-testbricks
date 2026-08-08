@@ -1,4 +1,5 @@
 from milvus_client.common.feature_validators import (
+    _normalize,
     _struct_scalar_filter,
     known_validator_names,
     unknown_validators,
@@ -25,6 +26,12 @@ def test_declared_validator_registry_fails_closed():
 
     assert "struct_array_scalar_index_queries" in known_validator_names()
     assert unknown_validators(spec) == ["not_implemented"]
+
+
+def test_float_normalization_accepts_float32_round_trip_noise():
+    assert _normalize(499.10001) == _normalize(499.1)
+    assert _normalize(999.09998) == _normalize(999.1)
+    assert _normalize(499.11) != _normalize(499.1)
 
 
 def test_struct_scalar_filter_covers_float_and_varchar_indexes():
