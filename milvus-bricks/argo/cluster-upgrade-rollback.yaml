@@ -513,6 +513,7 @@ spec:
                     --schema-matrix {{workflow.parameters.schema-matrix}}
                     --rows-per-collection {{workflow.parameters.rows-per-collection}}
                     --batch-size {{workflow.parameters.batch-size}}
+                    --function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}
 
           - name: patch-post-upgrade-config
             dependencies: [schema-evolution-existing, pressure-daemon]
@@ -682,6 +683,7 @@ spec:
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
                     --rows-per-collection {{workflow.parameters.rows-per-collection}}
                     --batch-size {{workflow.parameters.batch-size}}
+                    --function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}
 
           - name: observe-before-rollback
             dependencies: [schema-evolution-forward, pressure-daemon]

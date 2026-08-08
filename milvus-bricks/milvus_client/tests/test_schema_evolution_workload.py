@@ -197,6 +197,29 @@ def test_schema_evolution_uses_function_field_apis_when_available():
     assert not any(call[0] == "add_collection_function" for call in client.calls)
 
 
+def test_schema_evolution_skips_function_field_cycle_when_disabled():
+    client = FakeFunctionFieldClient()
+
+    metrics = run_schema_evolution(
+        client,
+        [_baseline_bm25_spec()],
+        collection_prefix="qa",
+        rows_per_collection=2,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+        function_field_cycle_enabled=False,
+    )
+
+    assert metrics["failed_total"] == 0
+    assert metrics["function_cycles_total"] == 0
+    assert metrics["function_cycle_skipped_total"] == 1
+    assert metrics["collections"][0]["function_cycle_skip_reasons"] == [
+        "skipped_disabled"
+    ]
+    assert not any("function_field" in call[0] for call in client.calls)
+
+
 def test_schema_evolution_minhash_search_uses_function_input_text():
     client = FakeFunctionFieldClient()
 

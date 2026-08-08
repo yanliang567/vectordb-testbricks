@@ -2181,6 +2181,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "--schema-matrix {{workflow.parameters.schema-matrix}}"
         in schema_evolution_args["args"]
     )
+    assert (
+        "--function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}"
+        in schema_evolution_args["args"]
+    )
     forward_evolution_args = {
         parameter["name"]: parameter["value"]
         for parameter in tasks["schema-evolution-forward"]["arguments"]["parameters"]
@@ -2191,6 +2195,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     )
     assert (
         "--schema-matrix {{workflow.parameters.forward-schema-matrix}}"
+        in forward_evolution_args["args"]
+    )
+    assert (
+        "--function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}"
         in forward_evolution_args["args"]
     )
     forward_validate_args = {

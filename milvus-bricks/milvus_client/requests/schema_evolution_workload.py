@@ -4,7 +4,7 @@ from dataclasses import replace
 import sys
 from typing import Any
 
-from milvus_client.common.args import build_common_parser
+from milvus_client.common.args import build_common_parser, parse_bool
 from milvus_client.common.client import create_client
 from milvus_client.common.data import (
     generate_primary_key_value,
@@ -50,6 +50,7 @@ def add_args(parser):
     parser.add_argument("--rows-per-collection", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--start-id", type=int, default=40_000_000)
+    parser.add_argument("--function-field-cycle-enabled", type=parse_bool, default=True)
 
 
 def _field_kwargs(field: FieldSpec) -> dict[str, Any]:
@@ -302,6 +303,7 @@ def run_schema_evolution(
     batch_size: int,
     start_id: int,
     seed: int,
+    function_field_cycle_enabled: bool = True,
 ) -> dict[str, Any]:
     metrics: dict[str, Any] = {
         "collections_total": len(specs),
@@ -346,7 +348,11 @@ def run_schema_evolution(
             cycled = 0
             skipped = 0
             for function in spec.functions:
-                status = _function_cycle(client, collection, spec, function)
+                status = (
+                    _function_cycle(client, collection, spec, function)
+                    if function_field_cycle_enabled
+                    else "skipped_disabled"
+                )
                 if status == "cycled":
                     cycled += 1
                 else:
@@ -408,6 +414,7 @@ def main(argv: list[str] | None = None) -> int:
             args.batch_size,
             args.start_id,
             args.seed,
+            args.function_field_cycle_enabled,
         )
         result.metrics = metrics
         result.status = FAILED if metrics["failed_total"] else PASSED
