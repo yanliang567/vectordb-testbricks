@@ -12,6 +12,7 @@ from milvus_client.common.data import (
     generate_field_value,
     generate_primary_key_value,
     generate_struct_array_value,
+    prepare_struct_vector_query,
 )
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import (
@@ -329,6 +330,94 @@ def _validate_resolved_index_types(
             )
 
 
+def _metadata_value_matches(expected: Any, actual: Any) -> bool:
+    if isinstance(expected, bool):
+        if isinstance(actual, str):
+            return actual.lower() == str(expected).lower()
+        return actual is expected
+    if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+        try:
+            return float(actual) == float(expected)
+        except (TypeError, ValueError):
+            return False
+    return str(actual) == str(expected)
+
+
+def _validate_index_metadata_matches_spec(
+    collection: str,
+    spec: SchemaSpec,
+    actual_indexes: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    actual_by_field = {str(index.get("field_name")): index for index in actual_indexes}
+    compatibility_keys = {
+        "json_path",
+        "json_cast_type",
+        "faiss_index_name",
+        "inverted_index_algo",
+        "mh_lsh_band",
+        "with_raw_data",
+        "sq_type",
+        "refine",
+        "refine_type",
+        "min_gram",
+        "max_gram",
+    }
+    for expected in spec.indexes:
+        actual = actual_by_field.get(expected.field)
+        if actual is None:
+            continue
+        actual_type = actual.get("index_type")
+        accepted_types = {expected.index_type}
+        if expected.expected_resolved_index_type:
+            accepted_types.add(expected.expected_resolved_index_type)
+        if str(actual_type) not in accepted_types:
+            report.fail(
+                INDEX_METADATA_MISMATCH,
+                "actual index type differs from the schema matrix",
+                collection=collection,
+                field=expected.field,
+                expected_index_types=sorted(accepted_types),
+                actual_index_type=actual_type,
+            )
+        actual_metric = actual.get("metric_type")
+        if (
+            expected.metric_type is not None
+            and str(actual_metric) != expected.metric_type
+        ):
+            report.fail(
+                INDEX_METADATA_MISMATCH,
+                "actual index metric differs from the schema matrix",
+                collection=collection,
+                field=expected.field,
+                expected_metric_type=expected.metric_type,
+                actual_metric_type=actual_metric,
+            )
+        if expected.index_name and actual.get("index_name") != expected.index_name:
+            report.fail(
+                INDEX_METADATA_MISMATCH,
+                "actual index name differs from the schema matrix",
+                collection=collection,
+                field=expected.field,
+                expected_index_name=expected.index_name,
+                actual_index_name=actual.get("index_name"),
+            )
+        actual_params = actual.get("params") or {}
+        for key in compatibility_keys & set(expected.params):
+            expected_value = expected.params[key]
+            actual_value = actual_params.get(key)
+            if not _metadata_value_matches(expected_value, actual_value):
+                report.fail(
+                    INDEX_METADATA_MISMATCH,
+                    "actual index parameter differs from the schema matrix",
+                    collection=collection,
+                    field=expected.field,
+                    parameter=key,
+                    expected_value=expected_value,
+                    actual_value=actual_value,
+                )
+
+
 def _validate_index_metadata_matches_checkpoint(
     collection: str,
     expected_indexes: list[dict[str, Any]],
@@ -609,7 +698,10 @@ def _vector_index_probe(
             for offset, element in enumerate(value):
                 vector = element.get(vector_field.name)
                 if vector is not None:
-                    return data_pk_number, expected_pk, vector, offset
+                    query, expected_offset = prepare_struct_vector_query(
+                        index.metric_type or "COSINE", vector, offset
+                    )
+                    return data_pk_number, expected_pk, query, expected_offset
             continue
         value = generate_field_value(vector_field, data_pk_number, seed)
         if value is not None:
@@ -1034,6 +1126,12 @@ def main(argv: list[str] | None = None) -> int:
                 _validate_expected_index_fields_present(
                     collection,
                     indexed_fields,
+                    actual_indexes,
+                    report,
+                )
+                _validate_index_metadata_matches_spec(
+                    collection,
+                    spec,
                     actual_indexes,
                     report,
                 )

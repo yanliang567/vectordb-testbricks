@@ -1,7 +1,7 @@
 version: "3.0"
 schemas:
   - name: sparse_index_v10_algorithms
-    description: "Sparse index engine v10 SINDI and Block-Max algorithm coverage"
+    description: "SINDI and Block-Max algorithm coverage with target vector index version 10 configured"
     feature_tags: ["index_engine_v10_v4"]
     compat_mode: forward_only
     required_capabilities: ["IndexEngineV10V4"]
@@ -26,7 +26,7 @@ schemas:
       - {field: sparse_bm25, index_type: SPARSE_INVERTED_INDEX, metric_type: BM25, params: {inverted_index_algo: BLOCK_MAX_MAXSCORE, drop_ratio_build: 0.0}, search_params: {drop_ratio_search: 0.0}}
 
   - name: json_scalar_index_v4
-    description: "Scalar index engine v4 JSON path index families and HYBRID AutoIndex"
+    description: "JSON path index families and HYBRID AutoIndex with target scalar index version 4 configured"
     feature_tags: ["index_engine_v10_v4"]
     compat_mode: forward_only
     required_capabilities: ["IndexEngineV10V4"]

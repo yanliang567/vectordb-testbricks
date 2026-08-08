@@ -527,6 +527,10 @@ spec:
                   value: "{{workflow.parameters.target-loon-ffi-enabled}}"
                 - name: vortex-enabled
                   value: "{{workflow.parameters.target-vortex-enabled}}"
+                - name: target-vec-index-version
+                  value: "{{workflow.parameters.target-target-vec-index-version}}"
+                - name: target-scalar-index-version
+                  value: "{{workflow.parameters.target-target-scalar-index-version}}"
 
           - name: wait-post-upgrade-config-ready
             dependencies: [patch-post-upgrade-config, pressure-daemon]
@@ -1452,6 +1456,8 @@ spec:
           - name: json-shredding-enabled
           - name: loon-ffi-enabled
           - name: vortex-enabled
+          - name: target-vec-index-version
+          - name: target-scalar-index-version
       container:
         image: "{{workflow.parameters.client-image}}"
         command: [sh, -c]
@@ -1503,6 +1509,15 @@ spec:
                 config["common"]["storage"]["useLoonFFI"] = True
             if as_bool("{{inputs.parameters.vortex-enabled}}"):
                 config["dataNode"] = {"storage": {"format": "vortex"}}
+            target_vec_index_version = int("{{inputs.parameters.target-vec-index-version}}")
+            target_scalar_index_version = int("{{inputs.parameters.target-scalar-index-version}}")
+            config["dataCoord"] = {}
+            if target_vec_index_version >= 0:
+                config["dataCoord"]["targetVecIndexVersion"] = target_vec_index_version
+            if target_scalar_index_version >= 0:
+                config["dataCoord"]["targetScalarIndexVersion"] = target_scalar_index_version
+            if not config["dataCoord"]:
+                config.pop("dataCoord")
             Path("/tmp/user.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
             print(Path("/tmp/user.yaml").read_text())
             PY

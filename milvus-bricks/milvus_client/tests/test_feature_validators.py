@@ -3,6 +3,8 @@ from milvus_client.common.feature_validators import (
     known_validator_names,
     unknown_validators,
     validate_index_engine_version,
+    validate_nullable_vector_semantics,
+    validate_struct_array_element_search,
 )
 from milvus_client.common.schema import (
     FieldSpec,
@@ -91,3 +93,63 @@ def test_index_engine_version_reads_runtime_config_and_fails_closed():
     validate_index_engine_version("qa_index", spec, {}, mismatch)
     assert not mismatch.passed
     assert len(mismatch.failures) == 2
+
+
+def test_struct_max_sim_search_uses_embedding_list_and_does_not_require_offset():
+    class Client:
+        search_kwargs = None
+
+        def search(self, **kwargs):
+            self.search_kwargs = kwargs
+            return [[{"id": 3, "distance": 1.0}]]
+
+    spec = SchemaSpec(
+        name="struct_max_sim",
+        version="3.0",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        struct_arrays=[
+            StructArraySpec(
+                name="attributes",
+                max_capacity=4,
+                fields=[FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4)],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="attributes[embedding]",
+                index_type="HNSW",
+                metric_type="MAX_SIM_COSINE",
+            )
+        ],
+    )
+    meta = {"min_pk": 3, "max_pk": 3, "data_min_pk": 3, "data_max_pk": 3}
+    client = Client()
+    report = ValidationReport()
+
+    validate_struct_array_element_search(client, "qa_struct", spec, meta, 7, report)
+
+    query = client.search_kwargs["data"][0]
+    assert type(query).__name__ == "EmbeddingList"
+    assert len(query) == 1
+    assert report.passed
+
+
+def test_feature_validator_fails_when_declared_target_is_absent():
+    spec = SchemaSpec(
+        name="no_nullable_vectors",
+        version="3.0",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+    )
+    report = ValidationReport()
+
+    validate_nullable_vector_semantics(
+        object(),
+        "qa_no_nullable_vectors",
+        spec,
+        {"min_pk": 0, "max_pk": 1},
+        7,
+        report,
+    )
+
+    assert not report.passed
+    assert report.failures[0]["type"] == "FEATURE_VALIDATION_TARGET_MISSING"

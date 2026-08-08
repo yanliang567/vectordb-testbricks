@@ -88,3 +88,30 @@ def test_validate_schema_features_rejects_unknown_validator(monkeypatch, tmp_pat
     result = json.loads(output.read_text())
     assert code == 2
     assert result["failures"][0]["type"] == "UNKNOWN_SCHEMA_VALIDATOR"
+
+
+def test_validate_schema_features_rejects_missing_matrix_collection(
+    monkeypatch, tmp_path
+):
+    checkpoint = tmp_path / "seed.json"
+    checkpoint.write_text(json.dumps({"collections": {}}))
+    output = tmp_path / "result.json"
+    spec = SchemaSpec(
+        name="geometry",
+        version="2.6",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="location", dtype="GEOMETRY"),
+        ],
+        validators=["geometry_filter"],
+    )
+    monkeypatch.setattr(
+        validate_schema_features, "load_schema_matrix", lambda path: [spec]
+    )
+
+    code = validate_schema_features.main(_args(tmp_path, checkpoint, output))
+
+    result = json.loads(output.read_text())
+    assert code == 2
+    assert result["failures"][0]["type"] == "SCHEMA_COLLECTION_MISSING"
+    assert result["failures"][0]["collections"] == ["qa_geometry"]

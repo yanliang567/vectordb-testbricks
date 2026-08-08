@@ -8,10 +8,12 @@ from random import Random
 from typing import Any
 
 from milvus_client.common.data import (
+    generate_field_value,
     generate_primary_key_value,
     generate_rows,
-    stable_vector_value,
-    vector_fields,
+    generate_struct_array_value,
+    indexed_vector_fields,
+    prepare_struct_vector_query,
 )
 from milvus_client.common.schema import (
     SchemaSpec,
@@ -19,6 +21,8 @@ from milvus_client.common.schema import (
     collection_name,
     function_output_fields,
     load_schema_matrix,
+    resolve_field,
+    struct_array_for_field,
 )
 from milvus_client.common.validators import (
     format_filter_value,
@@ -229,30 +233,130 @@ def _count_operation(
 
 
 def _search_operation(
-    client: Any, spec: SchemaSpec, collection: str, seed: int, op_index: int
+    client: Any,
+    spec: SchemaSpec,
+    collection: str,
+    seed: int,
+    op_index: int,
+    baseline_start_id: int,
+    baseline_rows_per_collection: int,
 ) -> tuple[str, int]:
-    fields = vector_fields(spec)
+    fields = indexed_vector_fields(spec)
     if not fields:
         return ("search_skipped", 0)
     function_outputs = function_output_fields(spec)
+    primary = primary_field(spec)
+    primary_name = primary.name if primary is not None else "id"
+    data_pk = (
+        baseline_start_id + op_index % baseline_rows_per_collection
+        if baseline_rows_per_collection > 0
+        else op_index + 1
+    )
     searches = 0
-    for vector_field in fields:
-        metric_type = metric_type_for_field(spec, vector_field.name)
+    for field_name, vector_field in fields:
+        metric_type = metric_type_for_field(spec, field_name)
+        expected_offset = None
+        probe_pk = data_pk
+
+        def advance_probe_pk() -> int:
+            if baseline_rows_per_collection > 0:
+                offset = (
+                    probe_pk - baseline_start_id + 1
+                ) % baseline_rows_per_collection
+                return baseline_start_id + offset
+            return probe_pk + 1
+
         if vector_field.name in function_outputs and metric_type == "BM25":
-            query_vector = f"milvus compatibility token_{op_index % 16}"
+            function = next(
+                item
+                for item in spec.functions
+                if vector_field.name in item.output_fields
+            )
+            input_field = resolve_field(spec, function.input_fields[0])
+            if input_field is None:
+                raise AssertionError(
+                    f"{collection}.{field_name}: function input field is missing"
+                )
+            query_vector = generate_field_value(input_field, probe_pk, seed)
+        elif (struct_array := struct_array_for_field(spec, field_name)) is not None:
+            probe = None
+            for _ in range(10):
+                struct_value = generate_struct_array_value(struct_array, probe_pk, seed)
+                if struct_value:
+                    probe = next(
+                        (
+                            (offset, element.get(vector_field.name))
+                            for offset, element in enumerate(struct_value)
+                            if element.get(vector_field.name) is not None
+                        ),
+                        None,
+                    )
+                if probe is not None:
+                    break
+                probe_pk = advance_probe_pk()
+            if probe is None:
+                raise AssertionError(
+                    f"{collection}.{field_name}: no non-null StructArray vector probe"
+                )
+            expected_offset, query_vector = probe
+            query_vector, expected_offset = prepare_struct_vector_query(
+                metric_type, query_vector, expected_offset
+            )
         else:
-            query_vector = stable_vector_value(vector_field, op_index + 1, seed)
-        result = client.search(
-            collection_name=collection,
-            data=[query_vector],
-            anns_field=vector_field.name,
-            limit=5,
-            search_params={
-                "metric_type": metric_type,
-                "params": search_params_for_field(spec, vector_field.name),
-            },
+            query_vector = None
+            for _ in range(10):
+                query_vector = generate_field_value(vector_field, probe_pk, seed)
+                if query_vector is not None:
+                    break
+                probe_pk = advance_probe_pk()
+            if query_vector is None:
+                raise AssertionError(
+                    f"{collection}.{field_name}: no non-null vector probe"
+                )
+        expected_pk = (
+            generate_primary_key_value(primary, probe_pk)
+            if baseline_rows_per_collection > 0
+            and primary is not None
+            and not auto_id_enabled(spec)
+            else None
         )
-        assert_search_result(result, collection, vector_field.name)
+        search_kwargs = {
+            "collection_name": collection,
+            "data": [query_vector],
+            "anns_field": field_name,
+            "limit": 5,
+            "search_params": {
+                "metric_type": metric_type,
+                "params": search_params_for_field(spec, field_name),
+            },
+        }
+        if expected_pk is not None:
+            search_kwargs["filter"] = (
+                f"{primary_name} == {format_filter_value(expected_pk)}"
+            )
+        result = client.search(**search_kwargs)
+        assert_search_result(result, collection, field_name)
+        if expected_pk is not None:
+            matched = False
+            for hit in result[0]:
+                hit_pk = None
+                if isinstance(hit, dict):
+                    hit_pk = hit.get("id", hit.get(primary_name))
+                    if hit_pk is None and isinstance(hit.get("entity"), dict):
+                        hit_pk = hit["entity"].get(primary_name)
+                    hit_offset = hit.get("offset")
+                else:
+                    hit_pk = getattr(hit, "id", None)
+                    hit_offset = getattr(hit, "offset", None)
+                if hit_pk == expected_pk and (
+                    expected_offset is None or hit_offset == expected_offset
+                ):
+                    matched = True
+                    break
+            if not matched:
+                raise AssertionError(
+                    f"{collection}.{field_name}: self-search missed expected PK/offset"
+                )
         searches += 1
     return ("search", searches)
 
@@ -388,7 +492,15 @@ def run_operation_outcome(
             op, count = _query_iterator_operation(client, spec, collection, batch_size)
             return OperationOutcome(op, count)
         if operation == "search":
-            op, count = _search_operation(client, spec, collection, seed, op_index)
+            op, count = _search_operation(
+                client,
+                spec,
+                collection,
+                seed,
+                op_index,
+                baseline_start_id,
+                baseline_rows_per_collection,
+            )
             return OperationOutcome(op, count)
         raise ValueError(f"unknown operation: {operation}")
     except Exception as exc:  # noqa: BLE001 - pressure must record every operation failure without killing the loop.

@@ -145,10 +145,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         for name, payload in results.items()
         if name.startswith("validate_")
     }
+    required_validation_names = _required_validation_names(config_matrix)
     missing_validations = [
-        name
-        for name in _required_validation_names(config_matrix)
-        if name not in validation
+        name for name in required_validation_names if name not in validation
     ]
     for name in missing_validations:
         validation[name] = {
@@ -183,14 +182,19 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
                 }
             ],
         }
+    required_validation_failures = {
+        name: validation[name]
+        for name in required_validation_names
+        if validation[name].get("status") != "passed"
+    }
     failed_results = {
         name: payload
         for name, payload in {**results, **validation, **serviceability}.items()
         if payload.get("status") not in {"passed", "skipped"}
     }
+    failed_results.update(required_validation_failures)
     validation_passed = bool(validation) and all(
-        payload.get("status") in {"passed", "skipped"}
-        for payload in validation.values()
+        validation[name].get("status") == "passed" for name in required_validation_names
     )
     pressure_failed = int(pressure.get("failed", 0) or 0)
     pressure_fail_on_error = parse_bool(args.pressure_fail_on_error)

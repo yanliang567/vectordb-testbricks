@@ -13,6 +13,7 @@ from milvus_client.common.schema import (
     SchemaSpec,
     StructArraySpec,
     function_output_fields,
+    resolve_field,
 )
 
 
@@ -74,6 +75,18 @@ def stable_vector_value(field: FieldSpec, pk: int, seed: int) -> Any:
     if field.dtype == "SPARSE_FLOAT_VECTOR":
         return stable_sparse_vector(seed, pk)
     raise ValueError(f"Unsupported generated vector dtype: {field.dtype}")
+
+
+def prepare_struct_vector_query(
+    metric_type: str, vector: Any, offset: int
+) -> tuple[Any, int | None]:
+    if metric_type.upper().startswith("MAX_SIM_"):
+        from pymilvus.client.embedding_list import EmbeddingList
+
+        query = EmbeddingList()
+        query.add(vector)
+        return query, None
+    return vector, offset
 
 
 def _normalize_for_checksum(value: Any) -> Any:
@@ -321,6 +334,15 @@ def first_vector_field(spec: SchemaSpec) -> FieldSpec | None:
 
 def vector_fields(spec: SchemaSpec) -> list[FieldSpec]:
     return [field for field in spec.fields if field.dtype in VECTOR_TYPES]
+
+
+def indexed_vector_fields(spec: SchemaSpec) -> list[tuple[str, FieldSpec]]:
+    fields = []
+    for index in spec.indexes:
+        field = resolve_field(spec, index.field)
+        if field is not None and field.dtype in VECTOR_TYPES:
+            fields.append((index.field, field))
+    return fields
 
 
 def text_payload_metadata(value: str | None) -> dict[str, Any]:

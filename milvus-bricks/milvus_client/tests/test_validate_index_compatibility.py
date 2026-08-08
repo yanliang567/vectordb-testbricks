@@ -1413,7 +1413,7 @@ def test_scalar_index_query_fails_when_result_is_empty(monkeypatch, tmp_path):
     )
 
 
-def _struct_index_spec():
+def _struct_index_spec(metric_type="MAX_SIM_COSINE"):
     return SchemaSpec(
         name="struct_indexes",
         version="3.0",
@@ -1433,7 +1433,7 @@ def _struct_index_spec():
             IndexSpec(
                 field="attributes[embedding]",
                 index_type="HNSW",
-                metric_type="MAX_SIM_COSINE",
+                metric_type=metric_type,
                 search_params={"ef": 48},
             ),
             IndexSpec(field="attributes[score_sort]", index_type="STL_SORT"),
@@ -1458,8 +1458,44 @@ def test_struct_scalar_index_filters_use_match_any():
     )
 
 
-def test_struct_vector_probe_and_hit_require_matching_offset():
-    spec = _struct_index_spec()
+def test_struct_max_sim_probe_uses_embedding_list_without_offset_requirement():
+    spec = _struct_index_spec("MAX_SIM_COSINE")
+    index = spec.indexes[0]
+    field = spec.struct_arrays[0].fields[0]
+    meta = {
+        "primary_field": "id",
+        "min_pk": 3,
+        "max_pk": 3,
+        "data_min_pk": 3,
+        "data_max_pk": 3,
+    }
+
+    data_pk, expected_pk, query, offset = (
+        validate_index_compatibility._vector_index_probe(
+            spec, meta, index, field, seed=7
+        )
+    )
+    report = ValidationReport()
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": expected_pk, "distance": 1.0}]],
+        "qa_struct",
+        index.field,
+        "id",
+        expected_pk,
+        offset,
+        "MAX_SIM_COSINE",
+        report,
+    )
+
+    assert data_pk == 3
+    assert offset is None
+    assert type(query).__name__ == "EmbeddingList"
+    assert len(query) == 1
+    assert report.passed
+
+
+def test_struct_element_probe_and_hit_require_matching_offset():
+    spec = _struct_index_spec("COSINE")
     index = spec.indexes[0]
     field = spec.struct_arrays[0].fields[0]
     meta = {
@@ -1483,7 +1519,7 @@ def test_struct_vector_probe_and_hit_require_matching_offset():
         "id",
         expected_pk,
         offset,
-        "MAX_SIM_COSINE",
+        "COSINE",
         report,
     )
 
@@ -1500,7 +1536,7 @@ def test_struct_vector_probe_and_hit_require_matching_offset():
         "id",
         expected_pk,
         offset,
-        "MAX_SIM_COSINE",
+        "COSINE",
         mismatch,
     )
     assert not mismatch.passed
@@ -1565,3 +1601,73 @@ def test_resolved_autoindex_type_uses_server_resolved_params():
     )
 
     assert report.passed
+
+
+def test_resolved_autoindex_type_is_accepted_from_top_level_metadata():
+    spec = SchemaSpec(
+        name="json_auto",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="json_auto", dtype="JSON"),
+        ],
+        indexes=[
+            IndexSpec(
+                field="json_auto",
+                index_type="AUTOINDEX",
+                expected_resolved_index_type="HYBRID",
+            )
+        ],
+    )
+    actual = [
+        {
+            "field_name": "json_auto",
+            "index_name": "json_auto",
+            "index_type": "HYBRID",
+            "metric_type": None,
+            "params": {},
+        }
+    ]
+    report = ValidationReport()
+
+    validate_index_compatibility._validate_index_metadata_matches_spec(
+        "qa_json_auto", spec, actual, report
+    )
+    validate_index_compatibility._validate_resolved_index_types(
+        "qa_json_auto", spec, actual, report
+    )
+
+    assert report.passed
+
+
+def test_actual_index_metadata_must_match_schema_matrix():
+    spec = SchemaSpec(
+        name="scalar_index",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="category", dtype="INT64"),
+        ],
+        indexes=[IndexSpec(field="category", index_type="INVERTED")],
+    )
+    report = ValidationReport()
+
+    validate_index_compatibility._validate_index_metadata_matches_spec(
+        "qa_scalar",
+        spec,
+        [
+            {
+                "field_name": "category",
+                "index_name": "category",
+                "index_type": "BITMAP",
+                "metric_type": None,
+                "params": {},
+            }
+        ],
+        report,
+    )
+
+    assert not report.passed
+    assert report.failures[0]["type"] == "INDEX_METADATA_MISMATCH"
+    assert report.failures[0]["expected_index_types"] == ["INVERTED"]
+    assert report.failures[0]["actual_index_type"] == "BITMAP"

@@ -10,7 +10,11 @@ The work was implemented on:
 
 - Branch: `feat/upgrade-rollback-type-index-coverage`
 - Base commit after PR #24 merge: `bcafe367b80558fff064313e372b7bee8c9e0188`
-- Working tree state: uncommitted; no commit or push was performed
+- Pull request: `yanliang567/vectordb-testbricks#25`
+- Initial PR commit: `ea45180ac4e828654d805d528a01bc21c21fd700`
+- Initial CI run: `31231458563` (`295 passed, 2 deselected`)
+- Review fixes: included in the PR after independent code review and local
+  regression verification
 
 The merged local branch `fix/tsafe-serviceability-retry` was removed before implementation.
 
@@ -33,7 +37,9 @@ Deterministic data generation now covers StructArray scalar/vector elements, nul
 
 `schema_matrix_2_6.yaml` now contains seven schemas. The added rollback-safe coverage includes:
 
-- StructArray scalar round trip and element-level vector search with exact `id + offset` validation
+- StructArray scalar round trip and element-level vector search; ordinary
+  element search validates exact `id + offset`, while `MAX_SIM_*` uses an
+  `EmbeddingList` row-level query and validates the expected PK
 - All six nullable vector types: FLOAT, FLOAT16, BFLOAT16, INT8, BINARY, and SPARSE
 - Geometry with RTREE, `ST_EQUALS`, and `ST_DWITHIN`
 - Explicit legacy index families: FLAT, IVF_FLAT, IVF_SQ8, IVF_PQ, SCANN, HNSW_SQ, BIN_FLAT, and SPARSE_WAND
@@ -51,7 +57,8 @@ These schemas are consumed by the existing standalone and cluster `2.6 -> 3.0 ->
   - VARCHAR + BITMAP
   - INT64 + STL_SORT
   - BOOL + BITMAP
-- StructArray FLOAT_VECTOR with MAX_SIM_COSINE and exact element offset validation
+- StructArray FLOAT_VECTOR with MAX_SIM_COSINE row-level `EmbeddingList`
+  validation
 - StructArray FLOAT16_VECTOR with DISKANN
 - FAISS factories for dense and binary vectors
 - MinHash function output with MINHASH_LSH and MHJACCARD ranking validation
@@ -72,7 +79,15 @@ Added `schema_matrix_3_0_index_v10_v4.yaml`:
 - Sparse SINDI, BLOCK_MAX_MAXSCORE, and BLOCK_MAX_WAND algorithms
 - JSON BOOL BITMAP, DOUBLE STL_SORT, and VARCHAR NGRAM path indexes
 - JSON AutoIndex with required resolved type `HYBRID`
-- Runtime pod configuration validation for `targetVecIndexVersion=10` and `targetScalarIndexVersion=4`
+- Runtime pod target-configuration validation for
+  `targetVecIndexVersion=10` and `targetScalarIndexVersion=4`
+
+Milvus resolves target index versions against current/min/max engine versions.
+The public SDK index metadata does not expose the exact version used by each
+build, so this gate validates the target configuration plus executable
+SINDI/Block-Max and JSON index behavior. Real-cluster execution preserves
+DataNode build logs containing `currentIndexVersion` and
+`currentScalarIndexVersion` as supplementary evidence.
 
 ### Gate Scenarios and Workflows
 
@@ -93,6 +108,22 @@ All three upgrade/rollback WorkflowTemplates now execute feature semantics at th
 
 The final workflow report treats these feature result files as required inputs, so missing or failed feature checks cannot produce a successful gate report.
 
+### Review Hardening
+
+PR review added the following fail-closed protections:
+
+- Matrix index metadata is compared with actual index type, metric, explicit
+  name, and compatibility-critical parameters before checkpointing.
+- Missing matrix collections and validators with no applicable runtime target
+  fail instead of reporting a zero-work pass.
+- Required workflow validations must report `passed`; `skipped` is accepted
+  only for optional validations.
+- StructArray-only vector collections participate in rollout pressure, and
+  nullable vector probes select a deterministic non-null row.
+- Storage V3 capability activation, feature-to-brick catalog mappings, cluster
+  post-config index target propagation, and CI Ruff scope are covered by
+  regression tests.
+
 ## PyMilvus Version
 
 The test runtime and CI dependency were changed from `pymilvus==3.0.0` to `pymilvus==3.0.1`.
@@ -108,12 +139,18 @@ Verification used a temporary Python 3.9 virtual environment with `pymilvus==3.0
 ```bash
 cd milvus-bricks
 PYTHONPATH=. /tmp/vectordb-testbricks-pymilvus301-py39/bin/python -m pytest -q \
+  milvus_client/tests/test_workload.py \
+  milvus_client/tests/test_mixed_rw_pressure.py \
+  milvus_client/tests/test_argo_template.py \
   milvus_client/tests/test_validate_index_compatibility.py \
   milvus_client/tests/test_feature_validators.py \
-  milvus_client/tests/test_validate_schema_features.py
+  milvus_client/tests/test_validate_schema_features.py \
+  milvus_client/tests/test_generate_workflow_report.py \
+  milvus_client/tests/test_capability.py \
+  milvus_client/tests/test_brick_catalog.py
 ```
 
-Result: `28 passed, 1 warning`.
+Result: `145 passed, 1 warning`.
 
 ### Full Offline Unit Test Set
 
@@ -124,7 +161,7 @@ PYTHONPATH=. /tmp/vectordb-testbricks-pymilvus301-py39/bin/python -m pytest \
   -k 'not test_rendered_cluster_helm_values_apply_metadata_to_chart_resources and not test_rendered_pulsar_broker_role_is_covered_by_workflow_manager_rbac'
 ```
 
-Result: `295 passed, 2 deselected, 1 warning`.
+Result: `304 passed, 2 deselected, 1 warning`.
 
 The warning is the local Python 3.9 LibreSSL warning emitted by urllib3 and is unrelated to the implementation.
 
@@ -135,15 +172,17 @@ cd milvus-bricks
 PYTHONPATH=. /tmp/vectordb-testbricks-pymilvus301-py39/bin/python -m pytest milvus_client/tests -q
 ```
 
-Result: `295 passed, 2 failed, 1 warning`.
-
-Both failures occurred in existing tests while running:
+One full run completed with `304 passed, 1 failed, 1 warning`. A second run
+excluding that failed test reached the other online Helm test and completed
+with `303 passed, 1 failed, 1 deselected, 1 warning`. Both online tests were
+individually observed failing while running:
 
 ```text
 helm repo add zilliztech https://zilliztech.github.io/milvus-helm/
 ```
 
-The connection to GitHub Pages was reset. The failures were external network errors and were not assertion or implementation failures.
+The GitHub Pages connections were reset. These were external repository-access
+errors before chart rendering, not assertion or implementation failures.
 
 ### Schema and Index Construction
 
@@ -174,7 +213,7 @@ All checks passed!
 ```
 
 ```bash
-argo lint --offline milvus-bricks/argo
+argo lint --offline argo
 ```
 
 Result: `no linting errors found`.
@@ -194,8 +233,9 @@ No live Milvus, Kubernetes, Milvus Operator, Helm deployment, or Argo Workflow e
 - Milvus 2.6.18 StructArray and six nullable-vector schemas can be created and reused after `2.6 -> 3.0 -> 2.6`
 - StructArray nested scalar indexes execute successfully on Milvus 3.0 and remain usable after rollback to the pinned 3.0 baseline
 - TEXT LOB values survive the Loon/Vortex upgrade/rollback path
-- FAISS, MinHash, Entity TTL, SINDI/Block-Max, and JSON index engine v4 behave as expected on the target images
-- Runtime pods expose and honor vector index version 10 and scalar index version 4
+- FAISS, MinHash, Entity TTL, SINDI/Block-Max, and JSON scalar index families behave as expected on the target images
+- Runtime pods expose the requested vector/scalar target versions `10/4`, and
+  DataNode build logs provide the resolved/current engine-version evidence
 - The two Helm rendering integration tests pass when `https://zilliztech.github.io/milvus-helm/` is reachable
 
 These are environment-level acceptance checks; the local schema construction, contract tests, workflow lint, and report fail-closed behavior are implemented and verified.

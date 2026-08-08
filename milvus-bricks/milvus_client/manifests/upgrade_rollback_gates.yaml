@@ -192,7 +192,7 @@ scenarios:
       gate_allow_warning: false
 
   - id: standalone-3-0-index-v10-v4-upgrade-rollback
-    description: "3.0 index engine gate with vector index version 10 and scalar index version 4 fixed across base, target, and rollback."
+    description: "3.0 index engine gate with vector/scalar target versions 10/4 configured across all phases and the corresponding algorithms exercised."
     mode: standalone
     classification: gate
     support_status: supported
@@ -474,7 +474,7 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-3-0-index-v10-v4-upgrade-rollback
-    description: "Cluster 3.0 index engine gate with vector index version 10 and scalar index version 4 fixed across all phases."
+    description: "Cluster 3.0 gate with vector/scalar target versions 10/4 configured across all phases and the corresponding algorithms exercised."
     mode: cluster
     classification: gate
     support_status: supported

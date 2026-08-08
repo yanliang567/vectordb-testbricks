@@ -55,6 +55,7 @@ capabilities:
 
   - id: StorageV3
     detect:
+      server_version_min: "3.0.0"
       config_probe: "common.storage.useLoonFFI"
     unsupported_behavior: skip
     requires_cluster_admin: true

@@ -2933,6 +2933,19 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
         "strict-pressure-after-upgrade",
         "pressure-daemon",
     ]
+    post_config_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["patch-post-upgrade-config"]["arguments"]["parameters"]
+    }
+    assert post_config_args["target-vec-index-version"] == (
+        "{{workflow.parameters.target-target-vec-index-version}}"
+    )
+    assert post_config_args["target-scalar-index-version"] == (
+        "{{workflow.parameters.target-target-scalar-index-version}}"
+    )
+    post_config_command = templates["patch-milvus-config"]["container"]["args"][0]
+    assert 'config["dataCoord"]["targetVecIndexVersion"]' in post_config_command
+    assert 'config["dataCoord"]["targetScalarIndexVersion"]' in post_config_command
     assert tasks["validate-forward-after-rollback"]["when"] == (
         "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
     )

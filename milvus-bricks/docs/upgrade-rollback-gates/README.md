@@ -23,8 +23,8 @@ The manifest currently registers 14 scenarios:
 | `standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
 | `cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
 | `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
-| `standalone-3-0-index-v10-v4-upgrade-rollback` | standalone | gate | `3.0 baseline + index v10/v4 -> 3.0 latest + index v10/v4 -> 3.0 baseline + index v10/v4` | SINDI/Block-Max and scalar index v4 are validated against runtime config. |
-| `cluster-3-0-index-v10-v4-upgrade-rollback` | cluster | gate | `3.0 baseline + index v10/v4 -> 3.0 latest + index v10/v4 -> 3.0 baseline + index v10/v4` | Distributed equivalent of the index engine version gate. |
+| `standalone-3-0-index-v10-v4-upgrade-rollback` | standalone | gate | `3.0 baseline + target 10/4 -> 3.0 latest + target 10/4 -> 3.0 baseline + target 10/4` | Runtime target config is checked and SINDI/Block-Max plus JSON scalar index families are executed. |
+| `cluster-3-0-index-v10-v4-upgrade-rollback` | cluster | gate | `3.0 baseline + target 10/4 -> 3.0 latest + target 10/4 -> 3.0 baseline + target 10/4` | Distributed equivalent of the target-version and algorithm-coverage gate. |
 | `standalone-3-0-loon-vortex-to-2-6-negative` | standalone | negative | `2.6.18 -> 3.0 latest + LoonFFI/Vortex -> 2.6 latest` | Unsupported negative coverage only; not a promoted gate. |
 
 For the 3.0 LoonFFI/Vortex gates, the rollback phase uses the 3.0 baseline
@@ -60,8 +60,11 @@ The regular matrices include the promoted type/index coverage:
   `FLOAT + STL_SORT/INVERTED` and `VARCHAR + INVERTED/BITMAP`, EmbList DISKANN,
   FAISS, MinHash, and TIMESTAMPTZ entity TTL.
 - `schema_matrix_3_0_index_v10_v4.yaml`: SINDI, Block-Max sparse algorithms,
-  JSON scalar indexes, and resolved HYBRID AutoIndex under runtime index
-  versions `10/4`.
+  JSON scalar indexes, and resolved HYBRID AutoIndex with runtime target
+  versions `10/4` configured. Public SDK index metadata does not expose the
+  exact engine version selected by Milvus after its version resolution/clamp
+  logic, so execution reports must preserve DataNode index-build logs as
+  supplementary evidence rather than claim exact `10/4` builds automatically.
 
 The Woodpecker 2CU gate reuses the cluster Helm rolling upgrade workflow with
 a multi-replica data plane. Its scenario contract rejects deploy-profile
@@ -221,11 +224,16 @@ The current gates validate:
   - mismatched LoonFFI/storage v3 or Vortex settings fail the gate before
     baseline seed, precheck, DML/DQL, or index compatibility validation;
 - schema feature semantics at base, after upgrade, and after rollback:
-  - StructArray searches require the expected primary key and element offset;
+  - non-`MAX_SIM_*` StructArray element searches require the expected primary
+    key and element offset;
+  - `MAX_SIM_*` StructArray searches use PyMilvus `EmbeddingList` row-level
+    queries and require the expected primary key without an element offset;
   - nested scalar indexes execute real `MATCH_ANY` filters;
   - unknown validator names fail manifest validation rather than silently pass;
   - index engine scenarios verify `dataCoord.targetVecIndexVersion` and
-    `dataCoord.targetScalarIndexVersion` from merged runtime pod config;
+    `dataCoord.targetScalarIndexVersion` from merged runtime pod config and
+    execute the matrix algorithms; this is target-configuration validation,
+    not proof of an exact resolved build version;
 - baseline seed data after upgrade and after rollback;
 - phase checkpoints for data written after upgrade before rollback;
 - new collections created after upgrade and after rollback;

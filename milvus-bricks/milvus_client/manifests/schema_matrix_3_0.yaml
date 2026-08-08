@@ -62,6 +62,7 @@ schemas:
     feature_tags: ["struct_array_element_hybrid_search"]
     compat_mode: forward_only
     required_capabilities: ["StructArrayExtended", "ElementHybridSearch"]
+    validator_params: {min_struct_scalar_index_queries: 6}
     validators:
       - count
       - pk_sample

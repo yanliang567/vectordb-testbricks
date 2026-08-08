@@ -33,3 +33,14 @@ def test_brick_catalog_is_valid():
     for feature in features.values():
         for brick_name in feature.bricks:
             assert brick_name in names
+
+    promoted = {
+        "struct_array_element_hybrid_search",
+        "storage_v3",
+    }
+    bricks_by_name = {brick["name"]: brick for brick in catalog["bricks"]}
+    for feature_id in promoted:
+        feature = features[feature_id]
+        assert feature.bricks
+        for brick_name in feature.bricks:
+            assert feature_id in bricks_by_name[brick_name]["feature_tags"]

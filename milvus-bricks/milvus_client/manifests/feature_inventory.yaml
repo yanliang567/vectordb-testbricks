@@ -126,7 +126,12 @@ features:
     priority: P1
     compat_mode: forward_only
     required_capabilities: ["StructArrayExtended", "ElementHybridSearch"]
-    bricks: []
+    bricks:
+      - create_schema_matrix
+      - seed_data
+      - validate_data_integrity
+      - validate_index_compatibility
+      - validate_schema_features
 
   - id: struct_array
     domain: struct_array
@@ -169,4 +174,9 @@ features:
     priority: P2
     compat_mode: forward_only
     required_capabilities: ["StorageV3"]
-    bricks: []
+    bricks:
+      - create_schema_matrix
+      - seed_data
+      - validate_data_integrity
+      - validate_index_compatibility
+      - validate_schema_features

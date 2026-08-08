@@ -600,6 +600,39 @@ def test_generate_workflow_report_fails_when_required_rollback_validation_is_mis
     )
 
 
+def test_generate_workflow_report_fails_when_required_validation_is_skipped(
+    tmp_path,
+):
+    _write_successful_validation(tmp_path)
+    _write_json(
+        tmp_path / "results" / "validate_schema_features_after_upgrade.json",
+        {"status": "skipped"},
+    )
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        _base_args(tmp_path, pressure_fail_on_error="true")
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 1
+    assert report["status"] == "failed"
+    assert (
+        report["failed_results"]["validate_schema_features_after_upgrade"]["status"]
+        == "skipped"
+    )
+
+
 def test_generate_workflow_report_fails_when_required_serviceability_result_is_missing(
     tmp_path,
 ):

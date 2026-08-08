@@ -8,6 +8,7 @@ from milvus_client.common.data import (
     generate_field_value,
     generate_primary_key_value,
     generate_struct_array_value,
+    prepare_struct_vector_query,
     stable_vector_value,
     text_payload_metadata,
 )
@@ -157,6 +158,14 @@ def validate_nullable_vector_semantics(
     nullable_vectors = [
         field for field in spec.fields if field.dtype in VECTOR_TYPES and field.nullable
     ]
+    if not nullable_vectors:
+        report.fail(
+            "FEATURE_VALIDATION_TARGET_MISSING",
+            "nullable vector validator found no nullable vector fields",
+            collection=collection,
+            schema=spec.name,
+        )
+        return
     for field in nullable_vectors:
         null_pk = next(
             (pk for pk in range(data_min_pk, data_max_pk + 1) if pk % 10 == 0),
@@ -257,7 +266,20 @@ def validate_struct_array_scalar_round_trip(
         data_min_pk + (data_max_pk - data_min_pk) // 2,
         data_max_pk,
     ]
-    for struct_array in spec.struct_arrays:
+    struct_arrays = [
+        struct_array
+        for struct_array in spec.struct_arrays
+        if any(field.dtype not in VECTOR_TYPES for field in struct_array.fields)
+    ]
+    if not struct_arrays:
+        report.fail(
+            "FEATURE_VALIDATION_TARGET_MISSING",
+            "StructArray scalar round-trip validator found no scalar sub-fields",
+            collection=collection,
+            schema=spec.name,
+        )
+        return
+    for struct_array in struct_arrays:
         for data_pk in dict.fromkeys(candidates):
             expected = generate_struct_array_value(struct_array, data_pk, seed)
             rows = _query_by_data_pk(
@@ -305,7 +327,16 @@ def validate_struct_array_element_search(
 ) -> None:
     primary = _primary_field(spec)
     data_min_pk, data_max_pk = _data_pk_range(meta)
-    for index, field in _struct_vector_indexes(spec):
+    vector_indexes = _struct_vector_indexes(spec)
+    if not vector_indexes:
+        report.fail(
+            "FEATURE_VALIDATION_TARGET_MISSING",
+            "StructArray vector validator found no indexed vector sub-fields",
+            collection=collection,
+            schema=spec.name,
+        )
+        return
+    for index, field in vector_indexes:
         struct_array = struct_array_for_field(spec, index.field)
         if struct_array is None:
             continue
@@ -329,6 +360,10 @@ def validate_struct_array_element_search(
             )
             continue
         data_pk, expected_offset, query_vector = probe
+        metric_type = metric_type_for_field(spec, index.field)
+        query_vector, expected_offset = prepare_struct_vector_query(
+            metric_type, query_vector, expected_offset
+        )
         expected_pk = _actual_primary_value(spec, meta, data_pk)
         response = client.search(
             collection_name=collection,
@@ -337,7 +372,7 @@ def validate_struct_array_element_search(
             filter=f"{primary.name} == {format_filter_value(expected_pk)}",
             limit=5,
             search_params={
-                "metric_type": metric_type_for_field(spec, index.field),
+                "metric_type": metric_type,
                 "params": search_params_for_field(spec, index.field),
             },
         )
@@ -348,15 +383,14 @@ def validate_struct_array_element_search(
                 actual_offset = int(raw_offset)
             except (TypeError, ValueError):
                 actual_offset = -1
-            if (
-                _hit_pk(hit, primary.name) == expected_pk
-                and actual_offset == expected_offset
+            if _hit_pk(hit, primary.name) == expected_pk and (
+                expected_offset is None or actual_offset == expected_offset
             ):
                 matching.append(hit)
         if not matching:
             report.fail(
                 "STRUCT_ARRAY_SEARCH_FAILED",
-                "StructArray element search did not return the expected id and offset",
+                "StructArray vector search did not return the expected row or element",
                 collection=collection,
                 field=index.field,
                 expected_pk=expected_pk,
@@ -399,11 +433,23 @@ def validate_struct_array_scalar_index_queries(
     primary = _primary_field(spec)
     data_min_pk, data_max_pk = _data_pk_range(meta)
     executed = 0
-    for index in spec.indexes:
+    scalar_indexes = [
+        index
+        for index in spec.indexes
+        if (field := resolve_field(spec, index.field)) is not None
+        and field.dtype not in VECTOR_TYPES
+        and struct_array_for_field(spec, index.field) is not None
+    ]
+    if not scalar_indexes:
+        report.fail(
+            "FEATURE_VALIDATION_TARGET_MISSING",
+            "StructArray scalar index validator found no indexed scalar sub-fields",
+            collection=collection,
+            schema=spec.name,
+        )
+    for index in scalar_indexes:
         field = resolve_field(spec, index.field)
-        if field is None or field.dtype in VECTOR_TYPES:
-            continue
-        if struct_array_for_field(spec, index.field) is None:
+        if field is None:
             continue
         probe = None
         for data_pk in range(data_min_pk, data_max_pk + 1):
@@ -443,6 +489,18 @@ def validate_struct_array_scalar_index_queries(
         executed += 1
         _record_pass(report, collection, "struct_array_scalar_index_queries")
     report.metrics[f"{collection}.struct_array_scalar_index_queries.total"] = executed
+    expected_minimum = int(
+        spec.validator_params.get("min_struct_scalar_index_queries", 1)
+    )
+    if executed < expected_minimum:
+        report.fail(
+            "STRUCT_ARRAY_SCALAR_INDEX_COVERAGE_INCOMPLETE",
+            "fewer StructArray scalar index queries executed than required",
+            collection=collection,
+            schema=spec.name,
+            expected_minimum=expected_minimum,
+            actual=executed,
+        )
 
 
 def validate_geometry_filter(
@@ -456,6 +514,14 @@ def validate_geometry_filter(
     del seed
     primary = _primary_field(spec)
     geometry_fields = [field for field in spec.fields if field.dtype == "GEOMETRY"]
+    if not geometry_fields:
+        report.fail(
+            "FEATURE_VALIDATION_TARGET_MISSING",
+            "Geometry validator found no Geometry fields",
+            collection=collection,
+            schema=spec.name,
+        )
+        return
     data_pk, _ = _data_pk_range(meta)
     expected_pk = _actual_primary_value(spec, meta, data_pk)
     for field in geometry_fields:
@@ -509,6 +575,14 @@ def validate_text_lob_round_trip(
     text_fields = [
         field for field in spec.fields if field.value_profile == "text_lob_boundary"
     ]
+    if not text_fields:
+        report.fail(
+            "FEATURE_VALIDATION_TARGET_MISSING",
+            "TEXT LOB validator found no boundary-profile TEXT fields",
+            collection=collection,
+            schema=spec.name,
+        )
+        return
     for field in text_fields:
         pks = _boundary_pks(data_min_pk, data_max_pk)
         if len(pks) < 7:
@@ -556,6 +630,22 @@ def validate_text_match_phrase_match(
     del meta, seed
     primary = _primary_field(spec)
     text_fields = [field for field in spec.fields if field.dtype == "TEXT"]
+    bm25_outputs = [
+        output
+        for output in function_output_fields(spec)
+        if any(
+            index.field == output and index.metric_type == "BM25"
+            for index in spec.indexes
+        )
+    ]
+    if not text_fields and not bm25_outputs:
+        report.fail(
+            "FEATURE_VALIDATION_TARGET_MISSING",
+            "TEXT validator found no TEXT fields or BM25 outputs",
+            collection=collection,
+            schema=spec.name,
+        )
+        return
     for field in text_fields:
         filters = [
             f"TEXT_MATCH({field.name}, 'milvus')",
@@ -578,10 +668,7 @@ def validate_text_match_phrase_match(
                 )
                 continue
             _record_pass(report, collection, "text_match_phrase_match")
-    for output in function_output_fields(spec):
-        index = next((item for item in spec.indexes if item.field == output), None)
-        if index is None or index.metric_type != "BM25":
-            continue
+    for output in bm25_outputs:
         response = client.search(
             collection_name=collection,
             data=["milvus upgrade rollback"],
@@ -803,7 +890,7 @@ def validate_index_engine_version(
         if not matches:
             report.fail(
                 "INDEX_ENGINE_VERSION_MISMATCH",
-                "runtime Milvus index engine version differs from the promoted matrix",
+                "runtime Milvus target index engine configuration differs from the promoted matrix",
                 collection=collection,
                 config=name,
                 expected=expected,

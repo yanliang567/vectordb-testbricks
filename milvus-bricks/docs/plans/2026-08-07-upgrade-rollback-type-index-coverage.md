@@ -72,7 +72,7 @@
        params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
 ```
 
-约束：2.6 baseline 不给 Struct scalar 子字段建索引。2.6 的核心验证是 nested scalar 数据升级/回滚不丢失，以及 element-level search 返回正确 `id + offset`。
+约束：2.6 baseline 不给 Struct scalar 子字段建索引。2.6 的核心验证是 nested scalar 数据升级/回滚不丢失；普通 element-level search 返回正确 `id + offset`，`MAX_SIM_*` 使用 `EmbeddingList` 做 row-level search，只校验正确 PK。
 
 #### `nullable_vectors_all`
 
@@ -290,7 +290,7 @@ PYTHONPATH=. uv run pytest -q milvus_client/tests/test_data_generation.py
 
 1. qualified field resolver 同时返回 top-level 与 Struct sub-fields。
 2. `_indexed_vector_fields()` 支持 `items[embedding]`。
-3. nested vector probe 从确定性 StructArray 的指定 element 取 query vector，并检查返回 `id` 和 `offset`。
+3. nested vector probe 从确定性 StructArray 的指定 element 取 query vector。普通 element search 检查返回 `id` 和 `offset`；`MAX_SIM_*` 构造 `EmbeddingList` 并检查 row-level PK，不要求 offset。
 4. `_indexed_scalar_indexes()` 支持 Struct scalar sub-field。
 5. Struct scalar filter 使用以下形式：
 
@@ -343,7 +343,7 @@ PYTHONPATH=. uv run pytest -q \
 3. 对未知 validator fail-closed，避免 manifest 声称覆盖但没有实现。
 4. feature validator 输出每个 schema/validator 的独立结果和 metrics。
 5. StructArray scalar round-trip 比较固定 PK 的数组长度、每个 offset 的 `FLOAT/VARCHAR/INT64/BOOL`。
-6. element search 必须断言 top hit 的 `id` 和 `offset`。
+6. 普通 element search 必须断言 top hit 的 `id` 和 `offset`；`MAX_SIM_*` 必须断言 row-level top hit 的 `id`，且不伪造 element offset 契约。
 7. TEXT validator 比较 payload metadata/hash，不把大文本写进结果 JSON。
 8. Entity TTL 使用 checkpoint 范围外的临时 PK，避免污染 baseline count/checksum。
 
@@ -426,7 +426,7 @@ target-target-scalar-index-version
 rollback-target-scalar-index-version
 ```
 
-默认全部为 `-1`，index-version scenarios 三阶段分别固定为 `10/4`。
+默认全部为 `-1`，index-version scenarios 三阶段分别配置 target `10/4`。
 
 render 后配置应为：
 
@@ -438,7 +438,7 @@ spec:
       targetScalarIndexVersion: 4
 ```
 
-新增 runtime probe，通过 system metrics/configurations 读取 resolved scalar/vector index version；只检查 CR metadata 不算通过。
+新增 runtime probe，从运行中 Pod 的合并配置读取 scalar/vector target index version；只检查 CR metadata 不算通过。Milvus 会根据 current/min/max 版本执行 resolve/clamp，公开 SDK index metadata 不暴露最终 build version，因此自动 gate 不宣称精确 `10/4` build；真实执行报告额外保存 DataNode build 日志中的 `currentIndexVersion`/`currentScalarIndexVersion` 证据。
 
 ### 任务 9：新增 index-version promoted scenarios
 
@@ -455,7 +455,7 @@ spec:
 - `standalone-3-0-index-v10-v4-upgrade-rollback`
 - `cluster-3-0-index-v10-v4-upgrade-rollback`
 
-两条场景都使用 `3.0.0 -> latest 3.0 -> 3.0.0`，base/target/rollback 保持 index version `10/4`，并开启 rollback index metadata/search validation。
+两条场景都使用 `3.0.0 -> latest 3.0 -> 3.0.0`，base/target/rollback 保持 target index version `10/4`，执行对应算法并开启 rollback index metadata/search validation。
 
 ### 任务 10：将 feature semantics 接入三条 WorkflowTemplate
 

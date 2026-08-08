@@ -15,7 +15,7 @@ from milvus_client.common.feature_validators import (
     unknown_validators,
 )
 from milvus_client.common.result import FAILED, PASSED, result_from_args
-from milvus_client.common.schema import SchemaSpec, load_schema_matrix
+from milvus_client.common.schema import SchemaSpec, collection_name, load_schema_matrix
 from milvus_client.common.validators import ValidationReport
 
 
@@ -94,6 +94,21 @@ def main(argv: list[str] | None = None) -> int:
                     validators=unknown,
                 )
         if result.failures:
+            result.write(args.output_json)
+            return 2
+
+        actual_collections = set(checkpoint.get("collections", {}))
+        expected_collections = {
+            collection_name(args.collection_prefix, spec) for spec in specs.values()
+        }
+        missing_collections = sorted(expected_collections - actual_collections)
+        if missing_collections:
+            result.status = FAILED
+            result.mark_failed(
+                "SCHEMA_COLLECTION_MISSING",
+                "checkpoint omits collections required by the schema matrix",
+                collections=missing_collections,
+            )
             result.write(args.output_json)
             return 2
 
