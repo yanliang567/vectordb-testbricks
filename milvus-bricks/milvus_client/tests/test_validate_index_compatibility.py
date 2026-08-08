@@ -1543,6 +1543,38 @@ def test_struct_element_probe_and_hit_require_matching_offset():
     assert mismatch.failures[0]["expected_offset"] == 0
 
 
+def test_lossy_l2_index_allows_bounded_self_search_quantization_error():
+    lossy = ValidationReport()
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": 0, "distance": 0.04343560338020325}]],
+        "qa_lossy",
+        "ivf_pq_vector",
+        "id",
+        0,
+        None,
+        "L2",
+        lossy,
+        index_type="IVF_PQ",
+    )
+
+    exact = ValidationReport()
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": 0, "distance": 0.04343560338020325}]],
+        "qa_exact",
+        "flat_vector",
+        "id",
+        0,
+        None,
+        "L2",
+        exact,
+        index_type="FLAT",
+    )
+
+    assert lossy.passed
+    assert not exact.passed
+    assert exact.failures[0]["max_distance"] == 1e-3
+
+
 def test_describe_index_preserves_top_level_compatibility_params():
     class Client:
         def describe_index(self, **kwargs):

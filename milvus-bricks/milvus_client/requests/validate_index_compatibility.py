@@ -609,6 +609,7 @@ def _validate_vector_search_hit(
     expected_offset: int | None,
     metric_type: str,
     report: ValidationReport,
+    index_type: str = "",
 ) -> None:
     assert_search_result(response, collection, field_name)
     hits = response[0]
@@ -640,27 +641,38 @@ def _validate_vector_search_hit(
     if distance is None:
         return
     metric = metric_type.upper().removeprefix("MAX_SIM_")
-    if metric in {"L2", "HAMMING", "JACCARD"} and distance > 1e-3:
+    lossy_index = index_type.upper() in {
+        "IVF_PQ",
+        "IVF_SQ8",
+        "HNSW_SQ",
+        "IVF_RABITQ",
+        "SCANN",
+    }
+    max_distance = 0.5 if lossy_index and metric == "L2" else 1e-3
+    min_score = 0.5 if lossy_index and metric in {"COSINE", "IP"} else 0.9
+    if metric in {"L2", "HAMMING", "JACCARD"} and distance > max_distance:
         report.fail(
             INDEX_SEARCH_FAILED,
             "indexed vector self-search distance is higher than expected",
             collection=collection,
             field=field_name,
             metric_type=metric_type,
+            index_type=index_type,
             expected_pk=expected_pk,
             distance=distance,
-            max_distance=1e-3,
+            max_distance=max_distance,
         )
-    if metric in {"COSINE", "IP"} and distance < 0.9:
+    if metric in {"COSINE", "IP"} and distance < min_score:
         report.fail(
             INDEX_SEARCH_FAILED,
             "indexed vector self-search score is lower than expected",
             collection=collection,
             field=field_name,
             metric_type=metric_type,
+            index_type=index_type,
             expected_pk=expected_pk,
             distance=distance,
-            min_score=0.9,
+            min_score=min_score,
         )
 
 
@@ -760,6 +772,7 @@ def _validate_index_searches(
                     expected_offset,
                     metric_type,
                     report,
+                    index_type=index.index_type,
                 )
             searches += 1
         except Exception as exc:
