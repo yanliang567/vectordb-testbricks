@@ -1762,13 +1762,19 @@ spec:
             sleep $((attempt * 5))
             done
             cd /tmp/repo/milvus-bricks
+            set +e
             PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
               --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
               --collection-prefix "{{inputs.parameters.collection-prefix}}" \
               --checkpoint-dir /tmp/milvus-bricks/checkpoints \
               --output-json /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json \
               {{inputs.parameters.args}}
-            python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
+            rc=$?
+            set -e
+            if [ -f /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json ]; then
+              python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
+            fi
+            exit "$rc"
         volumeMounts:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks
@@ -1818,13 +1824,19 @@ spec:
             done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/results /tmp/milvus-bricks/checkpoints
+            set +e
             PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
               --uri "http://{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc:19530" \
               --collection-prefix "{{inputs.parameters.collection-prefix}}" \
               --checkpoint-dir /tmp/milvus-bricks/checkpoints \
               --output-json /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json \
               {{inputs.parameters.args}}
-            python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
+            rc=$?
+            set -e
+            if [ -f /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json ]; then
+              python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
+            fi
+            exit "$rc"
         volumeMounts:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks

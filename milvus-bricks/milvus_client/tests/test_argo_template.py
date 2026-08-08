@@ -23,6 +23,27 @@ from milvus_client.common.pressure_maintenance import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
+def test_brick_templates_print_result_json_before_propagating_failure(filename):
+    template = yaml.safe_load((ROOT / "argo" / filename).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+
+    for name in ("optional-run-brick", "run-brick"):
+        command = templates[name]["container"]["args"][0]
+        assert "set +e" in command
+        assert "rc=$?" in command
+        assert "python3 -m json.tool" in command
+        assert 'exit "$rc"' in command
+        assert command.index("rc=$?") < command.rindex("python3 -m json.tool")
+
+
 def test_pressure_result_configmap_decoder_supports_plain_and_gzip_payloads():
     result_text = json.dumps(
         {
