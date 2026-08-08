@@ -44,6 +44,24 @@ class FakeBm25DropRequiresFieldClient(FakeClient):
         )
 
 
+class FakeFunctionFieldClient(FakeClient):
+    def drop_function_field(self, collection_name, function_name, **kwargs):
+        self.calls.append(("drop_function_field", collection_name, function_name))
+
+    def add_function_field(
+        self, collection_name, field_schema, func, index_params, **kwargs
+    ):
+        self.calls.append(
+            (
+                "add_function_field",
+                collection_name,
+                field_schema.name,
+                func.name,
+                index_params,
+            )
+        )
+
+
 def _baseline_bm25_spec():
     return SchemaSpec(
         name="existing_bm25",
@@ -149,8 +167,38 @@ def test_schema_evolution_cycles_existing_collection_fields_functions_and_reads(
     assert metrics["drop_field_skipped_total"] == 1
 
 
+def test_schema_evolution_uses_function_field_apis_when_available():
+    client = FakeFunctionFieldClient()
+
+    metrics = run_schema_evolution(
+        client,
+        [_baseline_bm25_spec()],
+        collection_prefix="qa",
+        rows_per_collection=2,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    assert metrics["failed_total"] == 0
+    assert metrics["function_cycles_total"] == 1
+    assert (
+        "drop_function_field",
+        "qa_existing_bm25",
+        "text_bm25_emb",
+    ) in client.calls
+    add_call = next(call for call in client.calls if call[0] == "add_function_field")
+    assert add_call[1:4] == (
+        "qa_existing_bm25",
+        "sparse_bm25",
+        "text_bm25_emb",
+    )
+    assert not any(call[0] == "drop_collection_function" for call in client.calls)
+    assert not any(call[0] == "add_collection_function" for call in client.calls)
+
+
 def test_schema_evolution_minhash_search_uses_function_input_text():
-    client = FakeClient()
+    client = FakeFunctionFieldClient()
 
     metrics = run_schema_evolution(
         client,
@@ -164,6 +212,11 @@ def test_schema_evolution_minhash_search_uses_function_input_text():
 
     searches = [call for call in client.calls if call[0] == "search"]
     assert metrics["failed_total"] == 0
+    assert metrics["function_cycles_total"] == 0
+    assert metrics["function_cycle_skipped_total"] == 1
+    assert metrics["collections"][0]["function_cycle_skip_reasons"] == [
+        "skipped_only_vector_field"
+    ]
     assert searches[0][2] == "minhash"
     assert searches[0][4] == ["the quick brown fox jumps over the lazy dog"]
 

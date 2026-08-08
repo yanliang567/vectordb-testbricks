@@ -9,6 +9,7 @@ from milvus_client.common.client import create_client
 from milvus_client.common.data import (
     generate_primary_key_value,
     generate_rows,
+    indexed_vector_fields,
     stable_vector_value,
     vector_fields,
 )
@@ -99,13 +100,77 @@ def _drop_field(client: Any, collection: str, field_name: str) -> str:
     return "dropped"
 
 
-def _function_cycle(client: Any, collection: str, function: FunctionSpec) -> str:
+def _function_cycle(
+    client: Any, collection: str, spec: SchemaSpec, function: FunctionSpec
+) -> str:
     if not hasattr(client, "drop_collection_function") or not hasattr(
         client, "add_collection_function"
     ):
         return "skipped"
     drop_function_field = getattr(client, "drop_function_field", None)
-    from pymilvus import Function, FunctionType
+    add_function_field = getattr(client, "add_function_field", None)
+    from pymilvus import Function, FunctionType, MilvusClient
+
+    function_schema = Function(
+        name=function.name,
+        function_type=getattr(FunctionType, function.function_type),
+        input_field_names=function.input_fields,
+        output_field_names=function.output_fields,
+        description=function.description,
+        params=function.params,
+    )
+    if drop_function_field is not None and add_function_field is not None:
+        output_names = set(function.output_fields)
+        if not any(
+            field_name not in output_names
+            for field_name, _ in indexed_vector_fields(spec)
+        ):
+            return "skipped_only_vector_field"
+        if len(function.output_fields) != 1:
+            return "skipped_unsupported_output_count"
+        output_field = next(
+            (field for field in spec.fields if field.name == function.output_fields[0]),
+            None,
+        )
+        output_index = next(
+            (
+                index
+                for index in spec.indexes
+                if index.field == function.output_fields[0]
+            ),
+            None,
+        )
+        if output_field is None or output_index is None:
+            return "skipped_missing_function_field_index"
+        field_kwargs: dict[str, Any] = {"nullable": output_field.nullable}
+        if output_field.dim is not None:
+            field_kwargs["dim"] = output_field.dim
+        field_schema = MilvusClient.create_field_schema(
+            name=output_field.name,
+            data_type=dtype_to_milvus(output_field.dtype),
+            **field_kwargs,
+        )
+        index_params = MilvusClient.prepare_index_params()
+        index_kwargs: dict[str, Any] = {
+            "field_name": output_index.field,
+            "index_type": output_index.index_type,
+            "metric_type": output_index.metric_type,
+            "params": dict(output_index.params) or None,
+        }
+        if output_index.index_name:
+            index_kwargs["index_name"] = output_index.index_name
+        index_params.add_index(**index_kwargs)
+        drop_function_field(
+            collection_name=collection,
+            function_name=function.name,
+        )
+        add_function_field(
+            collection_name=collection,
+            field_schema=field_schema,
+            func=function_schema,
+            index_params=index_params,
+        )
+        return "cycled"
 
     try:
         client.drop_collection_function(
@@ -125,14 +190,7 @@ def _function_cycle(client: Any, collection: str, function: FunctionSpec) -> str
             raise
     client.add_collection_function(
         collection_name=collection,
-        function=Function(
-            name=function.name,
-            function_type=getattr(FunctionType, function.function_type),
-            input_field_names=function.input_fields,
-            output_field_names=function.output_fields,
-            description=function.description,
-            params=function.params,
-        ),
+        function=function_schema,
     )
     return "cycled"
 
@@ -288,7 +346,7 @@ def run_schema_evolution(
             cycled = 0
             skipped = 0
             for function in spec.functions:
-                status = _function_cycle(client, collection, function)
+                status = _function_cycle(client, collection, spec, function)
                 if status == "cycled":
                     cycled += 1
                 else:
