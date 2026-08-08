@@ -4,11 +4,13 @@ from milvus_client.common.feature_validators import (
     known_validator_names,
     unknown_validators,
     validate_index_engine_version,
+    validate_minhash_search,
     validate_nullable_vector_semantics,
     validate_struct_array_element_search,
 )
 from milvus_client.common.schema import (
     FieldSpec,
+    FunctionSpec,
     IndexSpec,
     SchemaSpec,
     StructArraySpec,
@@ -198,3 +200,78 @@ def test_nullable_vector_search_uses_primary_key_filter_without_is_not_null():
 
     assert report.passed
     assert client.search_kwargs["filter"] == "id == 1"
+
+
+def _minhash_spec() -> SchemaSpec:
+    return SchemaSpec(
+        name="minhash",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(
+                name="document",
+                dtype="VARCHAR",
+                max_length=65535,
+                value_profile="minhash_documents",
+            ),
+            FieldSpec(name="minhash", dtype="BINARY_VECTOR", dim=4096),
+        ],
+        functions=[
+            FunctionSpec(
+                name="text_to_minhash",
+                function_type="MINHASH",
+                input_fields=["document"],
+                output_fields=["minhash"],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="minhash",
+                index_type="MINHASH_LSH",
+                metric_type="MHJACCARD",
+                search_params={"mh_search_with_jaccard": True},
+            )
+        ],
+    )
+
+
+def test_minhash_validator_allows_approximate_near_duplicate_omission():
+    class Client:
+        def search(self, **kwargs):
+            return [[{"id": 0, "distance": 1.0}]]
+
+    report = ValidationReport()
+
+    validate_minhash_search(
+        Client(),
+        "qa_minhash",
+        _minhash_spec(),
+        {"min_pk": 0, "max_pk": 2},
+        7,
+        report,
+    )
+
+    assert report.passed
+    assert report.metrics["qa_minhash.minhash_search.near_duplicate_returned"] == 0
+    assert report.metrics["qa_minhash.minhash_search.unrelated_returned"] == 0
+
+
+def test_minhash_validator_still_requires_exact_document():
+    class Client:
+        def search(self, **kwargs):
+            return [[{"id": 1, "distance": 0.9}]]
+
+    report = ValidationReport()
+
+    validate_minhash_search(
+        Client(),
+        "qa_minhash",
+        _minhash_spec(),
+        {"min_pk": 0, "max_pk": 2},
+        7,
+        report,
+    )
+
+    assert not report.passed
+    assert report.failures[0]["type"] == "MINHASH_SEARCH_FAILED"
+    assert report.failures[0]["expected_exact"] == 0

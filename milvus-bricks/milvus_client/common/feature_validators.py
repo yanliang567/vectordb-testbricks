@@ -733,17 +733,27 @@ def validate_minhash_search(
     )
     hits = _search_hits(response)
     hit_pks = [_hit_pk(hit, primary.name) for hit in hits]
-    if actual_pks[0] not in hit_pks or actual_pks[1] not in hit_pks:
+    if actual_pks[0] not in hit_pks:
         report.fail(
             "MINHASH_SEARCH_FAILED",
-            "MinHash search missed the exact or near-duplicate document",
+            "MinHash search missed the exact document",
             collection=collection,
-            expected_related=actual_pks[:2],
+            expected_exact=actual_pks[0],
             actual_pks=hit_pks,
         )
         return
+    report.metrics[f"{collection}.minhash_search.near_duplicate_returned"] = int(
+        actual_pks[1] in hit_pks
+    )
+    report.metrics[f"{collection}.minhash_search.unrelated_returned"] = int(
+        actual_pks[2] in hit_pks
+    )
     rank = {pk: hit_pks.index(pk) for pk in actual_pks if pk in hit_pks}
-    if actual_pks[2] in rank and rank[actual_pks[1]] > rank[actual_pks[2]]:
+    if (
+        actual_pks[1] in rank
+        and actual_pks[2] in rank
+        and rank[actual_pks[1]] > rank[actual_pks[2]]
+    ):
         report.fail(
             "MINHASH_SEARCH_FAILED",
             "near-duplicate document ranked below the unrelated document",
