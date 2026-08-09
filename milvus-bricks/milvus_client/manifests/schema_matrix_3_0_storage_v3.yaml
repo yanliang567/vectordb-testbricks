@@ -21,6 +21,5 @@ schemas:
         input_fields: [text]
         output_fields: [sparse_bm25]
     indexes:
-      - {field: text, index_type: INVERTED}
       - {field: sparse_bm25, index_type: SPARSE_INVERTED_INDEX, metric_type: BM25, params: {drop_ratio_build: 0.0}, search_params: {drop_ratio_search: 0.0}}
       - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}

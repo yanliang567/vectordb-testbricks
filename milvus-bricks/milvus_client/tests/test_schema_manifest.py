@@ -215,6 +215,13 @@ def test_storage_v3_and_index_version_matrices_cover_promoted_features():
     assert {"text_lob_round_trip", "text_match_phrase_match"} <= set(
         text_spec.validators
     )
+    assert all(index.field != "text" for index in text_spec.indexes)
+    assert any(
+        index.field == "sparse_bm25"
+        and index.index_type == "SPARSE_INVERTED_INDEX"
+        and index.metric_type == "BM25"
+        for index in text_spec.indexes
+    )
 
     index_types = {index.index_type for spec in index_specs for index in spec.indexes}
     algorithms = {
@@ -229,6 +236,16 @@ def test_storage_v3_and_index_version_matrices_cover_promoted_features():
         for spec in index_specs
         for index in spec.indexes
     )
+    json_auto = next(
+        index
+        for spec in index_specs
+        for index in spec.indexes
+        if index.field == "json_auto"
+    )
+    assert json_auto.params == {
+        "json_cast_type": "double",
+        "json_path": "json_auto['score']",
+    }
 
 
 def test_json_shredding_schema_matrix_covers_nested_and_dynamic_json():

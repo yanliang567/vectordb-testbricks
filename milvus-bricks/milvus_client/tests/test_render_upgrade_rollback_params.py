@@ -12,6 +12,10 @@ from milvus_client.requests import render_upgrade_rollback_params as render_cli
 
 ROOT = Path(__file__).resolve().parents[1]
 GATES = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
+MILVUS_2_6_18_BASELINE_IMAGE = (
+    "harbor.milvus.io/milvusdb/milvus:v2.6.18@"
+    "sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6"
+)
 MILVUS_3_0_BASELINE_IMAGE = (
     "harbor.milvus.io/milvusdb/milvus:v3.0.0@"
     "sha256:49371c30af46b1013e4d3e0b980e691d81376d69cdbe1b372725baf1d7255862"
@@ -64,7 +68,7 @@ def test_render_standalone_2_6_to_3_0_gate_parameters():
         params["deploy-profile"]
         == "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
     )
-    assert params["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
+    assert params["base-milvus-image"] == MILVUS_2_6_18_BASELINE_IMAGE
     assert (
         params["target-milvus-image"]
         == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
@@ -341,7 +345,7 @@ def test_render_cluster_2_6_to_3_0_gate_uses_pulsar_profile():
     )
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
     assert params["index-compatibility-validation-enabled"] == "true"
-    assert params["base-milvus-image"] == "harbor.milvus.io/milvusdb/milvus:v2.6.18"
+    assert params["base-milvus-image"] == MILVUS_2_6_18_BASELINE_IMAGE
     assert (
         params["rollback-milvus-image"]
         == "harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder"

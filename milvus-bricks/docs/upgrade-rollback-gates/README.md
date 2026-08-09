@@ -90,10 +90,11 @@ For normal branch or version updates, start here:
 4. `argo/*.yaml`
    - only when a new workflow parameter or DAG behavior is required.
 
-The `milvus-3-0-baseline` alias is pinned to the official multi-arch `v3.0.0`
-manifest-list digest:
+The release baseline aliases are pinned to their official multi-arch
+manifest-list digests:
 
 ```text
+harbor.milvus.io/milvusdb/milvus:v2.6.18@sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6
 harbor.milvus.io/milvusdb/milvus:v3.0.0@sha256:49371c30af46b1013e4d3e0b980e691d81376d69cdbe1b372725baf1d7255862
 ```
 

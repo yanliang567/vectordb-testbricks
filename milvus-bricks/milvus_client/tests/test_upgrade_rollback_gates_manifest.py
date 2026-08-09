@@ -17,6 +17,10 @@ MILVUS_3_0_BASELINE_IMAGE = (
     "harbor.milvus.io/milvusdb/milvus:v3.0.0@"
     "sha256:49371c30af46b1013e4d3e0b980e691d81376d69cdbe1b372725baf1d7255862"
 )
+MILVUS_2_6_18_BASELINE_IMAGE = (
+    "harbor.milvus.io/milvusdb/milvus:v2.6.18@"
+    "sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6"
+)
 
 
 def _manifest() -> dict:
@@ -556,6 +560,10 @@ def test_manifest_references_are_centralized():
     assert manifest["image_aliases"]["milvus-3-0-baseline"] == {
         "image": MILVUS_3_0_BASELINE_IMAGE,
         "version": "3.0.0",
+    }
+    assert manifest["image_aliases"]["milvus-2-6-18"] == {
+        "image": MILVUS_2_6_18_BASELINE_IMAGE,
+        "version": "2.6.18",
     }
     for scenario in manifest["scenarios"]:
         for phase in ["base", "target", "rollback"]:

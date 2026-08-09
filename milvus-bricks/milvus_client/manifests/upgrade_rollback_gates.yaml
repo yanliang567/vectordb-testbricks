@@ -41,7 +41,7 @@ schema_matrices:
 
 image_aliases:
   milvus-2-6-18:
-    image: harbor.milvus.io/milvusdb/milvus:v2.6.18
+    image: harbor.milvus.io/milvusdb/milvus:v2.6.18@sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6
     version: "2.6.18"
   milvus-2-6-latest:
     image: harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder
