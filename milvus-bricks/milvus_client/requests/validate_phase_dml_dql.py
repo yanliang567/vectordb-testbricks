@@ -850,6 +850,7 @@ def _run_existing_collection_dml_dql(
         "searches": 0,
         "search_probe_data_pk": None,
         "search_probe_pk": None,
+        "search_probe_seed": None,
         "upsert_skipped_auto_id": False,
         "visibility_attempts": 0,
     }
@@ -994,18 +995,22 @@ def _run_existing_collection_dml_dql(
         report.failures.extend(visibility_report.failures)
     if rows <= 0:
         return metrics
-    search_probe_data_pk = _select_phase_search_probe_pk(spec, start_id, rows, seed)
+    search_probe_seed = seed if auto_id_enabled(spec) else seed + 101
+    search_probe_data_pk = _select_phase_search_probe_pk(
+        spec, start_id, rows, search_probe_seed
+    )
     if auto_id_enabled(spec):
         search_probe_pk = inserted_ids[search_probe_data_pk - start_id]
     else:
         search_probe_pk = generate_primary_key_value(primary, search_probe_data_pk)
     metrics["search_probe_data_pk"] = search_probe_data_pk
     metrics["search_probe_pk"] = search_probe_pk
+    metrics["search_probe_seed"] = search_probe_seed
     metrics["searches"] = _run_searches(
         client,
         spec,
         target_collection,
-        seed,
+        search_probe_seed,
         search_probe_data_pk,
         report,
         expected_pk=search_probe_pk,
@@ -1040,6 +1045,7 @@ def _run_new_collection_dml_dql(
         "searches": 0,
         "search_probe_data_pk": None,
         "search_probe_pk": None,
+        "search_probe_seed": None,
     }
     inserted_ids: list[Any] = []
     try:
@@ -1107,18 +1113,22 @@ def _run_new_collection_dml_dql(
         )
     if rows <= 0:
         return metrics
-    search_probe_data_pk = _select_phase_search_probe_pk(spec, start_id, rows, seed)
+    search_probe_seed = seed
+    search_probe_data_pk = _select_phase_search_probe_pk(
+        spec, start_id, rows, search_probe_seed
+    )
     if auto_id_enabled(spec):
         search_probe_pk = inserted_ids[search_probe_data_pk - start_id]
     else:
         search_probe_pk = generate_primary_key_value(primary, search_probe_data_pk)
     metrics["search_probe_data_pk"] = search_probe_data_pk
     metrics["search_probe_pk"] = search_probe_pk
+    metrics["search_probe_seed"] = search_probe_seed
     metrics["searches"] = _run_searches(
         client,
         spec,
         target_collection,
-        seed,
+        search_probe_seed,
         search_probe_data_pk,
         report,
         expected_pk=search_probe_pk,
@@ -1200,6 +1210,12 @@ def _validate_existing_phase_checkpoint_collection(
             or int(checkpoint["start_id"]) + int(checkpoint["rows"]) - 1
         )
         search_probe_pk = checkpoint.get("search_probe_pk", _EXPECTED_PK_UNSET)
+        search_probe_seed = int(
+            checkpoint.get(
+                "search_probe_seed",
+                seed if auto_id_enabled(spec) else seed + 101,
+            )
+        )
         if search_probe_pk is _EXPECTED_PK_UNSET and auto_id_enabled(spec):
             report.fail(
                 PHASE_DQL_FAILED,
@@ -1212,7 +1228,7 @@ def _validate_existing_phase_checkpoint_collection(
             client,
             spec,
             collection,
-            seed,
+            search_probe_seed,
             search_probe_data_pk,
             report,
             expected_pk=search_probe_pk,
@@ -1262,6 +1278,7 @@ def _validate_new_phase_checkpoint_collection(
             or int(checkpoint["start_id"]) + int(checkpoint["rows"]) - 1
         )
         search_probe_pk = checkpoint.get("search_probe_pk", _EXPECTED_PK_UNSET)
+        search_probe_seed = int(checkpoint.get("search_probe_seed", seed))
         if search_probe_pk is _EXPECTED_PK_UNSET and auto_id_enabled(spec):
             report.fail(
                 PHASE_DQL_FAILED,
@@ -1274,7 +1291,7 @@ def _validate_new_phase_checkpoint_collection(
             client,
             spec,
             collection,
-            seed,
+            search_probe_seed,
             search_probe_data_pk,
             report,
             expected_pk=search_probe_pk,

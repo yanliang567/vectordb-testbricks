@@ -1,6 +1,8 @@
 import json
+import math
 import re
 
+from milvus_client.common.data import generate_rows
 from milvus_client.common.schema import (
     FieldSpec,
     FunctionSpec,
@@ -164,6 +166,21 @@ class PhaseClient:
         return [[hit]]
 
 
+class StoredVectorSearchPhaseClient(PhaseClient):
+    def search(self, **kwargs):
+        self.calls.append(("search", kwargs))
+        equality = re.search(r"==\s*(\d+)", kwargs.get("filter", ""))
+        hit_id = int(equality.group(1))
+        query = kwargs["data"][0]
+        stored = self.rows[kwargs["collection_name"]][hit_id][kwargs["anns_field"]]
+        numerator = sum(
+            float(left) * float(right) for left, right in zip(query, stored)
+        )
+        query_norm = math.sqrt(sum(float(value) ** 2 for value in query))
+        stored_norm = math.sqrt(sum(float(value) ** 2 for value in stored))
+        return [[{"id": hit_id, "distance": numerator / (query_norm * stored_norm)}]]
+
+
 class NoopUpsertPhaseClient(PhaseClient):
     def upsert(self, **kwargs):
         self.calls.append(("upsert", kwargs))
@@ -179,14 +196,14 @@ class MissingAutoIdResponseClient(PhaseClient):
         return {}
 
 
-def _dense_spec(auto_id: bool = False) -> SchemaSpec:
+def _dense_spec(auto_id: bool = False, dim: int = 4) -> SchemaSpec:
     return SchemaSpec(
         name="dense",
         version="test",
         fields=[
             FieldSpec(name="id", dtype="INT64", primary=True, auto_id=auto_id),
             FieldSpec(name="category", dtype="INT64"),
-            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=dim),
         ],
         indexes=[
             IndexSpec(field="category", index_type="INVERTED"),
@@ -384,6 +401,32 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
     assert "search" in call_names
 
 
+def test_existing_phase_search_uses_upserted_vector_values():
+    spec = _dense_spec(dim=128)
+    client = StoredVectorSearchPhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        spec,
+        "qa_dense",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    search_call = next(payload for name, payload in client.calls if name == "search")
+    expected = generate_rows(spec, 50_000_003, 1, seed=108)[0]["embedding"]
+    assert report.passed
+    assert metrics["search_probe_seed"] == 108
+    assert search_call["data"] == [expected]
+
+
 def test_phase_dml_dql_minhash_search_uses_function_input_text():
     client = PhaseClient()
     report = ValidationReport()
@@ -569,11 +612,59 @@ def test_phase_dml_dql_writes_after_upgrade_phase_checkpoint(monkeypatch, tmp_pa
         == 50000003
     )
     assert (
+        checkpoint_payload["existing_collections"]["qa_dense"]["search_probe_seed"]
+        == 101
+    )
+    assert (
         checkpoint_payload["new_collections"]["qa_after_upgrade_dense"]["inserted"] == 4
     )
     assert checkpoint_payload["new_collections"]["qa_after_upgrade_dense"][
         "sample_values"
     ] == [60000000, 60000003]
+    assert (
+        checkpoint_payload["new_collections"]["qa_after_upgrade_dense"][
+            "search_probe_seed"
+        ]
+        == 17
+    )
+
+
+def test_phase_checkpoint_reuses_recorded_existing_search_probe_seed():
+    spec = _dense_spec(dim=128)
+    client = StoredVectorSearchPhaseClient()
+    client._store_rows(
+        "qa_dense",
+        generate_rows(spec, start_id=50_000_003, count=1, seed=108),
+    )
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._validate_existing_phase_checkpoint_collection(
+        client,
+        spec,
+        {
+            "collection": "qa_dense",
+            "primary_field": "id",
+            "remaining_count": 1,
+            "remaining_min_pk": 50_000_003,
+            "remaining_max_pk": 50_000_003,
+            "remaining_values": [50_000_003],
+            "deleted_values": [],
+            "upsert_samples": {"field": None, "samples": []},
+            "rows": 1,
+            "start_id": 50_000_003,
+            "search_probe_data_pk": 50_000_003,
+            "search_probe_pk": 50_000_003,
+            "search_probe_seed": 108,
+        },
+        report,
+        seed=7,
+    )
+
+    search_call = next(payload for name, payload in client.calls if name == "search")
+    expected = generate_rows(spec, 50_000_003, 1, seed=108)[0]["embedding"]
+    assert searches == 1
+    assert report.passed
+    assert search_call["data"] == [expected]
 
 
 def test_after_rollback_validates_after_upgrade_phase_checkpoint_before_new_dml(

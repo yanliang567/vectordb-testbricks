@@ -88,12 +88,14 @@ Milvus resolves target index versions against current/min/max engine versions.
 The public SDK index metadata does not expose the exact version used by each
 build. It also reports a scalar AutoIndex through the user-facing
 `AUTOINDEX` type even when the internal index params resolve it to `HYBRID`.
-The gate therefore compares a resolved type only when the server explicitly
-exposes one, records unavailable resolved metadata as an observation, and
-validates the target configuration plus executable SINDI/Block-Max and JSON
-index behavior. Real-cluster execution preserves MixCoord/DataNode logs
-containing the internal `HYBRID` params, `currentIndexVersion`, and
-`currentScalarIndexVersion` as supplementary evidence.
+When the matrix declares `expected_resolved_index_type`, the gate now requires
+the public metadata to expose that resolved type and fails closed when it is
+unavailable. It also validates the target configuration plus executable
+SINDI/Block-Max and JSON index behavior. Real-cluster execution preserves
+MixCoord/DataNode logs containing the internal `HYBRID` params,
+`currentIndexVersion`, and `currentScalarIndexVersion` as supplementary evidence
+for engine-version resolution; those logs do not turn unavailable required SDK
+metadata into a passing gate.
 
 ### Gate Scenarios and Workflows
 

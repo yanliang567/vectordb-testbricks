@@ -320,6 +320,8 @@ Real execution exposed and drove the following PR improvements:
   and unrelated rows are returned
 - made phase searches filter and assert the phase-written PK, StructArray
   offset, and self-search score/distance instead of accepting any old hit
+- rebuilt existing-collection search probes from the post-upsert seed and
+  persisted that seed for rollback checkpoint validation
 - required AutoID insert responses to return one unique PK per row and stored
   both generation PKs and actual Milvus PKs for rollback search probes
 - made declared `expected_resolved_index_type` fail closed when public index
@@ -335,17 +337,17 @@ Real execution exposed and drove the following PR improvements:
 Final review also found two test files that did not match the configured Ruff
 formatter. They were mechanically formatted; no runtime behavior changed.
 
-The phase-search, AutoID, resolved-index, and MinHash coverage changes above
-were post-execution review hardening. They were covered by offline regression
-tests; the historical Kubernetes runs in this report were not rerun for these
-test-framework-only changes.
+The phase-search, upsert-seed, AutoID, resolved-index, and MinHash coverage
+changes above were post-execution review hardening. They were covered by offline
+regression tests; the historical Kubernetes runs in this report were not rerun
+for these test-framework-only changes.
 
 ## Local and CI Verification
 
 Offline unit tests:
 
 ```text
-342 passed, 2 deselected
+344 passed, 2 deselected
 ```
 
 The two deselected tests require the external Helm GitHub Pages repository.
