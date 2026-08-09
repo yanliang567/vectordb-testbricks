@@ -239,16 +239,47 @@ Result: passed with no whitespace errors.
 
 Whole-repository Ruff was not used as a completion gate because legacy scripts currently contain unrelated pre-existing Ruff violations. All changed Python files are clean.
 
-## Remaining Environment Validation
+## Live Environment Validation
 
-No live Milvus, Kubernetes, Milvus Operator, Helm deployment, or Argo Workflow execution was performed in this implementation pass. The following behavior still requires execution on the QA cluster:
+Live Milvus, Kubernetes, Helm, and Argo validation was completed on the QA
+cluster after the implementation pass. The complete workflow matrix, metrics,
+logs, blocker analysis, cleanup verification, and acceptance status are in:
 
-- Milvus 2.6.18 StructArray and six nullable-vector schemas can be created and reused after `2.6 -> 3.0 -> 2.6`
-- StructArray nested scalar indexes execute successfully on Milvus 3.0 and remain usable after rollback to the pinned 3.0 baseline
-- TEXT LOB values survive the Loon/Vortex upgrade/rollback path
-- FAISS, MinHash, Entity TTL, SINDI/Block-Max, and JSON scalar index families behave as expected on the target images
-- Runtime pods expose the requested vector/scalar target versions `10/4`, and
-  DataNode build logs provide the resolved/current engine-version evidence
-- The two Helm rendering integration tests pass when `https://zilliztech.github.io/milvus-helm/` is reachable
+[2026-08-09-upgrade-rollback-type-index-coverage-execution.md](2026-08-09-upgrade-rollback-type-index-coverage-execution.md)
 
-These are environment-level acceptance checks; the local schema construction, contract tests, workflow lint, and report fail-closed behavior are implemented and verified.
+Confirmed passing behavior:
+
+- A 5000-row `2.6.18 -> newer 3.0 -> latest 2.6` run passed with the current
+  PR commit and pinned image digests.
+- The 2.6 rollback-safe StructArray, all six nullable vector types, Geometry,
+  and 47 index definitions remained queryable after rollback without rebuild.
+- StructArray nested FLOAT/VARCHAR/INT64/BOOL scalar indexes executed their
+  target-side filter probes.
+- Standalone JSON Shredding passed nested JSON paths, dynamic JSON checksums,
+  six indexes, full DML pressure, and rollback reuse at 5000 rows.
+- Cluster JSON Shredding passed the same format/index contract under read-only
+  continuous pressure plus explicit phase insert/upsert/delete validation.
+- Index engine versions `10/4` were confirmed through real DataNode/MixCoord
+  5000-row build logs, including SINDI, Block-Max, JSON scalar indexes, and
+  internal AutoIndex resolution to HYBRID.
+- FAISS, MinHash, Entity TTL, Geometry, nullable vectors, and the common 3.0
+  nested scalar index probes executed successfully outside the product defects
+  listed below.
+
+Confirmed Milvus blockers:
+
+- StructArray FLOAT16 DISKANN returns a negative MAX_SIM_COSINE exact
+  self-score.
+- SINDI growing-index construction can crash QueryNode after selecting an
+  unsupported effective index version.
+- v3.0.0 cannot decode `vortex.variant` files written by the newer 3.0 target.
+- Continuous cluster DML across the Woodpecker rollout/rollback can lose reader
+  temporary state and permanently stall selected channel tSafe values.
+
+Each blocker has a reproduction and issue draft in this report directory. The
+test gates remain strict and expose these failures rather than converting them
+to warnings.
+
+The final offline unit test set completed with `336 passed, 2 deselected`. The
+two online Helm rendering tests still fail before chart rendering because the
+external GitHub Pages repository resets the connection.

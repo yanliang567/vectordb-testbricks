@@ -14,13 +14,21 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_brick_catalog_is_valid():
     catalog = yaml.safe_load((ROOT / "manifests" / "brick_catalog.yaml").read_text())
     features = load_feature_inventory(ROOT / "manifests" / "feature_inventory.yaml")
-    capabilities = load_capability_catalog(ROOT / "manifests" / "capability_catalog.yaml")
+    capabilities = load_capability_catalog(
+        ROOT / "manifests" / "capability_catalog.yaml"
+    )
     names = set()
     for brick in catalog["bricks"]:
         assert brick["name"] not in names
         names.add(brick["name"])
         import_module(brick["module"])
-        assert brick["category"] in {"environment", "schema", "dml", "validation", "workload"}
+        assert brick["category"] in {
+            "environment",
+            "schema",
+            "dml",
+            "validation",
+            "workload",
+        }
         assert brick["milvus_versions"]
         assert brick["compat_mode"] in COMPAT_MODES
         for phase in brick["lifecycle_phases"]:
