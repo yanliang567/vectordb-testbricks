@@ -86,6 +86,9 @@ class FeatureSpec:
     compat_mode: str
     required_capabilities: list[str] = field(default_factory=list)
     bricks: list[str] = field(default_factory=list)
+    coverage_mode: str = "strict"
+    strict_assertions: list[str] = field(default_factory=list)
+    observational_metrics: list[str] = field(default_factory=list)
 
 
 VECTOR_TYPES = {
@@ -213,6 +216,9 @@ def load_feature_inventory(path: str | Path) -> dict[str, FeatureSpec]:
             compat_mode=item.get("compat_mode", "forward_only"),
             required_capabilities=list(item.get("required_capabilities", [])),
             bricks=list(item.get("bricks", [])),
+            coverage_mode=item.get("coverage_mode", "strict"),
+            strict_assertions=list(item.get("strict_assertions", [])),
+            observational_metrics=list(item.get("observational_metrics", [])),
         )
         features[spec.id] = spec
     return features

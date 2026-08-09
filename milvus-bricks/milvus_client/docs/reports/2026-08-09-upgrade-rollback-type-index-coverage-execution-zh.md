@@ -18,7 +18,7 @@ a5d91d69d48672832b9bf075c1dee0ba0a664720
 
 总体结论：
 
-- 测试框架实现通过 review，未发现新的 P1/P2 代码问题。
+- 后续 review 提出的 2 个 P1、2 个 P2 均已修复，未留下未处理的 P1/P2 代码问题。
 - `2.6.18 -> 3.0 -> latest 2.6` rollback-safe 路径通过。
 - index engine version `10/4` 的 sealed index 构建及回滚复用通过。
 - standalone JSON Shredding 全 DML 升级/回滚通过。
@@ -164,7 +164,7 @@ Woodpecker 和 index build 日志，不单独计为 gate 结果。
 | 功能 | 覆盖 |
 |---|---|
 | BM25 Function | VARCHAR/TEXT 输入，SPARSE_FLOAT_VECTOR 输出，BM25 ranking |
-| MinHash Function | VARCHAR 输入，BINARY_VECTOR 输出，MINHASH_LSH + MHJACCARD |
+| MinHash Function | VARCHAR 输入，BINARY_VECTOR 输出，MINHASH_LSH + MHJACCARD；exact self-search 为强校验，近重复召回为观测指标 |
 | JSON AutoIndex | 用户配置 AUTOINDEX，内部解析 HYBRID |
 | index version | vector index version 10、scalar index version 4 |
 | Storage V3 | LoonFFI、Vortex、TEXT LOB |
@@ -252,7 +252,7 @@ Sparse/Function 索引：
 - Entity TTL expired/future/NULL 可见性。
 - TEXT bytes/chars/prefix/suffix/SHA256。
 - TEXT_MATCH、PHRASE_MATCH、BM25。
-- MinHash 近重复和无关文本排序关系。
+- MinHash exact document self-search 为强校验；近重复和无关文本是否召回为观测指标，仅在两者都返回时强校验排序关系。
 
 ### 7.5 压力和可用性
 
@@ -462,11 +462,24 @@ Review 范围：
 
 Review 结论：
 
-- 未发现新的 P1/P2 代码问题。
+- 后续 review 发现并修复 4 个覆盖缺口：phase search 旧数据假命中、
+  Auto-ID 空 ID 响应假绿、resolved index type 不可观测时 fail-open、
+  MinHash 近重复召回覆盖口径过强。
+- phase search 现在按本阶段真实 PK 加 filter，并校验 PK、StructArray offset
+  和适用的 self-search score/distance。
+- Auto-ID 现在要求每行返回唯一 ID，按原始数据行顺序保存实际 Milvus PK，
+  rollback checkpoint 同时记录 generation PK 和实际 search probe PK。
+- matrix 声明 `expected_resolved_index_type` 后，SDK metadata 不可观测也会
+  以 `INDEX_METADATA_MISMATCH` 失败。
+- MinHash exact self-search 保持强校验；近重复召回明确降级为观测指标，
+  仅在 near/unrelated 都返回时强校验排序。
 - 所有已知产品失败均保持 fail-closed。
 - JSON/Loon specialty matrix 与 StructArray core matrix 已隔离，避免无关问题互相遮蔽。
 - index version 场景使用 read-only continuous pressure 是已知 SINDI crash 下的明确隔离策略，phase DML/DQL 仍覆盖写操作。
 - 最终 review 发现两份 issue 草稿末尾多余空行，已修复。
+
+上述 4 项属于真实执行完成后的测试框架 review hardening，已完成离线回归；
+本报告中的历史 Kubernetes workflow 没有因这些纯测试框架变更重新执行。
 
 剩余风险：
 
@@ -477,7 +490,7 @@ Review 结论：
 ## 11. 自动化验证
 
 ```text
-offline pytest: 336 passed, 2 deselected, 1 warning
+offline pytest: 342 passed, 2 deselected
 Argo offline lint: passed
 Ruff check: passed
 Ruff format check: passed

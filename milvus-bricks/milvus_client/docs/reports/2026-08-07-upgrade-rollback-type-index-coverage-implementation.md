@@ -61,7 +61,9 @@ These schemas are consumed by the existing standalone and cluster `2.6 -> 3.0 ->
   validation
 - StructArray FLOAT16_VECTOR with DISKANN
 - FAISS factories for dense and binary vectors
-- MinHash function output with MINHASH_LSH and MHJACCARD ranking validation
+- MinHash function output with strict exact self-search plus observational
+  near-duplicate recall; ranking is checked only when both near-duplicate and
+  unrelated rows are returned
 - TIMESTAMPTZ Entity TTL with expired, future, and NULL visibility checks
 
 Each nested scalar index is exercised with a real `MATCH_ANY` filter in addition to index metadata comparison.

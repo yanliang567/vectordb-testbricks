@@ -252,6 +252,16 @@ def test_minhash_validator_allows_approximate_near_duplicate_omission():
     )
 
     assert report.passed
+    assert (
+        report.metrics["qa_minhash.minhash_search.coverage_mode"]
+        == "exact_self_search_with_observational_near_duplicate"
+    )
+    assert report.metrics["qa_minhash.minhash_search.exact_self_search_enforced"]
+    assert not report.metrics["qa_minhash.minhash_search.near_duplicate_gate_enforced"]
+    assert (
+        report.metrics["qa_minhash.minhash_search.ranking_gate_mode"]
+        == "conditional_when_both_observational_hits_returned"
+    )
     assert report.metrics["qa_minhash.minhash_search.near_duplicate_returned"] == 0
     assert report.metrics["qa_minhash.minhash_search.unrelated_returned"] == 0
 

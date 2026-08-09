@@ -341,6 +341,15 @@ def _validate_resolved_index_types(
                 int(report.metrics.get("resolved_index_types_unobservable_total", 0))
                 + 1
             )
+            report.fail(
+                INDEX_METADATA_MISMATCH,
+                "resolved index type is required but unavailable",
+                collection=collection,
+                field=index.field,
+                expected_resolved_index_type=expected,
+                actual_index_type=None,
+                resolved_index_type_source=source,
+            )
             continue
         if actual != expected:
             report.fail(

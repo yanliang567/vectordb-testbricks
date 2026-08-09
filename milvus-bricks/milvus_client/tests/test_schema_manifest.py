@@ -38,6 +38,23 @@ def test_schema_matrix_manifests_are_valid():
         assert errors == []
 
 
+def test_minhash_inventory_marks_approximate_recall_as_observational():
+    features = load_feature_inventory(ROOT / "manifests" / "feature_inventory.yaml")
+    minhash = features["minhash"]
+
+    assert minhash.coverage_mode == (
+        "exact_self_search_with_observational_near_duplicate"
+    )
+    assert minhash.strict_assertions == [
+        "exact_document_returned",
+        "near_duplicate_ranks_above_unrelated_when_both_are_returned",
+    ]
+    assert minhash.observational_metrics == [
+        "near_duplicate_returned",
+        "unrelated_returned",
+    ]
+
+
 @pytest.mark.parametrize("version", [None, "unknown"])
 def test_load_schema_matrix_requires_parseable_version(tmp_path, version):
     matrix = tmp_path / "invalid-version.yaml"

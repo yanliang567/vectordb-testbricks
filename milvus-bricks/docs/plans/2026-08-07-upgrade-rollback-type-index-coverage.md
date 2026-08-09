@@ -154,7 +154,8 @@ checkpoint 必须比较 `faiss_index_name`，search 使用 matrix 中显式的 `
 - 输出：`BINARY_VECTOR`
 - Function：`MINHASH`，`num_hashes=128`、`shingle_size=3`
 - Index：`MINHASH_LSH`、`MHJACCARD`、`mh_lsh_band=8`
-- 断言：近重复文档排在无关文档之前；upgrade 和 rollback 后结果关系保持。
+- 断言：exact document 必须召回；近重复和无关文档召回率作为观测指标，
+  仅在两者都返回时要求近重复排在无关文档之前。upgrade 后重复执行该口径。
 
 #### `timestamptz_entity_ttl`
 
@@ -381,7 +382,8 @@ PYTHONPATH=. uv run pytest -q \
 - matrix 中存在显式 `VARCHAR + INVERTED` 和 `VARCHAR + BITMAP` Struct sub-field。
 - after-upgrade、after-rollback 的 scalar indexed query metrics 均大于等于 6。
 - FAISS checkpoint 保留 factory string。
-- MinHash search 验证近重复关系，不只验证有结果。
+- MinHash search 强校验 exact document；近重复召回为观测指标，仅在 near 和
+  unrelated 都返回时强校验排序关系，报告不得宣称确定性近重复召回覆盖。
 - TTL collection properties 和过期行为都被验证。
 
 ### 任务 7：增加 TEXT/LOB Storage V3 matrix

@@ -157,6 +157,13 @@ features:
     priority: P1
     compat_mode: forward_only
     required_capabilities: ["MinHash"]
+    coverage_mode: exact_self_search_with_observational_near_duplicate
+    strict_assertions:
+      - exact_document_returned
+      - near_duplicate_ranks_above_unrelated_when_both_are_returned
+    observational_metrics:
+      - near_duplicate_returned
+      - unrelated_returned
     bricks:
       - validate_schema_features
 

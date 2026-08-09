@@ -1751,7 +1751,7 @@ def test_resolved_autoindex_type_uses_server_resolved_params():
     }
 
 
-def test_resolved_autoindex_type_is_unobservable_in_real_sdk_metadata():
+def test_resolved_autoindex_type_fails_when_real_sdk_metadata_is_unobservable():
     spec = SchemaSpec(
         name="json_auto",
         version="3.0",
@@ -1785,13 +1785,24 @@ def test_resolved_autoindex_type_is_unobservable_in_real_sdk_metadata():
         report,
     )
 
-    assert report.passed
+    assert not report.passed
     assert report.metrics == {
         "qa_json_auto.json_auto.resolved_index_type.expected": "HYBRID",
         "qa_json_auto.json_auto.resolved_index_type.observed": "unavailable",
         "qa_json_auto.json_auto.resolved_index_type.source": "public_sdk_unavailable",
         "resolved_index_types_unobservable_total": 1,
     }
+    assert report.failures == [
+        {
+            "type": validate_index_compatibility.INDEX_METADATA_MISMATCH,
+            "message": "resolved index type is required but unavailable",
+            "collection": "qa_json_auto",
+            "field": "json_auto",
+            "expected_resolved_index_type": "HYBRID",
+            "actual_index_type": None,
+            "resolved_index_type_source": "public_sdk_unavailable",
+        }
+    ]
 
 
 def test_resolved_autoindex_type_fails_on_explicit_mismatch():

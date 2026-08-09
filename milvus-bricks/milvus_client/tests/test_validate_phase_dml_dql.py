@@ -1,15 +1,32 @@
 import json
 import re
 
-from milvus_client.common.schema import FieldSpec, FunctionSpec, IndexSpec, SchemaSpec
+from milvus_client.common.schema import (
+    FieldSpec,
+    FunctionSpec,
+    IndexSpec,
+    SchemaSpec,
+    StructArraySpec,
+)
 from milvus_client.common.validators import ValidationReport
 from milvus_client.requests import validate_phase_dml_dql
 
 
 class PhaseClient:
-    def __init__(self, *, auto_id: bool = False, search_fails: bool = False):
+    def __init__(
+        self,
+        *,
+        auto_id: bool = False,
+        search_fails: bool = False,
+        search_hit_id=None,
+        search_hit_offset=None,
+        search_distance: float = 1.0,
+    ):
         self.auto_id = auto_id
         self.search_fails = search_fails
+        self.search_hit_id = search_hit_id
+        self.search_hit_offset = search_hit_offset
+        self.search_distance = search_distance
         self.calls = []
         self.collections = {"qa_dense"}
         self.rows = {}
@@ -115,8 +132,7 @@ class PhaseClient:
         if " in [" in filter_expr:
             pks = [int(value) for value in re.findall(r"\d+", filter_expr)]
             rows = self._project_rows(collection_name, pks, output_fields)
-            if rows:
-                return rows
+            return rows
         if collection_name == "qa_dense" and (
             "== 50000000" in filter_expr or "== 70000000" in filter_expr
         ):
@@ -138,13 +154,29 @@ class PhaseClient:
         self.calls.append(("search", kwargs))
         if self.search_fails:
             raise RuntimeError("search unavailable")
-        return [[{"id": 1, "distance": 0.1}]]
+        equality = re.search(r"==\s*(\d+)", kwargs.get("filter", ""))
+        hit_id = self.search_hit_id
+        if hit_id is None:
+            hit_id = int(equality.group(1)) if equality else 1
+        hit = {"id": hit_id, "distance": self.search_distance}
+        if self.search_hit_offset is not None:
+            hit["offset"] = self.search_hit_offset
+        return [[hit]]
 
 
 class NoopUpsertPhaseClient(PhaseClient):
     def upsert(self, **kwargs):
         self.calls.append(("upsert", kwargs))
         return {"upsert_count": len(kwargs["data"])}
+
+
+class MissingAutoIdResponseClient(PhaseClient):
+    def __init__(self):
+        super().__init__(auto_id=True)
+
+    def insert(self, **kwargs):
+        self.calls.append(("insert", kwargs))
+        return {}
 
 
 def _dense_spec(auto_id: bool = False) -> SchemaSpec:
@@ -182,6 +214,19 @@ def _explicit_partition_spec() -> SchemaSpec:
     )
 
 
+def _auto_id_partition_spec() -> SchemaSpec:
+    return SchemaSpec(
+        name="auto_id_partition",
+        version="test",
+        partitions=["p0", "p1"],
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True, auto_id=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+        ],
+        indexes=[IndexSpec(field="embedding", index_type="HNSW", metric_type="COSINE")],
+    )
+
+
 def _minhash_spec() -> SchemaSpec:
     return SchemaSpec(
         name="minhash",
@@ -209,6 +254,30 @@ def _minhash_spec() -> SchemaSpec:
                 field="minhash",
                 index_type="MINHASH_LSH",
                 metric_type="MHJACCARD",
+            )
+        ],
+    )
+
+
+def _struct_array_spec() -> SchemaSpec:
+    return SchemaSpec(
+        name="struct_array",
+        version="3.0",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        struct_arrays=[
+            StructArraySpec(
+                name="items",
+                max_capacity=4,
+                fields=[
+                    FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+                ],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="items[embedding]",
+                index_type="HNSW",
+                metric_type="COSINE",
             )
         ],
     )
@@ -332,7 +401,68 @@ def test_phase_dml_dql_minhash_search_uses_function_input_text():
     assert report.passed
     assert searches == 1
     assert search_call["data"] == ["the quick brown fox jumps over a lazy dog"]
+    assert search_call["filter"] == "id == 6000001"
     assert search_call["search_params"]["metric_type"] == "MHJACCARD"
+
+
+def test_phase_search_rejects_irrelevant_old_primary_key_hit():
+    client = PhaseClient(search_hit_id=1)
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._run_searches(
+        client,
+        _dense_spec(),
+        "qa_dense",
+        seed=7,
+        pk=50_000_003,
+        report=report,
+    )
+
+    assert searches == 1
+    assert not report.passed
+    assert report.failures[0]["type"] == validate_phase_dml_dql.PHASE_DQL_FAILED
+    assert report.failures[0]["expected_pk"] == 50_000_003
+    assert report.failures[0]["actual_pks"] == [1]
+
+
+def test_phase_struct_array_search_requires_matching_element_offset():
+    client = PhaseClient(search_hit_offset=1)
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._run_searches(
+        client,
+        _struct_array_spec(),
+        "qa_struct_array",
+        seed=7,
+        pk=50_000_003,
+        report=report,
+    )
+
+    assert searches == 1
+    assert not report.passed
+    assert report.failures[0]["expected_pk"] == 50_000_003
+    assert report.failures[0]["expected_offset"] == 0
+    assert report.failures[0]["actual_offsets"] == [1]
+
+
+def test_phase_search_rejects_invalid_self_search_score():
+    client = PhaseClient(search_distance=0.1)
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._run_searches(
+        client,
+        _dense_spec(),
+        "qa_dense",
+        seed=7,
+        pk=50_000_003,
+        report=report,
+    )
+
+    assert searches == 1
+    assert not report.passed
+    assert report.failures[0]["type"] == validate_phase_dml_dql.PHASE_DQL_FAILED
+    assert report.failures[0]["distance"] == 0.1
+    assert report.failures[0]["min_score"] == 0.9
 
 
 def test_wait_for_validation_retries_until_dml_becomes_visible(monkeypatch):
@@ -374,6 +504,26 @@ def test_phase_dml_dql_upserts_explicit_partition_rows_in_original_partitions():
     assert [len(call["data"]) for call in upsert_calls] == [2, 1]
 
 
+def test_auto_id_insert_preserves_data_row_to_generated_pk_mapping_across_partitions():
+    client = PhaseClient(auto_id=True)
+    spec = _auto_id_partition_spec()
+    rows = [
+        {"embedding": [0.1] * 4},
+        {"embedding": [0.2] * 4},
+        {"embedding": [0.3] * 4},
+    ]
+
+    ids = validate_phase_dml_dql._insert_rows(
+        client,
+        spec,
+        "qa_auto_partitioned",
+        rows,
+        start_id=0,
+    )
+
+    assert ids == [1000, 1002, 1001]
+
+
 def test_phase_dml_dql_writes_after_upgrade_phase_checkpoint(monkeypatch, tmp_path):
     checkpoint = _checkpoint(tmp_path)
     phase_checkpoint = tmp_path / "phase_dml_dql_after_upgrade.json"
@@ -397,6 +547,8 @@ def test_phase_dml_dql_writes_after_upgrade_phase_checkpoint(monkeypatch, tmp_pa
     checkpoint_payload = json.loads(phase_checkpoint.read_text())
     assert code == 0
     assert result["status"] == "passed"
+    assert result["checkpoint"]["version"] == 2
+    assert checkpoint_payload["version"] == 2
     assert checkpoint_payload["phase"] == "after-upgrade"
     assert (
         checkpoint_payload["existing_collections"]["qa_dense"]["start_id"] == 50000000
@@ -408,6 +560,14 @@ def test_phase_dml_dql_writes_after_upgrade_phase_checkpoint(monkeypatch, tmp_pa
         50000000
     ]
     assert checkpoint_payload["existing_collections"]["qa_dense"]["upsert_samples"]
+    assert (
+        checkpoint_payload["existing_collections"]["qa_dense"]["search_probe_data_pk"]
+        == 50000003
+    )
+    assert (
+        checkpoint_payload["existing_collections"]["qa_dense"]["search_probe_pk"]
+        == 50000003
+    )
     assert (
         checkpoint_payload["new_collections"]["qa_after_upgrade_dense"]["inserted"] == 4
     )
@@ -513,10 +673,43 @@ def test_phase_dml_dql_deletes_auto_id_inserted_rows_and_skips_upsert(
     assert result["status"] == "passed"
     assert result["metrics"]["existing_upserted_total"] == 0
     assert result["metrics"]["existing_upsert_skipped_auto_id_total"] == 1
+    existing = result["metrics"]["existing_collections"][0]
+    assert existing["inserted_values"] == [1000, 1001, 1002, 1003]
+    assert existing["remaining_values"] == [1001, 1002, 1003]
+    assert existing["search_probe_data_pk"] == 50000003
+    assert existing["search_probe_pk"] == 1003
     assert "upsert" not in call_names
     assert any(
         call[0] == "delete" and "1000" in call[1]["filter"] for call in client.calls
     )
+    assert any(
+        call[0] == "search" and call[1]["filter"] == "id == 1003"
+        for call in client.calls
+    )
+
+
+def test_existing_auto_id_phase_fails_when_insert_response_has_no_ids():
+    client = MissingAutoIdResponseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        _dense_spec(auto_id=True),
+        "qa_dense",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    assert not report.passed
+    assert metrics["inserted"] == 0
+    assert report.failures[0]["type"] == validate_phase_dml_dql.PHASE_DML_FAILED
+    assert "returned 0 primary keys for 2 rows" in report.failures[0]["error"]
 
 
 def test_phase_dml_dql_mutates_carried_upgrade_collection_after_rollback(

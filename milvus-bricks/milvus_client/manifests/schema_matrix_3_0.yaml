@@ -128,7 +128,7 @@ schemas:
       - {field: binary_flat, index_type: FAISS, metric_type: HAMMING, params: {faiss_index_name: BFlat}}
 
   - name: minhash_lsh
-    description: "MinHash function output and MINHASH_LSH near-duplicate search"
+    description: "MinHash exact self-search with observational near-duplicate recall"
     feature_tags: ["minhash"]
     compat_mode: forward_only
     required_capabilities: ["MinHash"]

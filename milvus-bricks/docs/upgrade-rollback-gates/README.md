@@ -58,7 +58,8 @@ The regular matrices include the promoted type/index coverage:
   all six nullable vector types, Geometry/RTREE, and explicit legacy indexes.
 - `schema_matrix_3_0.yaml`: StructArray nested scalar indexes including
   `FLOAT + STL_SORT/INVERTED` and `VARCHAR + INVERTED/BITMAP`, EmbList DISKANN,
-  FAISS, MinHash, and TIMESTAMPTZ entity TTL.
+  FAISS, MinHash exact self-search with observational near-duplicate recall,
+  and TIMESTAMPTZ entity TTL.
 - `schema_matrix_3_0_index_v10_v4.yaml`: SINDI, Block-Max sparse algorithms,
   JSON scalar indexes, and resolved HYBRID AutoIndex with runtime target
   versions `10/4` configured. Public SDK index metadata does not expose the

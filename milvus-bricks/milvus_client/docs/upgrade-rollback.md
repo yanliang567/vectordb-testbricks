@@ -195,9 +195,10 @@ forward collection phases when enabled. These checks cover StructArray scalar
 round-trip, non-`MAX_SIM_*` element search `id + offset`, `MAX_SIM_*`
 `EmbeddingList` row-level search by expected PK, nested scalar `MATCH_ANY`
 predicates, nullable-vector null state, Geometry predicates, TEXT LOB hashes
-and lexical search, MinHash ranking, Entity TTL visibility, and runtime index
-engine target configuration. Unknown validator names fail closed during matrix
-validation.
+and lexical search, MinHash exact self-search, observational near-duplicate
+recall with conditional ranking checks, Entity TTL visibility, and runtime
+index engine target configuration. Unknown validator names fail closed during
+matrix validation.
 
 The dedicated matrices are:
 

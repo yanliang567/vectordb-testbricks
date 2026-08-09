@@ -695,6 +695,15 @@ def validate_minhash_search(
     seed: int,
     report: ValidationReport,
 ) -> None:
+    metric_prefix = f"{collection}.minhash_search"
+    report.metrics[f"{metric_prefix}.coverage_mode"] = (
+        "exact_self_search_with_observational_near_duplicate"
+    )
+    report.metrics[f"{metric_prefix}.exact_self_search_enforced"] = True
+    report.metrics[f"{metric_prefix}.near_duplicate_gate_enforced"] = False
+    report.metrics[f"{metric_prefix}.ranking_gate_mode"] = (
+        "conditional_when_both_observational_hits_returned"
+    )
     primary = _primary_field(spec)
     data_min_pk, data_max_pk = _data_pk_range(meta)
     start = data_min_pk + ((0 - data_min_pk) % 3)
@@ -742,10 +751,10 @@ def validate_minhash_search(
             actual_pks=hit_pks,
         )
         return
-    report.metrics[f"{collection}.minhash_search.near_duplicate_returned"] = int(
+    report.metrics[f"{metric_prefix}.near_duplicate_returned"] = int(
         actual_pks[1] in hit_pks
     )
-    report.metrics[f"{collection}.minhash_search.unrelated_returned"] = int(
+    report.metrics[f"{metric_prefix}.unrelated_returned"] = int(
         actual_pks[2] in hit_pks
     )
     rank = {pk: hit_pks.index(pk) for pk in actual_pks if pk in hit_pks}
