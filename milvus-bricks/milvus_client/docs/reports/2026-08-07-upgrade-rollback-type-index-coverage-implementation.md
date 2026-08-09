@@ -98,6 +98,11 @@ The gate manifest now contains 13 promoted scenarios and one negative scenario. 
 
 The standalone and cluster Loon/Vortex scenarios now create the Storage V3 TEXT collection after the target rollout and validate it again after rollback.
 
+The standalone and cluster 3.0 core scenarios also create the complete 3.0
+matrix on the target image. This makes target-built scalar/vector index files a
+first-class rollback input instead of relying on incidental pressure flushes or
+explicit index rebuilds on the baseline collection.
+
 All three upgrade/rollback WorkflowTemplates now execute feature semantics at the required lifecycle points:
 
 - Base data before upgrade
@@ -114,6 +119,9 @@ PR review added the following fail-closed protections:
 
 - Matrix index metadata is compared with actual index type, metric, explicit
   name, and compatibility-critical parameters before checkpointing.
+- Vector search failures persist the returned PK, element offset, and score for
+  every hit so server-side ranking/sign regressions remain diagnosable after
+  workflow cleanup.
 - Missing matrix collections and validators with no applicable runtime target
   fail instead of reporting a zero-work pass.
 - Required workflow validations must report `passed`; `skipped` is accepted

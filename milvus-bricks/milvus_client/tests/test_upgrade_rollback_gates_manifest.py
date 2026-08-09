@@ -109,6 +109,25 @@ def test_standalone_2_6_target_only_feature_gate_contract():
 @pytest.mark.parametrize(
     "scenario_id",
     [
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+    ],
+)
+def test_3_0_core_gates_validate_target_created_indexes_after_rollback(
+    scenario_id,
+):
+    scenario = resolve_gate_scenario(_manifest(), scenario_id)
+
+    assert scenario["forward_schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_3_0.yaml"
+    )
+    assert scenario["forward_workload_enabled"] is True
+    assert scenario["rollback_forward_validation_enabled"] is True
+
+
+@pytest.mark.parametrize(
+    "scenario_id",
+    [
         "standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
     ],

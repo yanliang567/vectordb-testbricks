@@ -133,8 +133,9 @@ scenarios:
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
     schema_matrix_ref: "3.0"
+    forward_schema_matrix_ref: "3.0"
     collection_prefix: qa_gate_30_to_30latest
-    forward_workload_enabled: false
+    forward_workload_enabled: true
     schema_evolution_existing_enabled: true
     schema_evolution_forward_enabled: false
     rollback_forward_validation_enabled: true
@@ -339,8 +340,9 @@ scenarios:
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
     schema_matrix_ref: "3.0"
+    forward_schema_matrix_ref: "3.0"
     collection_prefix: qa_gate_cluster_30_to_30latest
-    forward_workload_enabled: false
+    forward_workload_enabled: true
     schema_evolution_existing_enabled: true
     schema_evolution_forward_enabled: false
     rollback_forward_validation_enabled: true

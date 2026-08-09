@@ -613,6 +613,14 @@ def _validate_vector_search_hit(
 ) -> None:
     assert_search_result(response, collection, field_name)
     hits = response[0]
+    actual_hits = [
+        {
+            "pk": _hit_primary_key(hit, primary_name),
+            "offset": _hit_offset(hit),
+            "distance": _hit_distance(hit),
+        }
+        for hit in hits
+    ]
     expected_hit = None
     hit_pks = []
     for hit in hits:
@@ -634,6 +642,7 @@ def _validate_vector_search_hit(
             expected_offset=expected_offset,
             actual_pks=hit_pks,
             actual_offsets=[_hit_offset(hit) for hit in hits],
+            actual_hits=actual_hits,
         )
         return
 
@@ -661,6 +670,7 @@ def _validate_vector_search_hit(
             expected_pk=expected_pk,
             distance=distance,
             max_distance=max_distance,
+            actual_hits=actual_hits,
         )
     if metric in {"COSINE", "IP"} and distance < min_score:
         report.fail(
@@ -673,6 +683,7 @@ def _validate_vector_search_hit(
             expected_pk=expected_pk,
             distance=distance,
             min_score=min_score,
+            actual_hits=actual_hits,
         )
 
 

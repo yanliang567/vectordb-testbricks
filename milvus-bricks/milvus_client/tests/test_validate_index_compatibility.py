@@ -1517,6 +1517,41 @@ def test_struct_max_sim_probe_uses_embedding_list_without_offset_requirement():
     assert report.passed
 
 
+def test_vector_score_failure_records_actual_hits():
+    report = ValidationReport()
+
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": 3, "distance": -0.99}, {"id": 4, "distance": -0.75}]],
+        "qa_struct",
+        "embeddings[vector]",
+        "id",
+        3,
+        None,
+        "MAX_SIM_COSINE",
+        report,
+        index_type="DISKANN",
+    )
+
+    assert not report.passed
+    assert report.failures == [
+        {
+            "type": "INDEX_SEARCH_FAILED",
+            "message": "indexed vector self-search score is lower than expected",
+            "collection": "qa_struct",
+            "field": "embeddings[vector]",
+            "metric_type": "MAX_SIM_COSINE",
+            "index_type": "DISKANN",
+            "expected_pk": 3,
+            "distance": -0.99,
+            "min_score": 0.9,
+            "actual_hits": [
+                {"pk": 3, "offset": None, "distance": -0.99},
+                {"pk": 4, "offset": None, "distance": -0.75},
+            ],
+        }
+    ]
+
+
 def test_struct_element_probe_and_hit_require_matching_offset():
     spec = _struct_index_spec("COSINE")
     index = spec.indexes[0]
