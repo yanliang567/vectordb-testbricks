@@ -193,6 +193,7 @@ def test_render_cluster_json_shredding_gate_parameters():
     assert params["post-upgrade-config-toggle-enabled"] == "true"
     assert params["post-upgrade-json-shredding-enabled"] == "true"
     assert params["rollback-json-shredding-enabled"] == "true"
+    assert params["schema-matrix"] == ("milvus_client/manifests/schema_matrix_2_6.yaml")
     assert params["forward-workload-enabled"] == "true"
     assert params["rollback-forward-validation-enabled"] == "true"
     assert params["forward-schema-matrix"] == (
@@ -260,7 +261,7 @@ def test_render_standalone_3_0_loon_vortex_gate_parameters():
         == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
     )
     assert params["rollback-milvus-image"] == MILVUS_3_0_BASELINE_IMAGE
-    assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
+    assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
     assert params["base-loon-ffi-enabled"] == "false"
     assert params["base-vortex-enabled"] == "false"
     assert params["target-loon-ffi-enabled"] == "true"
@@ -286,6 +287,7 @@ def test_render_standalone_json_shredding_gate_parameters():
     assert params["post-upgrade-config-toggle-enabled"] == "true"
     assert params["post-upgrade-json-shredding-enabled"] == "true"
     assert params["rollback-json-shredding-enabled"] == "true"
+    assert params["schema-matrix"] == ("milvus_client/manifests/schema_matrix_2_6.yaml")
     assert params["forward-workload-enabled"] == "true"
     assert params["rollback-forward-validation-enabled"] == "true"
     assert params["forward-schema-matrix"] == (
@@ -316,7 +318,7 @@ def test_render_cluster_3_0_loon_vortex_gate_parameters():
         == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
     )
     assert params["rollback-milvus-image"] == MILVUS_3_0_BASELINE_IMAGE
-    assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
+    assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
     assert params["base-loon-ffi-enabled"] == "false"
     assert params["base-vortex-enabled"] == "false"
     assert params["target-loon-ffi-enabled"] == "true"

@@ -586,9 +586,8 @@ def test_3_0_loon_vortex_gate_scenarios_keep_storage_features_enabled_after_upgr
         assert scenario["classification"] == "gate"
         assert scenario["support_status"] == "supported"
         assert scenario.get("allow_unsafe_negative_coverage") is not True
-        assert (
-            scenario["schema_matrix"]
-            == "milvus_client/manifests/schema_matrix_3_0.yaml"
+        assert scenario["schema_matrix"] == (
+            "milvus_client/manifests/schema_matrix_2_6.yaml"
         )
         assert scenario["base"].get("loon_ffi_enabled", False) is False
         assert scenario["base"]["vortex_enabled"] is False
@@ -646,6 +645,9 @@ def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle(
     assert scenario["post_upgrade_config_toggle_enabled"] is True
     assert scenario["post_upgrade_json_shredding_enabled"] is True
     assert scenario["rollback"]["json_shredding_enabled"] is True
+    assert scenario["schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_2_6.yaml"
+    )
     assert scenario["forward_workload_enabled"] is True
     assert scenario["rollback_forward_validation_enabled"] is True
     assert scenario["forward_schema_matrix"] == (
@@ -653,6 +655,23 @@ def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle(
     )
     assert scenario["validation_policy"]["pressure_fail_on_error"] is True
     assert scenario["validation_policy"]["gate_allow_warning"] is False
+
+
+@pytest.mark.parametrize(
+    "scenario_id",
+    [
+        "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+        "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+    ],
+)
+def test_storage_feature_gates_use_stable_rollback_safe_base_matrix(scenario_id):
+    scenario = resolve_gate_scenario(_manifest(), scenario_id)
+
+    assert scenario["schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_2_6.yaml"
+    )
 
 
 def test_negative_vortex_to_2_6_scenario_is_not_a_gate():

@@ -34,6 +34,7 @@ deploy_profiles:
 
 schema_matrices:
   "2.6": milvus_client/manifests/schema_matrix_2_6.yaml
+  rollback_safe_base: milvus_client/manifests/schema_matrix_2_6.yaml
   "3.0": milvus_client/manifests/schema_matrix_3_0.yaml
   3.0_storage_v3: milvus_client/manifests/schema_matrix_3_0_storage_v3.yaml
   3.0_index_v10_v4: milvus_client/manifests/schema_matrix_3_0_index_v10_v4.yaml
@@ -165,7 +166,7 @@ scenarios:
     support_status: supported
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
-    schema_matrix_ref: "3.0"
+    schema_matrix_ref: rollback_safe_base
     forward_schema_matrix_ref: 3.0_storage_v3
     collection_prefix: qa_gate_30_to_30latest_lv
     forward_workload_enabled: true
@@ -230,7 +231,7 @@ scenarios:
     support_status: supported
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
-    schema_matrix_ref: "3.0"
+    schema_matrix_ref: rollback_safe_base
     forward_schema_matrix_ref: json_shredding
     collection_prefix: qa_gate_30_json_shredding
     forward_workload_enabled: true
@@ -373,7 +374,7 @@ scenarios:
     submit_generate_name: c30json-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
-    schema_matrix_ref: "3.0"
+    schema_matrix_ref: rollback_safe_base
     forward_schema_matrix_ref: json_shredding
     collection_prefix: qa_gate_cluster_30_json_shredding
     forward_workload_enabled: true
@@ -448,7 +449,7 @@ scenarios:
     support_status: supported
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
-    schema_matrix_ref: "3.0"
+    schema_matrix_ref: rollback_safe_base
     forward_schema_matrix_ref: 3.0_storage_v3
     collection_prefix: qa_gate_cluster_30_to_30latest_lv
     forward_workload_enabled: true
