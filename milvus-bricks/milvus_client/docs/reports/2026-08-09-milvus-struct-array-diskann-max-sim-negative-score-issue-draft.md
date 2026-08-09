@@ -216,4 +216,3 @@ checked for their exact Knowhere build revisions and compile options.
 4. Verify index files built by the fixed target remain readable after rollback
    to the supported 3.0 baseline, if that compatibility is part of the release
    contract.
-

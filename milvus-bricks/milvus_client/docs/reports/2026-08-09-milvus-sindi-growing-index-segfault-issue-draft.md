@@ -138,4 +138,3 @@ In all cases, QueryNode must remain alive and serviceable.
 4. Add an E2E test that creates and loads a SINDI collection, inserts enough
    rows to cross the growing-index build threshold, and verifies QueryNode
    remains healthy.
-
