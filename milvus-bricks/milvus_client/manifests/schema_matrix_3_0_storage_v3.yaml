@@ -12,7 +12,7 @@ schemas:
       - text_match_phrase_match
     fields:
       - {name: id, dtype: INT64, primary: true, auto_id: false}
-      - {name: text, dtype: TEXT, nullable: true, enable_analyzer: true, analyzer_params: {type: standard}, value_profile: text_lob_boundary}
+      - {name: text, dtype: TEXT, nullable: true, enable_analyzer: true, enable_match: true, analyzer_params: {type: standard}, value_profile: text_lob_boundary}
       - {name: sparse_bm25, dtype: SPARSE_FLOAT_VECTOR}
       - {name: embedding, dtype: FLOAT_VECTOR, dim: 64}
     functions:

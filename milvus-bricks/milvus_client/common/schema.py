@@ -23,6 +23,7 @@ class FieldSpec:
     element_type: str | None = None
     max_capacity: int | None = None
     enable_analyzer: bool | None = None
+    enable_match: bool | None = None
     analyzer_params: dict[str, Any] | None = None
     value_profile: str | None = None
 
@@ -121,6 +122,7 @@ def _as_field_spec(payload: dict[str, Any]) -> FieldSpec:
         element_type=payload.get("element_type"),
         max_capacity=payload.get("max_capacity"),
         enable_analyzer=payload.get("enable_analyzer"),
+        enable_match=payload.get("enable_match"),
         analyzer_params=payload.get("analyzer_params"),
         value_profile=payload.get("value_profile"),
     )
@@ -236,6 +238,12 @@ def validate_schema_matrix(
             errors.append(f"{spec.name}: validators contains duplicates")
         for validator in unknown_validators(spec):
             errors.append(f"{spec.name}: unknown validator {validator}")
+        if "text_match_phrase_match" in spec.validators:
+            for field_spec in spec.fields:
+                if field_spec.dtype == "TEXT" and field_spec.enable_match is not True:
+                    errors.append(
+                        f"{spec.name}.{field_spec.name}: text_match_phrase_match validator requires enable_match=true"
+                    )
 
         primary_fields = [field for field in spec.fields if field.primary]
         if len(primary_fields) != 1:
@@ -467,6 +475,8 @@ def build_milvus_schema(spec: SchemaSpec):
             kwargs["element_type"] = getattr(DataType, field_spec.element_type)
         if field_spec.enable_analyzer is not None:
             kwargs["enable_analyzer"] = field_spec.enable_analyzer
+        if field_spec.enable_match is not None:
+            kwargs["enable_match"] = field_spec.enable_match
         if field_spec.analyzer_params is not None:
             kwargs["analyzer_params"] = field_spec.analyzer_params
         schema.add_field(**kwargs)

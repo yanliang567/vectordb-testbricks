@@ -1259,12 +1259,21 @@ def _pressure_maintenance_window(label="upgrade-rollout"):
         "<MilvusException: no available shard leaders: channel not available>",
         "<MilvusException: find no available mixcoord>",
         "<MilvusException: empty grpc client for mixcoord>",
+        "<MilvusException: internal count result should only have one column>",
+        (
+            "<MilvusException: pipeline [proxy-query-groupby]: node "
+            "[reduce_by_groups] operator failed: result at index 0 has "
+            "fieldDatas length 0, expected 1 (numGroupingKeys=0, numAggs=1): "
+            "service internal error>"
+        ),
     ],
     ids=[
         "channel-distribution-unavailable",
         "shard-leaders-unavailable",
         "no-available-mixcoord",
         "empty-mixcoord-grpc-client",
+        "legacy-count-result-shape",
+        "aggregate-count-result-shape",
     ],
 )
 def test_pressure_maintenance_classifier_excludes_each_rollout_service_switch_pattern(
@@ -1351,6 +1360,18 @@ def test_pressure_maintenance_classifier_keeps_rollout_service_switch_failure_st
 
     assert classification == "failed"
     assert entry["failures"][0]["error_type"] == "MilvusException"
+
+
+def test_pressure_maintenance_classifier_keeps_count_shape_failure_strict_outside_rollout():
+    result = _rollout_service_switch_result(
+        "internal count result should only have one column"
+    )
+    windows = _pressure_maintenance_window(label="schema-evolution-existing")
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"][0]["operation"] == "search"
 
 
 def test_pressure_maintenance_classifier_selects_matching_rollout_window_when_padding_overlaps_schema_window():

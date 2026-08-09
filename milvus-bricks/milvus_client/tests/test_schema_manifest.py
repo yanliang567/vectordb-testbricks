@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+import milvus_client.common.schema as schema_module
 from milvus_client.common.capability import load_capability_catalog
 from milvus_client.common.schema import (
     FieldSpec,
@@ -212,6 +213,7 @@ def test_storage_v3_and_index_version_matrices_cover_promoted_features():
     text_spec = storage_specs[0]
     text_field = next(field for field in text_spec.fields if field.dtype == "TEXT")
     assert text_field.value_profile == "text_lob_boundary"
+    assert text_field.enable_match is True
     assert {"text_lob_round_trip", "text_match_phrase_match"} <= set(
         text_spec.validators
     )
@@ -246,6 +248,54 @@ def test_storage_v3_and_index_version_matrices_cover_promoted_features():
         "json_cast_type": "double",
         "json_path": "json_auto['score']",
     }
+
+
+def test_schema_validation_requires_match_enabled_for_text_filter_validator():
+    spec = SchemaSpec(
+        name="text_without_match",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="text", dtype="TEXT", enable_analyzer=True),
+        ],
+        validators=["text_match_phrase_match"],
+    )
+
+    assert validate_schema_matrix([spec]) == [
+        "text_without_match.text: text_match_phrase_match validator requires enable_match=true"
+    ]
+
+
+def test_build_milvus_schema_passes_enable_match(monkeypatch):
+    class FakeSchema:
+        def __init__(self):
+            self.field_calls = []
+
+        def add_field(self, **kwargs):
+            self.field_calls.append(kwargs)
+
+    fake_schema = FakeSchema()
+    monkeypatch.setattr(
+        "pymilvus.MilvusClient.create_schema", lambda **_kwargs: fake_schema
+    )
+    monkeypatch.setattr(schema_module, "dtype_to_milvus", lambda dtype: dtype)
+    spec = SchemaSpec(
+        name="text_match",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(
+                name="text",
+                dtype="TEXT",
+                enable_analyzer=True,
+                enable_match=True,
+            ),
+        ],
+    )
+
+    build_milvus_schema(spec)
+
+    assert fake_schema.field_calls[1]["enable_match"] is True
 
 
 def test_json_shredding_schema_matrix_covers_nested_and_dynamic_json():
