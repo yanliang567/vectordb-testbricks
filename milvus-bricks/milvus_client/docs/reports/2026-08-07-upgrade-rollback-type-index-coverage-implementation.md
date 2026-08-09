@@ -78,15 +78,19 @@ Added `schema_matrix_3_0_index_v10_v4.yaml`:
 
 - Sparse SINDI, BLOCK_MAX_MAXSCORE, and BLOCK_MAX_WAND algorithms
 - JSON BOOL BITMAP, DOUBLE STL_SORT, and VARCHAR NGRAM path indexes
-- JSON AutoIndex with required resolved type `HYBRID`
+- JSON AutoIndex with expected internal resolved type `HYBRID`
 - Runtime pod target-configuration validation for
   `targetVecIndexVersion=10` and `targetScalarIndexVersion=4`
 
 Milvus resolves target index versions against current/min/max engine versions.
 The public SDK index metadata does not expose the exact version used by each
-build, so this gate validates the target configuration plus executable
-SINDI/Block-Max and JSON index behavior. Real-cluster execution preserves
-DataNode build logs containing `currentIndexVersion` and
+build. It also reports a scalar AutoIndex through the user-facing
+`AUTOINDEX` type even when the internal index params resolve it to `HYBRID`.
+The gate therefore compares a resolved type only when the server explicitly
+exposes one, records unavailable resolved metadata as an observation, and
+validates the target configuration plus executable SINDI/Block-Max and JSON
+index behavior. Real-cluster execution preserves MixCoord/DataNode logs
+containing the internal `HYBRID` params, `currentIndexVersion`, and
 `currentScalarIndexVersion` as supplementary evidence.
 
 ### Gate Scenarios and Workflows

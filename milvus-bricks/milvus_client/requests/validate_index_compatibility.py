@@ -305,20 +305,43 @@ def _validate_resolved_index_types(
     actual_indexes: list[dict[str, Any]],
     report: ValidationReport,
 ) -> None:
-    actual_by_field = {}
+    actual_by_field: dict[str, tuple[str | None, str]] = {}
     for actual_index in actual_indexes:
         params = actual_index.get("params") or {}
-        resolved = (
-            params.get("resolved_index_type")
-            or params.get("index_type")
-            or actual_index.get("index_type")
+        actual_type = actual_index.get("index_type")
+        resolved = params.get("resolved_index_type")
+        source = "params.resolved_index_type"
+        if resolved is None:
+            param_type = params.get("index_type")
+            if param_type is not None and str(param_type) != str(actual_type):
+                resolved = param_type
+                source = "params.index_type"
+            elif actual_type is not None and str(actual_type) != "AUTOINDEX":
+                resolved = actual_type
+                source = "top_level.index_type"
+            else:
+                source = "public_sdk_unavailable"
+        actual_by_field[str(actual_index.get("field_name"))] = (
+            str(resolved) if resolved is not None else None,
+            source,
         )
-        actual_by_field[str(actual_index.get("field_name"))] = str(resolved)
     for index in spec.indexes:
         expected = index.expected_resolved_index_type
         if not expected:
             continue
-        actual = actual_by_field.get(index.field)
+        actual, source = actual_by_field.get(
+            index.field, (None, "index_metadata_unavailable")
+        )
+        metric_prefix = f"{collection}.{index.field}.resolved_index_type"
+        report.metrics[f"{metric_prefix}.expected"] = expected
+        report.metrics[f"{metric_prefix}.observed"] = actual or "unavailable"
+        report.metrics[f"{metric_prefix}.source"] = source
+        if actual is None:
+            report.metrics["resolved_index_types_unobservable_total"] = (
+                int(report.metrics.get("resolved_index_types_unobservable_total", 0))
+                + 1
+            )
+            continue
         if actual != expected:
             report.fail(
                 INDEX_METADATA_MISMATCH,
@@ -327,6 +350,7 @@ def _validate_resolved_index_types(
                 field=index.field,
                 expected_resolved_index_type=expected,
                 actual_index_type=actual,
+                resolved_index_type_source=source,
             )
 
 
@@ -707,10 +731,13 @@ def _vector_index_probe(
             input_field = resolve_field(spec, function.input_fields[0])
             if input_field is None:
                 return None
+            query = generate_field_value(input_field, data_pk_number, seed)
+            if query is None or query == "":
+                continue
             return (
                 data_pk_number,
                 expected_pk,
-                generate_field_value(input_field, data_pk_number, seed),
+                query,
                 None,
             )
         struct_array = struct_array_for_field(spec, index.field)

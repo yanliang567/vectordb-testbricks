@@ -3,6 +3,7 @@ import json
 from milvus_client.common.data import stable_vector_value
 from milvus_client.common.schema import (
     FieldSpec,
+    FunctionSpec,
     IndexSpec,
     SchemaSpec,
     StructArraySpec,
@@ -1517,6 +1518,58 @@ def test_struct_max_sim_probe_uses_embedding_list_without_offset_requirement():
     assert report.passed
 
 
+def test_bm25_function_probe_skips_null_and_empty_source_values():
+    text = FieldSpec(
+        name="text",
+        dtype="TEXT",
+        nullable=True,
+        value_profile="text_lob_boundary",
+    )
+    sparse = FieldSpec(name="sparse_bm25", dtype="SPARSE_FLOAT_VECTOR")
+    spec = SchemaSpec(
+        name="text_lob_storage_v3",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            text,
+            sparse,
+        ],
+        indexes=[
+            IndexSpec(
+                field="sparse_bm25",
+                index_type="SPARSE_INVERTED_INDEX",
+                metric_type="BM25",
+            )
+        ],
+        functions=[
+            FunctionSpec(
+                name="text_bm25",
+                function_type="BM25",
+                input_fields=["text"],
+                output_fields=["sparse_bm25"],
+            )
+        ],
+    )
+    meta = {
+        "primary_field": "id",
+        "min_pk": 0,
+        "max_pk": 9,
+        "data_min_pk": 0,
+        "data_max_pk": 9,
+    }
+
+    probe = validate_index_compatibility._vector_index_probe(
+        spec, meta, spec.indexes[0], sparse, seed=7
+    )
+
+    assert probe == (
+        2,
+        2,
+        "Milvus Unicode compatibility: 中文 日本語 한국어",
+        None,
+    )
+
+
 def test_vector_score_failure_records_actual_hits():
     report = ValidationReport()
 
@@ -1691,6 +1744,99 @@ def test_resolved_autoindex_type_uses_server_resolved_params():
     )
 
     assert report.passed
+    assert report.metrics == {
+        "qa_json_auto.json_auto.resolved_index_type.expected": "HYBRID",
+        "qa_json_auto.json_auto.resolved_index_type.observed": "HYBRID",
+        "qa_json_auto.json_auto.resolved_index_type.source": "params.index_type",
+    }
+
+
+def test_resolved_autoindex_type_is_unobservable_in_real_sdk_metadata():
+    spec = SchemaSpec(
+        name="json_auto",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="json_auto", dtype="JSON"),
+        ],
+        indexes=[
+            IndexSpec(
+                field="json_auto",
+                index_type="AUTOINDEX",
+                expected_resolved_index_type="HYBRID",
+            )
+        ],
+    )
+    report = ValidationReport()
+
+    validate_index_compatibility._validate_resolved_index_types(
+        "qa_json_auto",
+        spec,
+        [
+            {
+                "field_name": "json_auto",
+                "index_type": "AUTOINDEX",
+                "params": {
+                    "json_cast_type": "double",
+                    "json_path": "json_auto['score']",
+                },
+            }
+        ],
+        report,
+    )
+
+    assert report.passed
+    assert report.metrics == {
+        "qa_json_auto.json_auto.resolved_index_type.expected": "HYBRID",
+        "qa_json_auto.json_auto.resolved_index_type.observed": "unavailable",
+        "qa_json_auto.json_auto.resolved_index_type.source": "public_sdk_unavailable",
+        "resolved_index_types_unobservable_total": 1,
+    }
+
+
+def test_resolved_autoindex_type_fails_on_explicit_mismatch():
+    spec = SchemaSpec(
+        name="json_auto",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="json_auto", dtype="JSON"),
+        ],
+        indexes=[
+            IndexSpec(
+                field="json_auto",
+                index_type="AUTOINDEX",
+                expected_resolved_index_type="HYBRID",
+            )
+        ],
+    )
+    report = ValidationReport()
+
+    validate_index_compatibility._validate_resolved_index_types(
+        "qa_json_auto",
+        spec,
+        [
+            {
+                "field_name": "json_auto",
+                "index_type": "AUTOINDEX",
+                "params": {"resolved_index_type": "INVERTED"},
+            }
+        ],
+        report,
+    )
+
+    assert not report.passed
+    assert report.failures == [
+        {
+            "type": validate_index_compatibility.INDEX_METADATA_MISMATCH,
+            "message": "resolved index type differs from schema matrix expectation",
+            "collection": "qa_json_auto",
+            "field": "json_auto",
+            "expected_resolved_index_type": "HYBRID",
+            "actual_index_type": "INVERTED",
+            "resolved_index_type_source": "params.resolved_index_type",
+        }
+    ]
 
 
 def test_resolved_autoindex_type_is_accepted_from_top_level_metadata():
