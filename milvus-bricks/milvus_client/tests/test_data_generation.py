@@ -1,4 +1,5 @@
 from pathlib import Path
+from struct import pack, unpack
 
 from milvus_client.common.data import (
     checksum_fields_for_spec,
@@ -88,6 +89,37 @@ def test_stable_checksum_normalizes_float32_round_trip_precision():
         fields=["id", "score"],
         primary_field="id",
     )
+
+
+def test_struct_array_vector_checksum_survives_float32_storage_round_trip():
+    spec = next(
+        spec
+        for spec in load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")
+        if spec.name == "struct_array_element_rollback_safe"
+    )
+    inserted_rows = generate_rows(spec, start_id=0, count=100, seed=0)
+    queried_rows = []
+    for row in inserted_rows:
+        queried_rows.append(
+            {
+                **row,
+                "items": [
+                    {
+                        **item,
+                        "embedding": [
+                            unpack("!f", pack("!f", value))[0]
+                            for value in item["embedding"]
+                        ],
+                    }
+                    for item in row["items"]
+                ],
+            }
+        )
+    fields = checksum_fields_for_spec(spec)
+
+    assert stable_checksum(
+        inserted_rows, fields=fields, primary_field="id"
+    ) == stable_checksum(queried_rows, fields=fields, primary_field="id")
 
 
 def test_checksum_fields_exclude_vectors():

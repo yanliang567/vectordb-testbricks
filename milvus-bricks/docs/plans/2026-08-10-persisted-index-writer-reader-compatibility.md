@@ -358,3 +358,13 @@ ruff format --check: passed
 argo lint --offline argo: no linting errors
 git diff --check: passed
 ```
+
+### Round 3：真实 K8s 首轮反馈
+
+- **[P1] base 2.6 的 StructArray nested FLOAT_VECTOR checksum 在 seed=0 下假失败。**
+  Python 生成值为 float64，Milvus 持久化并返回 float32；个别分量跨过五位小数
+  rounding 边界。已将 `stable_float_vector()` 的输出从源头规范为 IEEE-754
+  float32 Python 值，保留 nested vector 全量 checksum，同时不降低 DOUBLE scalar
+  的 checksum 精度。
+- 已增加 seed=0、100 rows 的 StructArray vector float32 round-trip 回归测试；该
+  输入与 workflow `pr27-idxfmt-r1-4hphd` 的失败 hash 完全一致。

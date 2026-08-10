@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from random import Random
+from struct import pack, unpack
 from typing import Any
 
 from milvus_client.common.schema import (
@@ -22,8 +23,10 @@ def stable_float_vector(seed: int, pk: int, dim: int) -> list[float]:
     values = [rng.random() for _ in range(dim)]
     norm = sum(value * value for value in values) ** 0.5
     if norm == 0:
-        return values
-    return [value / norm for value in values]
+        normalized = values
+    else:
+        normalized = [value / norm for value in values]
+    return [unpack("!f", pack("!f", value))[0] for value in normalized]
 
 
 def stable_int8_vector(seed: int, pk: int, dim: int) -> list[int]:
