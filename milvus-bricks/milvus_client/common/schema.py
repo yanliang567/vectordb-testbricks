@@ -297,7 +297,11 @@ def validate_schema_matrix(
             errors.append(f"{spec.name}: checksum_fields contains duplicates")
         for checksum_field in spec.checksum_fields:
             declared_field = field_by_name.get(checksum_field)
-            if declared_field is None and not spec.enable_dynamic_field:
+            if (
+                declared_field is None
+                and checksum_field not in struct_names
+                and not spec.enable_dynamic_field
+            ):
                 errors.append(
                     f"{spec.name}: checksum field {checksum_field} is not declared and dynamic fields are disabled"
                 )

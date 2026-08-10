@@ -477,6 +477,15 @@ Review 结论：
   以 `INDEX_METADATA_MISMATCH` 失败。
 - 所有 index search probe 现在都要求返回期望 PK 和可观测的
   score/distance，BM25 function output index 不再接受无关的非空命中。
+- upgrade 和 rollback 的 index compatibility 都先验证已 load 状态，再
+  release collection、重新 load，并重复 count/PK、vector search 和 scalar
+  index query；reload 后任一验证失败都会阻断 gate。
+- schema evolution 现在校验演进 PK 范围 count、演进字段、StructArray
+  payload checksum 和确定性 indexed search；after-upgrade 写 checkpoint，
+  after-rollback 只读复验，不重复 schema/DML mutation。
+- 已注册 scenario 在部署前重新校验 WorkflowTemplate、schema matrix、index
+  target version、validator/storage/pressure/data-scale 参数，防止绕过 renderer
+  产生假绿。
 - MinHash exact self-search 保持强校验；近重复召回明确降级为观测指标，
   仅在 near/unrelated 都返回时强校验排序。
 - 所有已知产品失败均保持 fail-closed。
@@ -484,28 +493,23 @@ Review 结论：
 - index version 场景使用 read-only continuous pressure 是已知 SINDI crash 下的明确隔离策略，phase DML/DQL 仍覆盖写操作。
 - 最终 review 发现两份 issue 草稿末尾多余空行，已修复。
 
-上述 6 项属于真实执行完成后的测试框架 review hardening，已完成离线回归；
+上述 review 修复属于真实执行完成后的测试框架 hardening，已完成离线回归；
 本报告中的历史 Kubernetes workflow 没有因这些纯测试框架变更重新执行。
 
 剩余风险：
 
 - 4 个 Milvus Issue 未修复前，相应 feature gate 不能作为 release-green。
-- 两个 Helm online test 依赖外部 GitHub Pages，当前网络连接会被 reset。
 - GPU index 不在本轮 CPU upgrade gate 范围内。
 
 ## 11. 自动化验证
 
 ```text
-offline pytest: 346 passed, 2 deselected
+offline pytest: 374 passed
 Argo offline lint: passed
 Ruff check: passed
 Ruff format check: passed
-GitHub Actions: passed
+GitHub Actions: pending for the new PR head
 ```
-
-两个 deselected 测试为 online Helm chart rendering 测试。单独执行时均在
-`helm repo add https://zilliztech.github.io/milvus-helm/` 阶段因网络连接被
-reset 失败，尚未进入 chart rendering 和 assertion。
 
 ## 12. 资源清理
 

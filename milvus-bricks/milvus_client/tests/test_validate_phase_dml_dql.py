@@ -508,6 +508,47 @@ def test_phase_search_rejects_invalid_self_search_score():
     assert report.failures[0]["min_score"] == 0.9
 
 
+def test_phase_search_rejects_non_finite_score():
+    client = PhaseClient(search_distance=float("nan"))
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._run_searches(
+        client,
+        _dense_spec(),
+        "qa_dense",
+        seed=7,
+        pk=50_000_003,
+        report=report,
+    )
+
+    assert searches == 1
+    assert not report.passed
+    assert report.failures[0]["message"] == (
+        "phase vector self-search returned a non-finite distance or score"
+    )
+
+
+def test_phase_bm25_search_requires_observable_score():
+    report = ValidationReport()
+
+    validate_phase_dml_dql._validate_phase_search_hit(
+        [[{"id": 3}]],
+        "qa_bm25",
+        "sparse_bm25",
+        "id",
+        3,
+        None,
+        "BM25",
+        "SPARSE_INVERTED_INDEX",
+        report,
+    )
+
+    assert not report.passed
+    assert report.failures[0]["message"] == (
+        "phase vector self-search did not expose a distance or score"
+    )
+
+
 def test_wait_for_validation_retries_until_dml_becomes_visible(monkeypatch):
     attempts = 0
 
@@ -741,6 +782,54 @@ def test_phase_dml_dql_fails_when_upsert_does_not_update_values(monkeypatch, tmp
     assert result["status"] == "failed"
     assert any(
         failure["type"] == "PHASE_UPSERT_NOT_APPLIED" for failure in result["failures"]
+    )
+
+
+def test_phase_dml_dql_fails_when_minhash_upsert_is_a_noop():
+    client = NoopUpsertPhaseClient()
+    report = ValidationReport()
+
+    validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        _minhash_spec(),
+        "qa_minhash",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    assert not report.passed
+    assert any(
+        failure["type"] == "PHASE_UPSERT_NOT_APPLIED" for failure in report.failures
+    )
+
+
+def test_phase_dml_dql_fails_when_struct_array_upsert_is_a_noop():
+    client = NoopUpsertPhaseClient()
+    report = ValidationReport()
+
+    validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        _struct_array_spec(),
+        "qa_struct_array",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    assert not report.passed
+    assert any(
+        failure["type"] == "PHASE_UPSERT_NOT_APPLIED" for failure in report.failures
     )
 
 

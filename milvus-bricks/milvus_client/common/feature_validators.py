@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 from time import monotonic, sleep
 from typing import Any
 
@@ -624,8 +625,8 @@ def validate_text_match_phrase_match(
     seed: int,
     report: ValidationReport,
 ) -> None:
-    del meta, seed
     primary = _primary_field(spec)
+    data_min_pk, data_max_pk = _data_pk_range(meta)
     text_fields = [field for field in spec.fields if field.dtype == "TEXT"]
     bm25_outputs = [
         output
@@ -644,44 +645,154 @@ def validate_text_match_phrase_match(
         )
         return
     for field in text_fields:
-        filters = [
-            f"TEXT_MATCH({field.name}, 'milvus')",
-            f"PHRASE_MATCH({field.name}, 'milvus upgrade', 1)",
+        probes = [
+            (
+                f"TEXT_MATCH({field.name}, 'milvus')",
+                lambda value: "milvus" in str(value or "").lower(),
+            ),
+            (
+                f"PHRASE_MATCH({field.name}, 'milvus upgrade', 1)",
+                lambda value: "milvus upgrade" in str(value or "").lower(),
+            ),
         ]
-        for filter_expr in filters:
-            rows = client.query(
-                collection_name=collection,
-                filter=filter_expr,
-                output_fields=[primary.name],
-                limit=10,
-            )
-            if not rows:
+        for filter_expr, matches in probes:
+            expected_pks = {
+                _actual_primary_value(spec, meta, data_pk)
+                for data_pk in range(data_min_pk, data_max_pk + 1)
+                if matches(generate_field_value(field, data_pk, seed))
+            }
+            if not expected_pks:
                 report.fail(
                     "TEXT_FILTER_FAILED",
-                    "TEXT_MATCH or PHRASE_MATCH returned no rows",
+                    "TEXT filter has no deterministic matching row in the checkpoint range",
                     collection=collection,
                     field=field.name,
                     filter=filter_expr,
                 )
                 continue
+            rows = client.query(
+                collection_name=collection,
+                filter=filter_expr,
+                output_fields=[primary.name, field.name],
+                limit=min(100, len(expected_pks)),
+            )
+            actual_pks = [row.get(primary.name) for row in rows]
+            invalid_rows = [
+                row
+                for row in rows
+                if row.get(primary.name) not in expected_pks
+                or not matches(row.get(field.name))
+            ]
+            if not rows or not expected_pks.intersection(actual_pks) or invalid_rows:
+                report.fail(
+                    "TEXT_FILTER_FAILED",
+                    "TEXT_MATCH or PHRASE_MATCH returned rows outside deterministic ground truth",
+                    collection=collection,
+                    field=field.name,
+                    filter=filter_expr,
+                    expected_pks=sorted(expected_pks, key=str)[:20],
+                    actual_pks=actual_pks,
+                    invalid_rows=invalid_rows,
+                )
+                continue
+            _record_pass(report, collection, "text_match_phrase_match")
+        negative_filter = (
+            f"TEXT_MATCH({field.name}, 'definitely_absent_upgrade_gate_token')"
+        )
+        negative_rows = client.query(
+            collection_name=collection,
+            filter=negative_filter,
+            output_fields=[primary.name, field.name],
+            limit=10,
+        )
+        if negative_rows:
+            report.fail(
+                "TEXT_FILTER_FAILED",
+                "TEXT_MATCH returned rows for a deterministic absent token",
+                collection=collection,
+                field=field.name,
+                filter=negative_filter,
+                actual_pks=[row.get(primary.name) for row in negative_rows],
+            )
+        else:
             _record_pass(report, collection, "text_match_phrase_match")
     for output in bm25_outputs:
+        function = next(item for item in spec.functions if output in item.output_fields)
+        input_field = resolve_field(spec, function.input_fields[0])
+        if input_field is None:
+            report.fail(
+                "TEXT_BM25_FAILED",
+                "BM25 input field is missing from the schema",
+                collection=collection,
+                field=output,
+            )
+            continue
+        exact_data_pk = next(
+            (
+                data_pk
+                for data_pk in range(data_min_pk, data_max_pk + 1)
+                if "milvus upgrade rollback"
+                in str(generate_field_value(input_field, data_pk, seed) or "").lower()
+            ),
+            None,
+        )
+        unrelated_data_pk = next(
+            (
+                data_pk
+                for data_pk in range(data_min_pk, data_max_pk + 1)
+                if generate_field_value(input_field, data_pk, seed)
+                and "milvus"
+                not in str(generate_field_value(input_field, data_pk, seed)).lower()
+            ),
+            None,
+        )
+        if exact_data_pk is None:
+            report.fail(
+                "TEXT_BM25_FAILED",
+                "BM25 checkpoint range lacks a deterministic exact document",
+                collection=collection,
+                field=output,
+            )
+            continue
+        expected_pk = _actual_primary_value(spec, meta, exact_data_pk)
+        candidate_pks = [expected_pk]
+        if unrelated_data_pk is not None:
+            candidate_pks.append(_actual_primary_value(spec, meta, unrelated_data_pk))
+        filter_expr = (
+            f"{primary.name} in ["
+            + ", ".join(format_filter_value(pk) for pk in candidate_pks)
+            + "]"
+        )
         response = client.search(
             collection_name=collection,
-            data=["milvus upgrade rollback"],
+            data=[generate_field_value(input_field, exact_data_pk, seed)],
             anns_field=output,
+            filter=filter_expr,
+            output_fields=[primary.name, input_field.name],
             limit=10,
             search_params={
                 "metric_type": "BM25",
                 "params": search_params_for_field(spec, output),
             },
         )
-        if not _search_hits(response):
+        hits = _search_hits(response)
+        hit_pks = [_hit_pk(hit, primary.name) for hit in hits]
+        score = _hit_value(hits[0], "distance") if hits else None
+        if score is None and hits:
+            score = _hit_value(hits[0], "score")
+        try:
+            score_is_finite = math.isfinite(float(score))
+        except (TypeError, ValueError):
+            score_is_finite = False
+        if not hits or hit_pks[0] != expected_pk or not score_is_finite:
             report.fail(
                 "TEXT_BM25_FAILED",
-                "BM25 search over TEXT returned no rows",
+                "BM25 search did not rank the deterministic exact document first with a finite score",
                 collection=collection,
                 field=output,
+                expected_pk=expected_pk,
+                actual_pks=hit_pks,
+                score=score,
             )
             continue
         _record_pass(report, collection, "text_match_phrase_match")
@@ -748,6 +859,28 @@ def validate_minhash_search(
             "MinHash search missed the exact document",
             collection=collection,
             expected_exact=actual_pks[0],
+            actual_pks=hit_pks,
+        )
+        return
+    exact_rank = hit_pks.index(actual_pks[0])
+    exact_hit = hits[exact_rank]
+    exact_score = _hit_value(exact_hit, "distance")
+    if exact_score is None:
+        exact_score = _hit_value(exact_hit, "score")
+    try:
+        exact_score_value = float(exact_score)
+        exact_score_is_finite = math.isfinite(exact_score_value)
+    except (TypeError, ValueError):
+        exact_score_value = None
+        exact_score_is_finite = False
+    if exact_rank != 0 or not exact_score_is_finite:
+        report.fail(
+            "MINHASH_SEARCH_FAILED",
+            "MinHash exact document was not ranked first with a finite score",
+            collection=collection,
+            expected_exact=actual_pks[0],
+            actual_rank=exact_rank,
+            exact_score=exact_score_value,
             actual_pks=hit_pks,
         )
         return

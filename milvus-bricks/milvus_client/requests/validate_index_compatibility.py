@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 import ast
 import json
+import math
 import sys
 
 from milvus_client.common.args import build_common_parser, parse_bool
@@ -136,6 +137,20 @@ def _release_collection_best_effort(
             return f"release_failed: {exc}"
     except Exception as exc:
         return f"release_failed: {exc}"
+
+
+def _release_collection(client: Any, collection: str, timeout_sec: int) -> None:
+    release = getattr(client, "release_collection", None)
+    if release is None:
+        raise RuntimeError("Milvus client does not expose release_collection")
+    try:
+        _call_with_optional_timeout(
+            release,
+            collection_name=collection,
+            timeout_sec=timeout_sec,
+        )
+    except TypeError:
+        _call_with_optional_timeout(release, collection, timeout_sec=timeout_sec)
 
 
 def _load_collection(client: Any, collection: str, timeout_sec: int) -> None:
@@ -693,6 +708,19 @@ def _validate_vector_search_hit(
             actual_hits=actual_hits,
         )
         return
+    if not math.isfinite(distance):
+        report.fail(
+            INDEX_SEARCH_FAILED,
+            "indexed vector self-search returned a non-finite distance or score",
+            collection=collection,
+            field=field_name,
+            metric_type=metric_type,
+            index_type=index_type,
+            expected_pk=expected_pk,
+            distance=distance,
+            actual_hits=actual_hits,
+        )
+        return
     metric = metric_type.upper().removeprefix("MAX_SIM_")
     lossy_index = index_type.upper() in {
         "IVF_PQ",
@@ -703,6 +731,34 @@ def _validate_vector_search_hit(
     }
     max_distance = 0.5 if lossy_index and metric == "L2" else 1e-3
     min_score = 0.5 if lossy_index and metric in {"COSINE", "IP"} else 0.9
+    if metric in {"L2", "HAMMING", "JACCARD"} and distance < 0:
+        report.fail(
+            INDEX_SEARCH_FAILED,
+            "indexed vector self-search distance is lower than the metric minimum",
+            collection=collection,
+            field=field_name,
+            metric_type=metric_type,
+            index_type=index_type,
+            expected_pk=expected_pk,
+            distance=distance,
+            min_distance=0.0,
+            actual_hits=actual_hits,
+        )
+        return
+    if metric in {"COSINE", "MHJACCARD"} and distance > 1.001:
+        report.fail(
+            INDEX_SEARCH_FAILED,
+            "indexed vector self-search score is higher than the metric maximum",
+            collection=collection,
+            field=field_name,
+            metric_type=metric_type,
+            index_type=index_type,
+            expected_pk=expected_pk,
+            distance=distance,
+            max_score=1.001,
+            actual_hits=actual_hits,
+        )
+        return
     if metric in {"L2", "HAMMING", "JACCARD"} and distance > max_distance:
         report.fail(
             INDEX_SEARCH_FAILED,
@@ -1151,6 +1207,9 @@ def main(argv: list[str] | None = None) -> int:
             "actual_indexes_total": 0,
             "searches_total": 0,
             "scalar_index_queries_total": 0,
+            "reload_cycles_total": 0,
+            "reload_searches_total": 0,
+            "reload_scalar_index_queries_total": 0,
         }
 
         for collection, meta in _collection_items_for_phase(
@@ -1241,6 +1300,28 @@ def main(argv: list[str] | None = None) -> int:
                     args.seed,
                     report,
                 )
+                _release_collection(client, collection, args.timeout_sec)
+                _load_collection(client, collection, args.timeout_sec)
+                metrics["reload_cycles_total"] += 1
+                _validate_query_serviceability(client, collection, spec, meta, report)
+                metrics["reload_searches_total"] += _validate_index_searches(
+                    client,
+                    collection,
+                    spec,
+                    meta,
+                    args.seed,
+                    report,
+                )
+                metrics["reload_scalar_index_queries_total"] += (
+                    _validate_scalar_index_queries(
+                        client,
+                        collection,
+                        spec,
+                        meta,
+                        args.seed,
+                        report,
+                    )
+                )
                 output_checkpoint["collections"][collection] = {
                     "schema_name": schema_name,
                     "actual_indexes": actual_indexes,
@@ -1261,10 +1342,12 @@ def main(argv: list[str] | None = None) -> int:
                     error=str(exc),
                 )
 
-        index_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
-        index_checkpoint_file.write_text(
-            json.dumps(output_checkpoint, indent=2, sort_keys=True)
-        )
+        checkpoint_written = args.phase == "after-upgrade" and report.passed
+        if checkpoint_written:
+            index_checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+            index_checkpoint_file.write_text(
+                json.dumps(output_checkpoint, indent=2, sort_keys=True)
+            )
         result.status = PASSED if report.passed else FAILED
         result.failures = report.failures
         result.metrics = {
@@ -1272,7 +1355,8 @@ def main(argv: list[str] | None = None) -> int:
             **metrics,
             "index_checkpoint_path": str(index_checkpoint_file),
         }
-        result.checkpoint = {"path": str(index_checkpoint_file), "version": 1}
+        if checkpoint_written or args.phase == "after-rollback":
+            result.checkpoint = {"path": str(index_checkpoint_file), "version": 1}
         result.write(args.output_json)
         return 0 if report.passed else 1
     except Exception as exc:

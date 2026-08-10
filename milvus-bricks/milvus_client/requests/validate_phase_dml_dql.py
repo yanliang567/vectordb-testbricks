@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import math
 import sys
 from time import monotonic, sleep
 from typing import Any
@@ -9,13 +10,14 @@ from typing import Any
 from milvus_client.common.args import build_common_parser, parse_bool
 from milvus_client.common.client import create_client
 from milvus_client.common.data import (
+    apply_deterministic_update,
     generate_field_value,
     generate_primary_key_value,
     generate_rows,
     generate_struct_array_value,
     indexed_vector_fields,
     prepare_struct_vector_query,
-    vector_fields,
+    update_projection_field,
 )
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import (
@@ -515,9 +517,6 @@ def _validate_phase_search_hit(
         )
         return
 
-    metric = metric_type.upper().removeprefix("MAX_SIM_")
-    if metric == "BM25":
-        return
     distance = _hit_distance(matched_hit)
     if distance is None:
         report.fail(
@@ -529,6 +528,19 @@ def _validate_phase_search_hit(
             metric_type=metric_type,
         )
         return
+    if not math.isfinite(distance):
+        report.fail(
+            PHASE_DQL_FAILED,
+            "phase vector self-search returned a non-finite distance or score",
+            collection=target_collection,
+            field=field_name,
+            expected_pk=expected_pk,
+            metric_type=metric_type,
+            index_type=index_type,
+            distance=distance,
+        )
+        return
+    metric = metric_type.upper().removeprefix("MAX_SIM_")
     lossy_index = index_type.upper() in {
         "IVF_PQ",
         "IVF_SQ8",
@@ -538,6 +550,32 @@ def _validate_phase_search_hit(
     }
     max_distance = 0.5 if lossy_index and metric == "L2" else 1e-3
     min_score = 0.5 if lossy_index and metric in {"COSINE", "IP"} else 0.9
+    if metric in {"L2", "HAMMING", "JACCARD"} and distance < 0:
+        report.fail(
+            PHASE_DQL_FAILED,
+            "phase vector self-search distance is lower than the metric minimum",
+            collection=target_collection,
+            field=field_name,
+            expected_pk=expected_pk,
+            metric_type=metric_type,
+            index_type=index_type,
+            distance=distance,
+            min_distance=0.0,
+        )
+        return
+    if metric in {"COSINE", "MHJACCARD"} and distance > 1.001:
+        report.fail(
+            PHASE_DQL_FAILED,
+            "phase vector self-search score is higher than the metric maximum",
+            collection=target_collection,
+            field=field_name,
+            expected_pk=expected_pk,
+            metric_type=metric_type,
+            index_type=index_type,
+            distance=distance,
+            max_score=1.001,
+        )
+        return
     if metric in {"L2", "HAMMING", "JACCARD"} and distance > max_distance:
         report.fail(
             PHASE_DQL_FAILED,
@@ -651,23 +689,6 @@ def _normalize_for_compare(value: Any) -> Any:
     return value
 
 
-def _upsert_validation_field(spec: SchemaSpec) -> FieldSpec | None:
-    function_outputs = function_output_fields(spec)
-    float_vectors = [
-        field
-        for field in vector_fields(spec)
-        if field.name not in function_outputs and field.dtype == "FLOAT_VECTOR"
-    ]
-    if float_vectors:
-        return float_vectors[0]
-    non_function_vectors = [
-        field for field in vector_fields(spec) if field.name not in function_outputs
-    ]
-    if non_function_vectors:
-        return non_function_vectors[0]
-    return None
-
-
 def _validate_upserted_values(
     client: Any,
     spec: SchemaSpec,
@@ -678,8 +699,14 @@ def _validate_upserted_values(
     seed: int,
     report: ValidationReport,
 ) -> None:
-    validation_field = _upsert_validation_field(spec)
+    validation_field = update_projection_field(spec)
     if validation_field is None:
+        report.fail(
+            PHASE_UPSERT_NOT_APPLIED,
+            "schema has no queryable field for upsert visibility validation",
+            collection=target_collection,
+            schema=spec.name,
+        )
         return
     primary_name = primary.name
     sample_values = [
@@ -691,7 +718,7 @@ def _validate_upserted_values(
         rows = client.query(
             collection_name=target_collection,
             filter=f"{primary_name} in [{values}]",
-            output_fields=[primary_name, validation_field.name],
+            output_fields=[primary_name, validation_field],
             limit=len(sample_values),
         )
     except Exception as exc:
@@ -699,7 +726,7 @@ def _validate_upserted_values(
             PHASE_DQL_FAILED,
             "upserted value query failed",
             collection=target_collection,
-            field=validation_field.name,
+            field=validation_field,
             error=str(exc),
         )
         return
@@ -712,21 +739,22 @@ def _validate_upserted_values(
                 "upserted primary key is missing",
                 collection=target_collection,
                 pk=pk_value,
-                field=validation_field.name,
+                field=validation_field,
             )
             continue
-        actual = _normalize_for_compare(row.get(validation_field.name))
+        actual = _normalize_for_compare(row.get(validation_field))
         expected_rows = generate_rows(
             spec, start_id=start_id + offset, count=1, seed=seed + 101
         )
-        expected = _normalize_for_compare(expected_rows[0].get(validation_field.name))
+        apply_deterministic_update(spec, expected_rows[0], start_id + offset)
+        expected = _normalize_for_compare(expected_rows[0].get(validation_field))
         if actual != expected:
             report.fail(
                 PHASE_UPSERT_NOT_APPLIED,
                 "upserted field value does not match expected updated value",
                 collection=target_collection,
                 pk=pk_value,
-                field=validation_field.name,
+                field=validation_field,
                 expected=expected,
                 actual=actual,
             )
@@ -739,7 +767,7 @@ def _upsert_sample_payload(
     sample_offsets: list[int],
     seed: int,
 ) -> dict[str, Any]:
-    validation_field = _upsert_validation_field(spec)
+    validation_field = update_projection_field(spec)
     if validation_field is None:
         return {"field": None, "samples": []}
     samples = []
@@ -750,16 +778,17 @@ def _upsert_sample_payload(
             count=1,
             seed=seed + 101,
         )
+        apply_deterministic_update(spec, expected_rows[0], start_id + offset)
         pk_value = generate_primary_key_value(primary, start_id + offset)
         samples.append(
             {
                 "pk": pk_value,
                 "expected": _normalize_for_compare(
-                    expected_rows[0].get(validation_field.name)
+                    expected_rows[0].get(validation_field)
                 ),
             }
         )
-    return {"field": validation_field.name, "samples": samples}
+    return {"field": validation_field, "samples": samples}
 
 
 def _validate_upsert_samples(
@@ -884,6 +913,8 @@ def _run_existing_collection_dml_dql(
                 batch = generate_rows(
                     spec, start_id=start, count=count, seed=seed + 101
                 )
+                for offset, row in enumerate(batch):
+                    apply_deterministic_update(spec, row, start + offset)
                 _upsert_rows(client, spec, target_collection, batch, start)
                 metrics["upserted"] += len(batch)
 

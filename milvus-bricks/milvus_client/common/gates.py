@@ -24,6 +24,11 @@ WORKFLOW_TEMPLATE_MODES = {
     "milvus-standalone-3-0-upgrade-rollback": "standalone",
     "milvus-cluster-upgrade-rollback": "cluster",
 }
+REGISTERED_SCENARIO_MUTABLE_PARAMETERS = {
+    "repo-revision",
+    "collection-prefix",
+    "forward-collection-prefix",
+}
 
 
 def load_gate_manifest(path: str | Path = DEFAULT_GATE_MANIFEST) -> dict[str, Any]:
@@ -287,6 +292,69 @@ def render_submission(
     if scenario.get("submit_generate_name"):
         submission["submit_generate_name"] = scenario["submit_generate_name"]
     return submission
+
+
+def validate_registered_scenario_parameters(
+    manifest: dict[str, Any],
+    scenario_id: str,
+    runtime_parameters: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not any(item.get("id") == scenario_id for item in manifest.get("scenarios", [])):
+        return None
+
+    missing_phase_parameters = [
+        key
+        for phase in ("base", "target", "rollback")
+        for key in (f"{phase}-milvus-image", f"{phase}-version")
+        if not runtime_parameters.get(key)
+    ]
+    if missing_phase_parameters:
+        raise ValueError(
+            f"{scenario_id}: runtime parameters are missing phase overrides: "
+            f"{', '.join(missing_phase_parameters)}"
+        )
+
+    phase_overrides = {
+        phase: {
+            "image": str(runtime_parameters[f"{phase}-milvus-image"]),
+            "version": str(runtime_parameters[f"{phase}-version"]),
+        }
+        for phase in ("base", "target", "rollback")
+    }
+    resolved = resolve_gate_scenario(
+        manifest,
+        scenario_id,
+        deploy_profile_override=str(runtime_parameters.get("deploy-profile") or ""),
+        phase_overrides=phase_overrides,
+    )
+    expected = render_argo_parameters(resolved, manifest)
+    drift = {}
+    actual_workflow_template = str(
+        runtime_parameters.get("workflow-template") or "<missing>"
+    )
+    if actual_workflow_template != resolved["workflow_template"]:
+        drift["workflow-template"] = {
+            "expected": resolved["workflow_template"],
+            "actual": actual_workflow_template,
+        }
+    for name, expected_value in expected.items():
+        if name in REGISTERED_SCENARIO_MUTABLE_PARAMETERS:
+            continue
+        if name not in runtime_parameters:
+            drift[name] = {"expected": expected_value, "actual": "<missing>"}
+            continue
+        actual_value = str(runtime_parameters[name])
+        if actual_value != expected_value:
+            drift[name] = {"expected": expected_value, "actual": actual_value}
+    if drift:
+        details = ", ".join(
+            f"{name}: expected {values['expected']!r}, got {values['actual']!r}"
+            for name, values in sorted(drift.items())
+        )
+        raise ValueError(
+            f"{scenario_id}: registered scenario protected parameter drift: {details}"
+        )
+    return resolved
 
 
 def validate_gate_manifest(

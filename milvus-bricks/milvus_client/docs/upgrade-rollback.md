@@ -175,6 +175,10 @@ filter queries, and checkpoint count/PK queries, and writes
 `/tmp/milvus-bricks/checkpoints/index_compatibility.json`. After rollback, the
 workflow reads that checkpoint, re-enumerates the actual indexes, compares
 index name/field/type/metric metadata, and validates load/search/query again.
+In both phases, every collection is first validated while loaded, then strictly
+released and loaded again before the same count/PK, vector search, and scalar
+index queries are repeated. A missing release API or a post-reload query/search
+failure fails the gate.
 Scalar index validation selects a deterministic non-null probe row when
 possible, runs a scalar-only query to prove the predicate has matches, then runs
 `scalar predicate + primary-key predicate` so non-unique scalar conditions do not
@@ -188,6 +192,22 @@ actual PKs.
 Promoted gates do not drop/recreate baseline indexes while the pressure daemon
 is running; `--rebuild-index=true` remains available only for manual diagnostic
 runs outside strict pressure.
+
+When schema evolution is enabled, the after-upgrade workload now validates the
+evolved PK range count, deterministic evolved field values, StructArray payload
+checksums, and indexed vector search PK/offset/score before writing a dedicated
+checkpoint. After rollback, a read-only schema-evolution task must validate the
+same checkpoint; it never repeats add/drop/function/upsert mutations. Forward
+schema evolution is required after rollback only when forward rollback
+validation is enabled.
+
+Registered manifest scenarios are re-resolved inside the selected repository
+revision immediately before deployment. WorkflowTemplate topology, schema
+matrices, index target versions, validation flags, storage feature flags,
+pressure policy, and data scale must match the registered contract. Repository
+revision, legal immutable image/version overrides, deploy profile overrides
+that satisfy topology requirements, and collection prefixes remain operational
+overrides.
 
 Every promoted matrix also declares feature-semantic validators. The three
 WorkflowTemplates run them at base, after upgrade, and after rollback, plus the

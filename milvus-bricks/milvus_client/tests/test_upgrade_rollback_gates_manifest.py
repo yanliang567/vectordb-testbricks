@@ -8,6 +8,7 @@ from milvus_client.common.gates import (
     render_argo_parameters,
     resolve_gate_scenario,
     validate_gate_manifest,
+    validate_registered_scenario_parameters,
     validate_resolved_gate_scenario,
 )
 
@@ -362,6 +363,81 @@ def test_gate_scenario_allows_concrete_master_build_tag():
     )
 
     assert scenario["target"]["version"] == "3.0.1"
+
+
+def test_registered_scenario_runtime_allows_operational_overrides():
+    manifest = _manifest()
+    scenario_id = "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline"
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+    runtime = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+    runtime.update(
+        {
+            "workflow-template": scenario["workflow_template"],
+            "repo-revision": "1102cc54b52050b3f156188cda435b54e8888680",
+            "collection-prefix": "qa_pr25_runtime",
+            "forward-collection-prefix": "qa_pr25_runtime_forward",
+            "target-milvus-image": (
+                "harbor.milvus.io/milvusdb/milvus:master-20260810-a1b2c3d4"
+            ),
+            "target-version": "3.0.1",
+        }
+    )
+
+    resolved = validate_registered_scenario_parameters(manifest, scenario_id, runtime)
+
+    assert resolved is not None
+    assert resolved["target"]["version"] == "3.0.1"
+    assert resolved["target"]["image"].endswith("master-20260810-a1b2c3d4")
+
+
+@pytest.mark.parametrize(
+    ("parameter", "value"),
+    [
+        ("schema-matrix", "milvus_client/manifests/schema_matrix_2_6.yaml"),
+        ("target-target-vec-index-version", "10"),
+        ("index-compatibility-validation-enabled", "false"),
+        ("schema-evolution-existing-enabled", "false"),
+    ],
+)
+def test_registered_scenario_runtime_rejects_protected_parameter_drift(
+    parameter,
+    value,
+):
+    manifest = _manifest()
+    scenario_id = "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline"
+    runtime = render_argo_parameters(
+        resolve_gate_scenario(manifest, scenario_id),
+        manifest,
+        allow_placeholder=True,
+    )
+    runtime["workflow-template"] = "milvus-standalone-3-0-upgrade-rollback"
+    runtime["target-milvus-image"] = (
+        "harbor.milvus.io/milvusdb/milvus:master-20260810-a1b2c3d4"
+    )
+    runtime["target-version"] = "3.0.1"
+    runtime[parameter] = value
+
+    with pytest.raises(ValueError, match=parameter):
+        validate_registered_scenario_parameters(manifest, scenario_id, runtime)
+
+
+def test_registered_scenario_runtime_rejects_wrong_workflow_template():
+    manifest = _manifest()
+    scenario_id = "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline"
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+    runtime = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+    runtime.update(
+        {
+            "workflow-template": "milvus-standalone-3-0-upgrade-rollback",
+            "target-milvus-image": (
+                "harbor.milvus.io/milvusdb/milvus:master-20260810-a1b2c3d4"
+            ),
+            "target-version": "3.0.1",
+        }
+    )
+
+    with pytest.raises(ValueError, match="workflow-template"):
+        validate_registered_scenario_parameters(manifest, scenario_id, runtime)
 
 
 def test_gate_scenario_allows_mutable_tag_when_pinned_by_digest():

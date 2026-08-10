@@ -328,6 +328,13 @@ Real execution exposed and drove the following PR improvements:
   metadata cannot expose the resolved type
 - required every index search probe, including BM25 function output indexes,
   to return the expected PK and an observable score/distance
+- repeated count/PK, vector search, and scalar index queries after an explicit
+  collection release/load cycle in both upgrade and rollback index validation
+- made schema evolution compare evolved PK-range counts, evolved field and
+  StructArray checksums, and deterministic indexed search hits; after-upgrade
+  observations are checkpointed and rollback validation is read-only
+- rejected registered scenario WorkflowTemplate, schema/index/validator,
+  storage-feature, pressure-policy, and data-scale drift before deployment
 - corrected FAISS search parameter scoping
 - used typed TIMESTAMPTZ filter probes
 - added visibility waits for phase DML/DQL
@@ -339,22 +346,19 @@ Real execution exposed and drove the following PR improvements:
 Final review also found two test files that did not match the configured Ruff
 formatter. They were mechanically formatted; no runtime behavior changed.
 
-The phase-search, upsert-seed, AutoID, resolved-index, index-search, and MinHash
-coverage changes above were post-execution review hardening. They were covered
-by offline regression tests; the historical Kubernetes runs in this report
-were not rerun for these test-framework-only changes.
+The phase-search, upsert-seed, AutoID, resolved-index, index-search, MinHash,
+release/reload, schema-evolution checkpoint, and registered-scenario guard
+changes above were post-execution review hardening. They were covered by
+offline regression tests; the historical Kubernetes runs in this report were
+not rerun for these test-framework-only changes.
 
 ## Local and CI Verification
 
 Offline unit tests:
 
 ```text
-346 passed, 2 deselected
+374 passed
 ```
-
-The two deselected tests require the external Helm GitHub Pages repository.
-They were run separately and both failed before chart rendering because
-`https://zilliztech.github.io/milvus-helm/` reset the network connection.
 
 Static validation:
 

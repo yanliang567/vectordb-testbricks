@@ -1,10 +1,20 @@
-from milvus_client.common.schema import FieldSpec, FunctionSpec, IndexSpec, SchemaSpec
+import json
+import re
+
+from milvus_client.common.schema import (
+    FieldSpec,
+    FunctionSpec,
+    IndexSpec,
+    SchemaSpec,
+    StructArraySpec,
+)
 from milvus_client.requests.schema_evolution_workload import run_schema_evolution
 
 
 class FakeClient:
     def __init__(self):
         self.calls = []
+        self.rows = {}
 
     def has_collection(self, collection_name):
         self.calls.append(("has_collection", collection_name))
@@ -23,17 +33,92 @@ class FakeClient:
 
     def upsert(self, collection_name, data):
         self.calls.append(("upsert", collection_name, data))
+        collection_rows = self.rows.setdefault(collection_name, {})
+        for row in data:
+            primary_name = "pk" if "pk" in row else "id"
+            collection_rows[row[primary_name]] = row
         return {"upsert_count": len(data)}
 
     def query(self, collection_name, filter, output_fields, limit=None):
         self.calls.append(
             ("query", collection_name, filter, tuple(output_fields), limit)
         )
-        return [{"id": 1}]
+        rows = list(self.rows.get(collection_name, {}).values())
+        rows = [row for row in rows if self._matches_filter(row, filter)]
+        if output_fields == ["count(*)"]:
+            return [{"count(*)": len(rows)}]
+        if limit is not None:
+            rows = rows[:limit]
+        return [{field: row.get(field) for field in output_fields} for row in rows]
 
-    def search(self, collection_name, data, anns_field, limit, search_params):
-        self.calls.append(("search", collection_name, anns_field, search_params, data))
-        return [[{"id": 1, "distance": 0.1}]]
+    def search(
+        self,
+        collection_name,
+        data,
+        anns_field,
+        limit,
+        search_params,
+        filter="",
+        **kwargs,
+    ):
+        self.calls.append(
+            ("search", collection_name, anns_field, search_params, data, filter)
+        )
+        rows = list(self.rows.get(collection_name, {}).values())
+        rows = [row for row in rows if self._matches_filter(row, filter)]
+        if not rows:
+            return [[]]
+        primary_name = "pk" if "pk" in rows[0] else "id"
+        return [
+            [
+                {
+                    "id": rows[0][primary_name],
+                    primary_name: rows[0][primary_name],
+                    "offset": 0,
+                    "distance": 1.0,
+                }
+            ]
+        ]
+
+    @staticmethod
+    def _parse_filter_value(value):
+        value = value.strip()
+        if value.startswith('"'):
+            return json.loads(value)
+        if "." in value:
+            return float(value)
+        return int(value)
+
+    @classmethod
+    def _matches_filter(cls, row, filter_expr):
+        if not filter_expr:
+            return True
+        exact = re.search(r"(\w+) == (\"(?:\\.|[^\"])*\"|-?\d+(?:\.\d+)?)", filter_expr)
+        if exact:
+            return row.get(exact.group(1)) == cls._parse_filter_value(exact.group(2))
+        lower = re.search(r"(\w+) >= (\"(?:\\.|[^\"])*\"|-?\d+(?:\.\d+)?)", filter_expr)
+        upper = re.search(r"(\w+) <= (\"(?:\\.|[^\"])*\"|-?\d+(?:\.\d+)?)", filter_expr)
+        if lower and row.get(lower.group(1)) < cls._parse_filter_value(lower.group(2)):
+            return False
+        if upper and row.get(upper.group(1)) > cls._parse_filter_value(upper.group(2)):
+            return False
+        return True
+
+
+class EmptyEvolutionReadClient(FakeClient):
+    def query(self, collection_name, filter, output_fields, limit=None):
+        self.calls.append(
+            ("query", collection_name, filter, tuple(output_fields), limit)
+        )
+        if output_fields == ["count(*)"]:
+            return [{"count(*)": 0}]
+        return []
+
+
+class IrrelevantSearchHitClient(FakeClient):
+    def search(self, *args, **kwargs):
+        super().search(*args, **kwargs)
+        return [[{"id": -1, "distance": 1.0}]]
 
 
 class FakeBm25DropRequiresFieldClient(FakeClient):
@@ -121,6 +206,39 @@ def _minhash_spec():
                 index_type="MINHASH_LSH",
                 metric_type="MHJACCARD",
             )
+        ],
+    )
+
+
+def _struct_array_spec():
+    return SchemaSpec(
+        name="struct_array",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="normal_vector", dtype="FLOAT_VECTOR", dim=8),
+        ],
+        struct_arrays=[
+            StructArraySpec(
+                name="items",
+                max_capacity=4,
+                fields=[
+                    FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=8),
+                    FieldSpec(name="score", dtype="FLOAT"),
+                    FieldSpec(name="category", dtype="VARCHAR", max_length=64),
+                ],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="normal_vector", index_type="AUTOINDEX", metric_type="COSINE"
+            ),
+            IndexSpec(
+                field="items[embedding]",
+                index_type="HNSW",
+                metric_type="COSINE",
+            ),
+            IndexSpec(field="items[score]", index_type="STL_SORT"),
         ],
     )
 
@@ -241,7 +359,9 @@ def test_schema_evolution_minhash_search_uses_function_input_text():
         "skipped_only_vector_field"
     ]
     assert searches[0][2] == "minhash"
-    assert searches[0][4] == ["the quick brown fox jumps over the lazy dog"]
+    assert searches[0][4] == [
+        "distributed vector databases provide scalable similarity search"
+    ]
 
 
 def test_schema_evolution_skips_bm25_function_cycle_when_drop_function_field_api_is_missing():
@@ -331,3 +451,148 @@ def test_schema_evolution_formats_string_primary_key_filters():
         for filter_expr in query_filters
     )
     assert metrics["failed_total"] == 0
+
+
+def test_schema_evolution_fails_when_evolved_rows_are_not_queryable():
+    metrics = run_schema_evolution(
+        EmptyEvolutionReadClient(),
+        [_baseline_bm25_spec()],
+        collection_prefix="qa",
+        rows_per_collection=2,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    assert metrics["failed_total"] == 1
+    assert "expected 2 evolved rows" in metrics["collections"][0]["error"]
+
+
+def test_schema_evolution_fails_when_search_returns_unrelated_primary_key():
+    metrics = run_schema_evolution(
+        IrrelevantSearchHitClient(),
+        [_baseline_bm25_spec()],
+        collection_prefix="qa",
+        rows_per_collection=2,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    assert metrics["failed_total"] == 1
+    assert "expected primary key" in metrics["collections"][0]["error"]
+
+
+def test_schema_evolution_checkpoint_is_reused_read_only_after_rollback():
+    client = FakeClient()
+    checkpoint = {"version": 1, "collections": {}}
+    upgrade = run_schema_evolution(
+        client,
+        [_struct_array_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+        checkpoint_output=checkpoint,
+    )
+
+    assert upgrade["failed_total"] == 0
+    collection_checkpoint = checkpoint["collections"]["qa3_struct_array"]
+    assert collection_checkpoint["expected_count"] == 3
+    assert collection_checkpoint["validation_fields"] == [
+        "id",
+        "items",
+        "evo_nullable_varchar",
+    ]
+    assert len(collection_checkpoint["sample_checksums"]) == 3
+    assert {probe["field"] for probe in collection_checkpoint["search_probes"]} == {
+        "normal_vector",
+        "items[embedding]",
+    }
+
+    client.calls.clear()
+    rollback = run_schema_evolution(
+        client,
+        [_struct_array_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=999,
+        batch_size=99,
+        start_id=1,
+        seed=999,
+        phase="after-rollback",
+        checkpoint=checkpoint,
+    )
+
+    assert rollback["failed_total"] == 0
+    assert not any(
+        call[0] in {"add_collection_field", "drop_collection_field", "upsert"}
+        for call in client.calls
+    )
+
+
+def test_schema_evolution_rollback_detects_struct_array_payload_drift():
+    client = FakeClient()
+    checkpoint = {"version": 1, "collections": {}}
+    upgrade = run_schema_evolution(
+        client,
+        [_struct_array_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+        checkpoint_output=checkpoint,
+    )
+    assert upgrade["failed_total"] == 0
+    client.rows["qa3_struct_array"][5001]["items"][0]["score"] = -123.0
+
+    rollback = run_schema_evolution(
+        client,
+        [_struct_array_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+        phase="after-rollback",
+        checkpoint=checkpoint,
+    )
+
+    assert rollback["failed_total"] == 1
+    assert "checkpoint checksum" in rollback["collections"][0]["error"]
+
+
+def test_schema_evolution_rollback_rejects_checkpoint_without_struct_array_field():
+    client = FakeClient()
+    checkpoint = {"version": 1, "collections": {}}
+    upgrade = run_schema_evolution(
+        client,
+        [_struct_array_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+        checkpoint_output=checkpoint,
+    )
+    assert upgrade["failed_total"] == 0
+    checkpoint["collections"]["qa3_struct_array"]["validation_fields"] = [
+        "id",
+        "evo_nullable_varchar",
+    ]
+
+    rollback = run_schema_evolution(
+        client,
+        [_struct_array_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+        phase="after-rollback",
+        checkpoint=checkpoint,
+    )
+
+    assert rollback["failed_total"] == 1
+    assert "validation fields differ" in rollback["collections"][0]["error"]

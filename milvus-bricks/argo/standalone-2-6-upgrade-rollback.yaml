@@ -503,7 +503,7 @@ spec:
                 - name: enabled
                   value: "{{workflow.parameters.schema-evolution-existing-enabled}}"
                 - name: brick-name
-                  value: schema_evolution_existing
+                  value: validate_schema_evolution_existing_after_upgrade
                 - name: module
                   value: milvus_client.requests.schema_evolution_workload
                 - name: collection-prefix
@@ -513,6 +513,8 @@ spec:
                     --schema-matrix {{workflow.parameters.schema-matrix}}
                     --rows-per-collection {{workflow.parameters.rows-per-collection}}
                     --batch-size {{workflow.parameters.batch-size}}
+                    --phase after-upgrade
+                    --evolution-checkpoint-file /tmp/milvus-bricks/checkpoints/schema_evolution_existing.json
                     --function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}
 
           - name: patch-post-upgrade-config
@@ -669,7 +671,7 @@ spec:
                 - name: enabled
                   value: "{{workflow.parameters.schema-evolution-forward-enabled}}"
                 - name: brick-name
-                  value: schema_evolution_forward
+                  value: validate_schema_evolution_forward_after_upgrade
                 - name: module
                   value: milvus_client.requests.schema_evolution_workload
                 - name: collection-prefix
@@ -679,6 +681,8 @@ spec:
                     --schema-matrix {{workflow.parameters.forward-schema-matrix}}
                     --rows-per-collection {{workflow.parameters.rows-per-collection}}
                     --batch-size {{workflow.parameters.batch-size}}
+                    --phase after-upgrade
+                    --evolution-checkpoint-file /tmp/milvus-bricks/checkpoints/forward/schema_evolution.json
                     --function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}
 
           - name: observe-before-rollback
@@ -848,7 +852,7 @@ spec:
                     --runtime-user-config /tmp/milvus-bricks/k8s/runtime-user-after-rollback.yaml
 
           - name: validate-phase-dml-dql-after-rollback
-            dependencies: [validate-schema-features-after-rollback, pressure-daemon]
+            dependencies: [validate-schema-evolution-existing-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: optional-run-brick
             arguments:
@@ -877,6 +881,26 @@ spec:
                     --existing-start-id 70000000
                     --new-start-id 80000000
                     --drop-new-collections-if-exist true
+
+          - name: validate-schema-evolution-existing-after-rollback
+            dependencies: [validate-schema-features-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.schema-evolution-existing-enabled}}"
+                - name: brick-name
+                  value: validate_schema_evolution_existing_after_rollback
+                - name: module
+                  value: milvus_client.requests.schema_evolution_workload
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --phase after-rollback
+                    --evolution-checkpoint-file /tmp/milvus-bricks/checkpoints/schema_evolution_existing.json
 
           - name: wait-rollback-serviceability
             dependencies: [precheck-after-rollback, pressure-daemon]
@@ -981,8 +1005,28 @@ spec:
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
                     --interval-sec {{workflow.parameters.rollback-serviceability-interval-sec}}
 
-          - name: strict-pressure-after-rollback
+          - name: validate-schema-evolution-forward-after-rollback
             dependencies: [validate-forward-schema-features-after-rollback, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true && {{workflow.parameters.rollback-forward-validation-enabled}} == true"
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.schema-evolution-forward-enabled}}"
+                - name: brick-name
+                  value: validate_schema_evolution_forward_after_rollback
+                - name: module
+                  value: milvus_client.requests.schema_evolution_workload
+                - name: collection-prefix
+                  value: "{{workflow.parameters.forward-collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+                    --phase after-rollback
+                    --evolution-checkpoint-file /tmp/milvus-bricks/checkpoints/forward/schema_evolution.json
+
+          - name: strict-pressure-after-rollback
+            dependencies: [validate-schema-evolution-forward-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: run-pressure-suite
             arguments:
@@ -1231,6 +1275,73 @@ spec:
             done
             cd /tmp/repo/milvus-bricks
             mkdir -p /tmp/milvus-bricks/reports
+            PYTHONPATH=. python3 - <<'PY'
+            from milvus_client.common.gates import (
+                load_gate_manifest,
+                validate_registered_scenario_parameters,
+            )
+
+            manifest = load_gate_manifest(
+                "milvus_client/manifests/upgrade_rollback_gates.yaml"
+            )
+            runtime_parameters = {
+                "workflow-template": "milvus-standalone-2-6-upgrade-rollback",
+                "repo-url": "{{workflow.parameters.repo-url}}",
+                "repo-revision": "{{workflow.parameters.repo-revision}}",
+                "scenario-id": "{{workflow.parameters.scenario-id}}",
+                "deploy-profile": "{{workflow.parameters.deploy-profile}}",
+                "base-milvus-image": "{{workflow.parameters.base-milvus-image}}",
+                "base-version": "{{workflow.parameters.base-version}}",
+                "target-milvus-image": "{{workflow.parameters.target-milvus-image}}",
+                "target-version": "{{workflow.parameters.target-version}}",
+                "rollback-milvus-image": "{{workflow.parameters.rollback-milvus-image}}",
+                "rollback-version": "{{workflow.parameters.rollback-version}}",
+                "base-json-shredding-enabled": "{{workflow.parameters.base-json-shredding-enabled}}",
+                "target-json-shredding-enabled": "{{workflow.parameters.target-json-shredding-enabled}}",
+                "rollback-json-shredding-enabled": "{{workflow.parameters.rollback-json-shredding-enabled}}",
+                "base-loon-ffi-enabled": "{{workflow.parameters.base-loon-ffi-enabled}}",
+                "target-loon-ffi-enabled": "{{workflow.parameters.target-loon-ffi-enabled}}",
+                "rollback-loon-ffi-enabled": "{{workflow.parameters.rollback-loon-ffi-enabled}}",
+                "base-vortex-enabled": "{{workflow.parameters.base-vortex-enabled}}",
+                "target-vortex-enabled": "{{workflow.parameters.target-vortex-enabled}}",
+                "rollback-vortex-enabled": "{{workflow.parameters.rollback-vortex-enabled}}",
+                "base-target-vec-index-version": "{{workflow.parameters.base-target-vec-index-version}}",
+                "target-target-vec-index-version": "{{workflow.parameters.target-target-vec-index-version}}",
+                "rollback-target-vec-index-version": "{{workflow.parameters.rollback-target-vec-index-version}}",
+                "base-target-scalar-index-version": "{{workflow.parameters.base-target-scalar-index-version}}",
+                "target-target-scalar-index-version": "{{workflow.parameters.target-target-scalar-index-version}}",
+                "rollback-target-scalar-index-version": "{{workflow.parameters.rollback-target-scalar-index-version}}",
+                "post-upgrade-config-toggle-enabled": "{{workflow.parameters.post-upgrade-config-toggle-enabled}}",
+                "post-upgrade-json-shredding-enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
+                "forward-workload-enabled": "{{workflow.parameters.forward-workload-enabled}}",
+                "forward-schema-matrix": "{{workflow.parameters.forward-schema-matrix}}",
+                "rollback-enabled": "{{workflow.parameters.rollback-enabled}}",
+                "rollback-forward-validation-enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
+                "index-compatibility-validation-enabled": "{{workflow.parameters.index-compatibility-validation-enabled}}",
+                "phase-dml-dql-validation-enabled": "{{workflow.parameters.phase-dml-dql-validation-enabled}}",
+                "schema-evolution-existing-enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
+                "schema-evolution-forward-enabled": "{{workflow.parameters.schema-evolution-forward-enabled}}",
+                "collection-prefix": "{{workflow.parameters.collection-prefix}}",
+                "forward-collection-prefix": "{{workflow.parameters.forward-collection-prefix}}",
+                "schema-matrix": "{{workflow.parameters.schema-matrix}}",
+                "rows-per-collection": "{{workflow.parameters.rows-per-collection}}",
+                "batch-size": "{{workflow.parameters.batch-size}}",
+                "phase-new-collection-rows": "{{workflow.parameters.phase-new-collection-rows}}",
+                "phase-existing-dml-rows": "{{workflow.parameters.phase-existing-dml-rows}}",
+                "phase-existing-delete-rows": "{{workflow.parameters.phase-existing-delete-rows}}",
+                "pressure-modules": "{{workflow.parameters.pressure-modules}}",
+                "pressure-fail-on-error": "{{workflow.parameters.pressure-fail-on-error}}",
+                "gate-allow-warning": "{{workflow.parameters.gate-allow-warning}}",
+                "allow-unsafe-negative-coverage": "{{workflow.parameters.allow-unsafe-negative-coverage}}",
+                "rollback-serviceability-timeout-sec": "{{workflow.parameters.rollback-serviceability-timeout-sec}}",
+                "rollback-serviceability-interval-sec": "{{workflow.parameters.rollback-serviceability-interval-sec}}",
+            }
+            validate_registered_scenario_parameters(
+                manifest,
+                runtime_parameters["scenario-id"],
+                runtime_parameters,
+            )
+            PY
             PYTHONPATH=. python3 -m milvus_client.requests.render_milvus_cr \
               --deploy-profile "{{workflow.parameters.deploy-profile}}" \
               --name "{{workflow.name}}" \

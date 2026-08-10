@@ -42,6 +42,13 @@ def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
         and config_matrix["phase_dml_dql_validation_enabled"]
     ):
         required.append("validate_phase_dml_dql_after_upgrade")
+    if config_matrix["schema_evolution_existing_enabled"]:
+        required.append("validate_schema_evolution_existing_after_upgrade")
+    if (
+        config_matrix["forward_workload_enabled"]
+        and config_matrix["schema_evolution_forward_enabled"]
+    ):
+        required.append("validate_schema_evolution_forward_after_upgrade")
     if config_matrix["rollback_enabled"]:
         required.append("validate_after_rollback")
         required.append("validate_schema_features_after_rollback")
@@ -57,12 +64,19 @@ def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
         required.append("validate_phase_dml_dql_after_rollback")
     if (
         config_matrix["rollback_enabled"]
+        and config_matrix["schema_evolution_existing_enabled"]
+    ):
+        required.append("validate_schema_evolution_existing_after_rollback")
+    if (
+        config_matrix["rollback_enabled"]
         and config_matrix["forward_workload_enabled"]
         and config_matrix["rollback_forward_validation_enabled"]
     ):
         required.append("validate_forward_after_rollback")
         required.append("validate_forward_indexes_after_rollback")
         required.append("validate_forward_schema_features_after_rollback")
+        if config_matrix["schema_evolution_forward_enabled"]:
+            required.append("validate_schema_evolution_forward_after_rollback")
     return required
 
 

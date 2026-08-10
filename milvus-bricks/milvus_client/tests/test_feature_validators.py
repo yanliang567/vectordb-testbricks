@@ -7,6 +7,7 @@ from milvus_client.common.feature_validators import (
     validate_minhash_search,
     validate_nullable_vector_semantics,
     validate_struct_array_element_search,
+    validate_text_match_phrase_match,
 )
 from milvus_client.common.schema import (
     FieldSpec,
@@ -285,3 +286,82 @@ def test_minhash_validator_still_requires_exact_document():
     assert not report.passed
     assert report.failures[0]["type"] == "MINHASH_SEARCH_FAILED"
     assert report.failures[0]["expected_exact"] == 0
+
+
+def test_minhash_validator_requires_exact_document_to_rank_first():
+    class Client:
+        def search(self, **kwargs):
+            return [
+                [
+                    {"id": 1, "distance": 0.8},
+                    {"id": 2, "distance": 0.2},
+                    {"id": 0, "distance": 1.0},
+                ]
+            ]
+
+    report = ValidationReport()
+
+    validate_minhash_search(
+        Client(),
+        "qa_minhash",
+        _minhash_spec(),
+        {"min_pk": 0, "max_pk": 2},
+        7,
+        report,
+    )
+
+    assert not report.passed
+    assert report.failures[0]["expected_exact"] == 0
+    assert report.failures[0]["actual_rank"] == 2
+
+
+def test_text_feature_validator_rejects_unrelated_rows():
+    class Client:
+        def query(self, **kwargs):
+            return [{"id": 3, "text": "a" * 16}]
+
+        def search(self, **kwargs):
+            return [[{"id": 3, "distance": 1.0, "entity": {"text": "a" * 16}}]]
+
+    spec = SchemaSpec(
+        name="text_lob",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(
+                name="text",
+                dtype="TEXT",
+                nullable=True,
+                value_profile="text_lob_boundary",
+            ),
+            FieldSpec(name="sparse_bm25", dtype="SPARSE_FLOAT_VECTOR"),
+        ],
+        functions=[
+            FunctionSpec(
+                name="text_bm25",
+                function_type="BM25",
+                input_fields=["text"],
+                output_fields=["sparse_bm25"],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="sparse_bm25",
+                index_type="SPARSE_INVERTED_INDEX",
+                metric_type="BM25",
+            )
+        ],
+    )
+    report = ValidationReport()
+
+    validate_text_match_phrase_match(
+        Client(),
+        "qa_text",
+        spec,
+        {"min_pk": 0, "max_pk": 9},
+        7,
+        report,
+    )
+
+    assert not report.passed
+    assert any(failure["type"] == "TEXT_FILTER_FAILED" for failure in report.failures)

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
+import json
+import math
 import sys
 from typing import Any
 
@@ -10,6 +13,8 @@ from milvus_client.common.data import (
     generate_primary_key_value,
     generate_rows,
     indexed_vector_fields,
+    prepare_struct_vector_query,
+    stable_checksum,
     stable_vector_value,
     vector_fields,
 )
@@ -22,10 +27,14 @@ from milvus_client.common.schema import (
     collection_name,
     dtype_to_milvus,
     function_output_fields,
+    struct_array_for_field,
 )
-from milvus_client.common.validators import format_filter_value, query_count
+from milvus_client.common.validators import (
+    format_filter_value,
+    pk_range_filter,
+    query_count,
+)
 from milvus_client.common.workload import (
-    function_input_query_value,
     metric_type_for_field,
     primary_field,
     search_params_for_field,
@@ -43,6 +52,7 @@ EVOLUTION_DROP_FIELD = FieldSpec(
     dtype="INT64",
     nullable=True,
 )
+SCHEMA_EVOLUTION_CHECKPOINT_VERSION = 1
 
 
 def add_args(parser):
@@ -51,6 +61,10 @@ def add_args(parser):
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--start-id", type=int, default=40_000_000)
     parser.add_argument("--function-field-cycle-enabled", type=parse_bool, default=True)
+    parser.add_argument(
+        "--phase", choices=["after-upgrade", "after-rollback"], default="after-upgrade"
+    )
+    parser.add_argument("--evolution-checkpoint-file", default="")
 
 
 def _field_kwargs(field: FieldSpec) -> dict[str, Any]:
@@ -204,22 +218,20 @@ def _evolved_spec(spec: SchemaSpec) -> SchemaSpec:
     return replace(spec, fields=[*spec.fields, *extra_fields])
 
 
-def _nullable_vector_update_rows(spec: SchemaSpec, rows: list[dict[str, Any]]) -> int:
+def _nullable_vector_update_rows(
+    spec: SchemaSpec, rows: list[dict[str, Any]], start_id: int
+) -> int:
     nullable_vectors = [field for field in vector_fields(spec) if field.nullable]
     if not nullable_vectors:
         return 0
     updated = 0
     for offset, row in enumerate(rows):
+        data_pk = start_id + offset
         for field in nullable_vectors:
-            if offset % 2 == 0:
+            if data_pk % 2 == 0:
                 row[field.name] = None
             else:
-                pk_value = row.get(
-                    primary_field(spec).name if primary_field(spec) else "id", offset
-                )
-                row[field.name] = stable_vector_value(
-                    field, int(pk_value) if isinstance(pk_value, int) else offset, 17
-                )
+                row[field.name] = stable_vector_value(field, data_pk, 17)
             updated += 1
     return updated
 
@@ -245,54 +257,346 @@ def _upsert_evolution_rows(
             row[EVOLUTION_FIELD.name] = (
                 f"evo_{row.get(primary_field(spec).name if primary_field(spec) else 'id')}"
             )
-        nullable_updates += _nullable_vector_update_rows(evolved, rows)
+        nullable_updates += _nullable_vector_update_rows(evolved, rows, start)
         client.upsert(collection_name=collection, data=rows)
         upserted += len(rows)
     return (upserted, nullable_updates)
 
 
+def _prepare_collection_for_read(
+    client: Any,
+    collection: str,
+    *,
+    flush: bool,
+) -> None:
+    if flush and hasattr(client, "flush"):
+        try:
+            client.flush(collection_name=collection)
+        except TypeError:
+            client.flush(collection)
+    if hasattr(client, "load_collection"):
+        try:
+            client.load_collection(collection_name=collection)
+        except TypeError:
+            client.load_collection(collection)
+
+
+def _expected_evolution_row(
+    spec: SchemaSpec,
+    data_pk: int,
+    seed: int,
+) -> dict[str, Any]:
+    evolved = _evolved_spec(spec)
+    row = generate_rows(evolved, start_id=data_pk, count=1, seed=seed)[0]
+    primary = primary_field(spec)
+    primary_name = primary.name if primary else "id"
+    row[EVOLUTION_FIELD.name] = f"evo_{row.get(primary_name)}"
+    _nullable_vector_update_rows(evolved, [row], data_pk)
+    return row
+
+
+def _validation_fields(spec: SchemaSpec) -> list[str]:
+    primary = primary_field(spec)
+    return [
+        primary.name if primary else "id",
+        *(struct_array.name for struct_array in spec.struct_arrays),
+        EVOLUTION_FIELD.name,
+    ]
+
+
+def _sample_data_pks(start_id: int, rows_per_collection: int) -> list[int]:
+    if rows_per_collection <= 0:
+        return []
+    candidates = [
+        start_id,
+        start_id + (rows_per_collection - 1) // 2,
+        start_id + rows_per_collection - 1,
+    ]
+    return list(dict.fromkeys(candidates))
+
+
+def _hit_value(hit: Any, key: str) -> Any:
+    if isinstance(hit, dict):
+        if key in hit:
+            return hit[key]
+        entity = hit.get("entity")
+        if isinstance(entity, dict):
+            return entity.get(key)
+    if hasattr(hit, key):
+        return getattr(hit, key)
+    return None
+
+
+def _hit_primary_key(hit: Any, primary_name: str) -> Any:
+    for key in ("id", "pk", primary_name):
+        value = _hit_value(hit, key)
+        if value is not None:
+            return value
+    return None
+
+
+def _hit_offset(hit: Any) -> int | None:
+    value = _hit_value(hit, "offset")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _hit_distance(hit: Any) -> float | None:
+    for key in ("distance", "score"):
+        value = _hit_value(hit, key)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _search_probe(
+    spec: SchemaSpec,
+    field_name: str,
+    vector_field: FieldSpec,
+    start_id: int,
+    rows_per_collection: int,
+    seed: int,
+    preferred_data_pk: int | None = None,
+) -> tuple[int, Any, int | None] | None:
+    function_outputs = function_output_fields(spec)
+    data_pks = (
+        [preferred_data_pk]
+        if preferred_data_pk is not None
+        else range(start_id, start_id + rows_per_collection)
+    )
+    for data_pk in data_pks:
+        if data_pk is None:
+            continue
+        row = _expected_evolution_row(spec, data_pk, seed)
+        if vector_field.name in function_outputs:
+            function = next(
+                item
+                for item in spec.functions
+                if vector_field.name in item.output_fields
+            )
+            query = row.get(function.input_fields[0])
+            if query is not None and query != "":
+                return data_pk, query, None
+            continue
+        struct_array = struct_array_for_field(spec, field_name)
+        if struct_array is not None:
+            values = row.get(struct_array.name)
+            if not values:
+                continue
+            for offset, element in enumerate(values):
+                vector = element.get(vector_field.name)
+                if vector is not None:
+                    query, expected_offset = prepare_struct_vector_query(
+                        metric_type_for_field(spec, field_name), vector, offset
+                    )
+                    return data_pk, query, expected_offset
+            continue
+        query = row.get(vector_field.name)
+        if query is not None:
+            return data_pk, query, None
+    return None
+
+
+def _validate_search_probe(
+    client: Any,
+    collection: str,
+    spec: SchemaSpec,
+    field_name: str,
+    vector_field: FieldSpec,
+    start_id: int,
+    rows_per_collection: int,
+    seed: int,
+    preferred_data_pk: int | None = None,
+) -> dict[str, Any]:
+    probe = _search_probe(
+        spec,
+        field_name,
+        vector_field,
+        start_id,
+        rows_per_collection,
+        seed,
+        preferred_data_pk,
+    )
+    if probe is None:
+        raise AssertionError(f"{collection}.{field_name}: no non-null search probe")
+    data_pk, query_vector, expected_offset = probe
+    primary = primary_field(spec)
+    primary_name = primary.name if primary else "id"
+    expected_pk = generate_primary_key_value(primary, data_pk) if primary else data_pk
+    metric_type = metric_type_for_field(spec, field_name)
+    result = client.search(
+        collection_name=collection,
+        data=[query_vector],
+        anns_field=field_name,
+        filter=f"{primary_name} == {format_filter_value(expected_pk)}",
+        limit=5,
+        search_params={
+            "metric_type": metric_type,
+            "params": search_params_for_field(spec, field_name),
+        },
+    )
+    if not isinstance(result, list) or len(result) != 1 or not result[0]:
+        raise AssertionError(f"{collection}.{field_name}: search returned no hits")
+    expected_hit = next(
+        (
+            hit
+            for hit in result[0]
+            if _hit_primary_key(hit, primary_name) == expected_pk
+            and (expected_offset is None or _hit_offset(hit) == expected_offset)
+        ),
+        None,
+    )
+    if expected_hit is None:
+        raise AssertionError(
+            f"{collection}.{field_name}: search missed expected primary key "
+            f"{expected_pk!r} and offset {expected_offset!r}"
+        )
+    distance = _hit_distance(expected_hit)
+    if distance is None or not math.isfinite(distance):
+        raise AssertionError(
+            f"{collection}.{field_name}: expected hit has no finite score/distance"
+        )
+    return {
+        "field": field_name,
+        "data_pk": data_pk,
+        "expected_pk": expected_pk,
+        "expected_offset": expected_offset,
+        "metric_type": metric_type,
+    }
+
+
 def _read_validate(
-    client: Any, spec: SchemaSpec, collection: str, start_id: int
-) -> tuple[int, int, int]:
+    client: Any,
+    spec: SchemaSpec,
+    collection: str,
+    start_id: int,
+    rows_per_collection: int,
+    seed: int,
+    checkpoint_meta: dict[str, Any] | None = None,
+) -> tuple[int, int, int, dict[str, Any]]:
     primary = primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
-    min_pk = (
-        generate_primary_key_value(primary, start_id)
-        if primary is not None
-        else start_id
+    min_pk = generate_primary_key_value(primary, start_id) if primary else start_id
+    max_data_pk = start_id + rows_per_collection - 1
+    max_pk = (
+        generate_primary_key_value(primary, max_data_pk) if primary else max_data_pk
     )
-    output_fields = [primary_name, EVOLUTION_FIELD.name]
-    client.query(
-        collection_name=collection,
-        filter=f"{primary_name} >= {format_filter_value(min_pk)}",
-        output_fields=output_fields,
-        limit=10,
-    )
-    count = query_count(client, collection)
-    searches = 0
-    function_outputs = function_output_fields(spec)
-    for vector_field in vector_fields(spec):
-        if vector_field.nullable:
-            continue
-        metric_type = metric_type_for_field(spec, vector_field.name)
-        if vector_field.name in function_outputs:
-            query_vector = function_input_query_value(
-                spec, vector_field.name, start_id + 1, 23
-            )
-        else:
-            query_vector = stable_vector_value(vector_field, start_id + 1, 23)
-        client.search(
-            collection_name=collection,
-            data=[query_vector],
-            anns_field=vector_field.name,
-            limit=5,
-            search_params={
-                "metric_type": metric_type,
-                "params": search_params_for_field(spec, vector_field.name),
-            },
+    range_filter = pk_range_filter(primary_name, min_pk, max_pk)
+    count = query_count(client, collection, filter_expr=range_filter)
+    if count != rows_per_collection:
+        raise AssertionError(
+            f"{collection}: expected {rows_per_collection} evolved rows in "
+            f"{range_filter}, got {count}"
         )
-        searches += 1
-    return (1, count, searches)
+
+    expected_validation_fields = _validation_fields(spec)
+    validation_fields = list(
+        (checkpoint_meta or {}).get("validation_fields") or expected_validation_fields
+    )
+    if checkpoint_meta is not None and validation_fields != expected_validation_fields:
+        raise AssertionError(
+            f"{collection}: schema evolution checkpoint validation fields differ "
+            f"from the schema contract: {validation_fields!r} != "
+            f"{expected_validation_fields!r}"
+        )
+    sample_data_pks = list(
+        (checkpoint_meta or {}).get("sample_data_pks")
+        or _sample_data_pks(start_id, rows_per_collection)
+    )
+    expected_checkpoint_checksums = {
+        int(item["data_pk"]): item["checksum"]
+        for item in (checkpoint_meta or {}).get("sample_checksums", [])
+    }
+    sample_checksums = []
+    for data_pk in sample_data_pks:
+        expected_pk = (
+            generate_primary_key_value(primary, data_pk) if primary else data_pk
+        )
+        rows = client.query(
+            collection_name=collection,
+            filter=f"{primary_name} == {format_filter_value(expected_pk)}",
+            output_fields=validation_fields,
+            limit=2,
+        )
+        matching = [row for row in rows if row.get(primary_name) == expected_pk]
+        if len(matching) != 1:
+            raise AssertionError(
+                f"{collection}: expected exactly one evolved row for primary key "
+                f"{expected_pk!r}, got {len(matching)}"
+            )
+        actual_checksum = stable_checksum(
+            matching,
+            fields=validation_fields,
+            primary_field=primary_name,
+        )
+        if checkpoint_meta is None:
+            expected_row = _expected_evolution_row(spec, data_pk, seed)
+            expected_checksum = stable_checksum(
+                [expected_row],
+                fields=validation_fields,
+                primary_field=primary_name,
+            )
+            if actual_checksum != expected_checksum:
+                raise AssertionError(
+                    f"{collection}: evolved field checksum differs from deterministic "
+                    f"ground truth for primary key {expected_pk!r}"
+                )
+        elif actual_checksum != expected_checkpoint_checksums.get(data_pk):
+            raise AssertionError(
+                f"{collection}: evolved row checkpoint checksum differs for primary "
+                f"key {expected_pk!r}"
+            )
+        sample_checksums.append(
+            {
+                "data_pk": data_pk,
+                "pk": expected_pk,
+                "checksum": actual_checksum,
+            }
+        )
+
+    checkpoint_probes = {
+        item["field"]: item for item in (checkpoint_meta or {}).get("search_probes", [])
+    }
+    search_probes = []
+    for field_name, vector_field in indexed_vector_fields(spec):
+        preferred_data_pk = checkpoint_probes.get(field_name, {}).get("data_pk")
+        search_probes.append(
+            _validate_search_probe(
+                client,
+                collection,
+                spec,
+                field_name,
+                vector_field,
+                start_id,
+                rows_per_collection,
+                seed,
+                preferred_data_pk,
+            )
+        )
+
+    observation = {
+        "schema_name": spec.name,
+        "primary_field": primary_name,
+        "start_id": start_id,
+        "rows_per_collection": rows_per_collection,
+        "expected_count": rows_per_collection,
+        "min_pk": min_pk,
+        "max_pk": max_pk,
+        "seed": seed,
+        "validation_fields": validation_fields,
+        "sample_data_pks": sample_data_pks,
+        "sample_checksums": sample_checksums,
+        "search_probes": search_probes,
+    }
+    return (len(sample_checksums), count, len(search_probes), observation)
 
 
 def run_schema_evolution(
@@ -304,9 +608,55 @@ def run_schema_evolution(
     start_id: int,
     seed: int,
     function_field_cycle_enabled: bool = True,
+    phase: str = "after-upgrade",
+    checkpoint: dict[str, Any] | None = None,
+    checkpoint_output: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if phase not in {"after-upgrade", "after-rollback"}:
+        raise ValueError(f"unsupported schema evolution phase: {phase}")
+    if phase == "after-rollback" and not (checkpoint or {}).get("collections"):
+        raise ValueError("schema evolution checkpoint has no collections")
+    specs_by_name = {spec.name: spec for spec in specs}
+    collection_items: list[tuple[str, SchemaSpec, dict[str, Any] | None]]
+    if phase == "after-upgrade":
+        collection_items = [
+            (collection_name(collection_prefix, spec), spec, None) for spec in specs
+        ]
+    else:
+        collection_items = []
+        checkpoint_collections = (checkpoint or {}).get("collections", {})
+        expected_collections = {
+            collection_name(collection_prefix, spec) for spec in specs
+        }
+        if set(checkpoint_collections) != expected_collections:
+            raise ValueError(
+                "schema evolution checkpoint collection set differs from the "
+                f"schema matrix contract: expected {sorted(expected_collections)}, "
+                f"got {sorted(checkpoint_collections)}"
+            )
+        for collection, checkpoint_meta in checkpoint_collections.items():
+            schema_name = str(checkpoint_meta.get("schema_name") or "")
+            spec = specs_by_name.get(schema_name)
+            if spec is None:
+                raise ValueError(
+                    f"schema evolution checkpoint references unknown schema {schema_name!r}"
+                )
+            collection_items.append((collection, spec, checkpoint_meta))
+
+    if checkpoint_output is not None:
+        checkpoint_output.clear()
+        checkpoint_output.update(
+            {
+                "version": SCHEMA_EVOLUTION_CHECKPOINT_VERSION,
+                "phase": "after-upgrade",
+                "collection_prefix": collection_prefix,
+                "schema_names": [spec.name for spec in specs],
+                "collections": {},
+            }
+        )
     metrics: dict[str, Any] = {
-        "collections_total": len(specs),
+        "phase": phase,
+        "collections_total": len(collection_items),
         "field_add_total": 0,
         "field_add_exists_total": 0,
         "field_add_skipped_total": 0,
@@ -321,8 +671,7 @@ def run_schema_evolution(
         "failed_total": 0,
         "collections": [],
     }
-    for spec in specs:
-        collection = collection_name(collection_prefix, spec)
+    for collection, spec, checkpoint_meta in collection_items:
         collection_metrics: dict[str, Any] = {
             "schema": spec.name,
             "collection": collection,
@@ -330,69 +679,120 @@ def run_schema_evolution(
         try:
             if not client.has_collection(collection):
                 raise RuntimeError(f"{collection} does not exist")
-            add_status = _add_field(client, collection, EVOLUTION_FIELD)
-            collection_metrics["add_field"] = add_status
-            metrics["field_add_total"] += 1
-            metrics[f"field_add_{add_status}_total"] = (
-                metrics.get(f"field_add_{add_status}_total", 0) + 1
-            )
-
-            drop_add_status = _add_field(client, collection, EVOLUTION_DROP_FIELD)
-            drop_status = _drop_field(client, collection, EVOLUTION_DROP_FIELD.name)
-            collection_metrics["drop_field"] = (
-                drop_status if drop_add_status != "skipped" else "skipped"
-            )
-            if collection_metrics["drop_field"] == "skipped":
-                metrics["drop_field_skipped_total"] += 1
-
-            cycled = 0
-            skipped = 0
-            for function in spec.functions:
-                status = (
-                    _function_cycle(client, collection, spec, function)
-                    if function_field_cycle_enabled
-                    else "skipped_disabled"
+            if phase == "after-upgrade":
+                add_status = _add_field(client, collection, EVOLUTION_FIELD)
+                collection_metrics["add_field"] = add_status
+                metrics["field_add_total"] += 1
+                metrics[f"field_add_{add_status}_total"] = (
+                    metrics.get(f"field_add_{add_status}_total", 0) + 1
                 )
-                if status == "cycled":
-                    cycled += 1
-                else:
-                    skipped += 1
-                    collection_metrics.setdefault(
-                        "function_cycle_skip_reasons", []
-                    ).append(status)
-            metrics["function_cycles_total"] += cycled
-            metrics["function_cycle_skipped_total"] += skipped
-            collection_metrics["function_cycles"] = cycled
-            collection_metrics["function_cycle_skipped"] = skipped
 
-            upserted, nullable_updates = _upsert_evolution_rows(
-                client,
-                spec,
-                collection,
-                rows_per_collection,
-                batch_size,
-                start_id,
-                seed,
-            )
-            collection_metrics["upserted"] = upserted
-            collection_metrics["nullable_updates"] = nullable_updates
-            metrics["upserted_total"] += upserted
-            metrics["nullable_updates_total"] += nullable_updates
+                drop_add_status = _add_field(client, collection, EVOLUTION_DROP_FIELD)
+                drop_status = _drop_field(client, collection, EVOLUTION_DROP_FIELD.name)
+                collection_metrics["drop_field"] = (
+                    drop_status if drop_add_status != "skipped" else "skipped"
+                )
+                if collection_metrics["drop_field"] == "skipped":
+                    metrics["drop_field_skipped_total"] += 1
 
-            queries, count, searches = _read_validate(
-                client, spec, collection, start_id
-            )
-            collection_metrics["query_checks"] = queries
-            collection_metrics["count"] = count
-            collection_metrics["searches"] = searches
-            metrics["queries_total"] += queries
-            metrics["count_checks_total"] += 1
-            metrics["searches_total"] += searches
+                cycled = 0
+                skipped = 0
+                for function in spec.functions:
+                    status = (
+                        _function_cycle(client, collection, spec, function)
+                        if function_field_cycle_enabled
+                        else "skipped_disabled"
+                    )
+                    if status == "cycled":
+                        cycled += 1
+                    else:
+                        skipped += 1
+                        collection_metrics.setdefault(
+                            "function_cycle_skip_reasons", []
+                        ).append(status)
+                metrics["function_cycles_total"] += cycled
+                metrics["function_cycle_skipped_total"] += skipped
+                collection_metrics["function_cycles"] = cycled
+                collection_metrics["function_cycle_skipped"] = skipped
+
+                upserted, nullable_updates = _upsert_evolution_rows(
+                    client,
+                    spec,
+                    collection,
+                    rows_per_collection,
+                    batch_size,
+                    start_id,
+                    seed,
+                )
+                if not auto_id_enabled(spec) and upserted != rows_per_collection:
+                    raise AssertionError(
+                        f"{collection}: upserted {upserted} rows, expected "
+                        f"{rows_per_collection}"
+                    )
+                collection_metrics["upserted"] = upserted
+                collection_metrics["nullable_updates"] = nullable_updates
+                metrics["upserted_total"] += upserted
+                metrics["nullable_updates_total"] += nullable_updates
+            else:
+                upserted = int(checkpoint_meta.get("expected_count", 0))
+
+            if auto_id_enabled(spec) and upserted == 0:
+                collection_metrics["validation"] = "skipped_auto_id_no_evolved_rows"
+                if phase == "after-upgrade" and checkpoint_output is not None:
+                    checkpoint_output["collections"][collection] = {
+                        "schema_name": spec.name,
+                        "expected_count": 0,
+                        "validation": "skipped_auto_id_no_evolved_rows",
+                    }
+            else:
+                _prepare_collection_for_read(
+                    client,
+                    collection,
+                    flush=phase == "after-upgrade",
+                )
+                effective_start_id = int(
+                    checkpoint_meta.get("start_id", start_id)
+                    if checkpoint_meta is not None
+                    else start_id
+                )
+                effective_rows = int(
+                    checkpoint_meta.get("rows_per_collection", rows_per_collection)
+                    if checkpoint_meta is not None
+                    else rows_per_collection
+                )
+                effective_seed = int(
+                    checkpoint_meta.get("seed", seed)
+                    if checkpoint_meta is not None
+                    else seed
+                )
+                queries, count, searches, observation = _read_validate(
+                    client,
+                    spec,
+                    collection,
+                    effective_start_id,
+                    effective_rows,
+                    effective_seed,
+                    checkpoint_meta,
+                )
+                collection_metrics["query_checks"] = queries
+                collection_metrics["count"] = count
+                collection_metrics["searches"] = searches
+                metrics["queries_total"] += queries
+                metrics["count_checks_total"] += 1
+                metrics["searches_total"] += searches
+                if phase == "after-upgrade" and checkpoint_output is not None:
+                    checkpoint_output["collections"][collection] = observation
         except Exception as exc:
             metrics["failed_total"] += 1
             collection_metrics["error"] = str(exc)
         metrics["collections"].append(collection_metrics)
     return metrics
+
+
+def _evolution_checkpoint_path(args) -> Path:
+    if args.evolution_checkpoint_file:
+        return Path(args.evolution_checkpoint_file)
+    return Path(args.checkpoint_dir) / "schema_evolution.json"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -405,6 +805,36 @@ def main(argv: list[str] | None = None) -> int:
     try:
         from milvus_client.common.schema import load_schema_matrix
 
+        checkpoint_path = _evolution_checkpoint_path(args)
+        checkpoint = None
+        if args.phase == "after-rollback":
+            if not checkpoint_path.exists():
+                result.status = FAILED
+                result.mark_failed(
+                    "SCHEMA_EVOLUTION_CHECKPOINT_NOT_FOUND",
+                    "schema evolution checkpoint file does not exist",
+                    path=str(checkpoint_path),
+                )
+                result.write(args.output_json)
+                return 2
+            checkpoint = json.loads(checkpoint_path.read_text())
+            if checkpoint.get(
+                "version"
+            ) != SCHEMA_EVOLUTION_CHECKPOINT_VERSION or not checkpoint.get(
+                "collections"
+            ):
+                result.status = FAILED
+                result.mark_failed(
+                    "SCHEMA_EVOLUTION_CHECKPOINT_INVALID",
+                    "schema evolution checkpoint is empty or has an unsupported version",
+                    path=str(checkpoint_path),
+                )
+                result.write(args.output_json)
+                return 2
+
+        checkpoint_output: dict[str, Any] | None = (
+            {} if args.phase == "after-upgrade" else None
+        )
         client = create_client(args.uri, args.token, args.db_name)
         metrics = run_schema_evolution(
             client,
@@ -415,6 +845,9 @@ def main(argv: list[str] | None = None) -> int:
             args.start_id,
             args.seed,
             args.function_field_cycle_enabled,
+            args.phase,
+            checkpoint,
+            checkpoint_output,
         )
         result.metrics = metrics
         result.status = FAILED if metrics["failed_total"] else PASSED
@@ -427,6 +860,16 @@ def main(argv: list[str] | None = None) -> int:
                     schema=collection["schema"],
                     error=collection["error"],
                 )
+        if result.status == PASSED:
+            if checkpoint_output is not None:
+                checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+                checkpoint_path.write_text(
+                    json.dumps(checkpoint_output, indent=2, sort_keys=True)
+                )
+            result.checkpoint = {
+                "path": str(checkpoint_path),
+                "version": SCHEMA_EVOLUTION_CHECKPOINT_VERSION,
+            }
         result.write(args.output_json)
         return 1 if result.status == FAILED else 0
     except Exception as exc:

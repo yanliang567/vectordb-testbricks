@@ -287,3 +287,20 @@ def test_text_lob_boundary_profile_covers_storage_v3_boundaries():
     assert text_payload_metadata(rows[4]["text"])["bytes"] == 64 * 1024
     assert text_payload_metadata(rows[5]["text"])["bytes"] == 64 * 1024 + 1
     assert text_payload_metadata(rows[6]["text"])["bytes"] == 1024 * 1024
+
+
+def test_struct_array_payload_is_included_in_default_checksum_fields():
+    spec = SchemaSpec(
+        name="struct",
+        version="3.0",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        struct_arrays=[
+            StructArraySpec(
+                name="items",
+                max_capacity=4,
+                fields=[FieldSpec(name="score", dtype="FLOAT")],
+            )
+        ],
+    )
+
+    assert checksum_fields_for_spec(spec) == ["id", "items"]

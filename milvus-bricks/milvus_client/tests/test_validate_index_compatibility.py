@@ -694,6 +694,108 @@ def test_after_upgrade_rebuilds_indexes_and_writes_index_checkpoint(
     ]
 
 
+def test_index_validation_rechecks_query_and_search_after_release_reload(
+    monkeypatch, tmp_path
+):
+    seed_checkpoint = _seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    output_json = tmp_path / "result.json"
+    client = IndexCompatibilityClient()
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            output_json,
+            phase="after-upgrade",
+            rebuild=False,
+        )
+    )
+
+    result = json.loads(output_json.read_text())
+    call_names = [name for name, _ in client.calls]
+    release_position = call_names.index("release_collection")
+    assert code == 0
+    assert result["status"] == "passed"
+    assert result["metrics"]["reload_cycles_total"] == 1
+    assert result["metrics"]["reload_searches_total"] == 1
+    assert result["metrics"]["reload_scalar_index_queries_total"] == 1
+    assert "search" in call_names[:release_position]
+    assert "search" in call_names[release_position + 1 :]
+    assert "query" in call_names[:release_position]
+    assert "query" in call_names[release_position + 1 :]
+
+
+def test_after_rollback_does_not_overwrite_after_upgrade_checkpoint(
+    monkeypatch, tmp_path
+):
+    seed_checkpoint = _seed_checkpoint(tmp_path)
+    index_checkpoint = tmp_path / "index_compatibility.json"
+    client = IndexCompatibilityClient()
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "load_schema_matrix",
+        lambda path: [_spec()],
+    )
+    monkeypatch.setattr(
+        validate_index_compatibility,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    assert (
+        validate_index_compatibility.main(
+            _args(
+                tmp_path,
+                seed_checkpoint,
+                index_checkpoint,
+                tmp_path / "after_upgrade.json",
+                phase="after-upgrade",
+                rebuild=False,
+            )
+        )
+        == 0
+    )
+    expected_checkpoint = index_checkpoint.read_bytes()
+    client.indexes["embedding"]["index_name"] = "embedding_idx_after_rollback"
+
+    first_code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            tmp_path / "after_rollback_1.json",
+            phase="after-rollback",
+            rebuild=False,
+        )
+    )
+    second_code = validate_index_compatibility.main(
+        _args(
+            tmp_path,
+            seed_checkpoint,
+            index_checkpoint,
+            tmp_path / "after_rollback_2.json",
+            phase="after-rollback",
+            rebuild=False,
+        )
+    )
+
+    assert first_code == 1
+    assert second_code == 1
+    assert index_checkpoint.read_bytes() == expected_checkpoint
+
+
 def test_cosine_self_search_accepts_high_similarity_score(monkeypatch, tmp_path):
     seed_checkpoint = _seed_checkpoint(tmp_path)
     index_checkpoint = tmp_path / "index_compatibility.json"
@@ -895,7 +997,7 @@ def test_nested_json_path_index_is_queried_after_upgrade_and_rollback(
             call[0] == "query" and call[1].get("filter") == exact_filter
             for call in client.calls
         )
-        == 2
+        == 4
     )
 
 
@@ -1590,6 +1692,28 @@ def test_vector_search_fails_when_score_is_unobservable():
 
     assert not report.passed
     assert report.failures[0]["type"] == "INDEX_SEARCH_FAILED"
+
+
+def test_vector_search_fails_when_score_is_not_finite():
+    report = ValidationReport()
+
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": 3, "distance": float("nan")}]],
+        "qa",
+        "embedding",
+        "id",
+        3,
+        None,
+        "COSINE",
+        report,
+        index_type="HNSW",
+    )
+
+    assert not report.passed
+    assert report.failures[0]["type"] == "INDEX_SEARCH_FAILED"
+    assert report.failures[0]["message"] == (
+        "indexed vector self-search returned a non-finite distance or score"
+    )
 
 
 def test_bm25_index_search_requires_expected_primary_key():

@@ -132,6 +132,15 @@ PR review added the following fail-closed protections:
   workflow cleanup.
 - Index search probes require the expected PK and an observable score/distance;
   BM25 function output indexes no longer pass on an unrelated non-empty hit.
+- Index compatibility validates each collection while loaded, then performs a
+  strict release/load cycle and repeats count/PK, vector search, and scalar
+  index queries after both upgrade and rollback.
+- Schema evolution validates deterministic evolved rows and searches, writes an
+  after-upgrade checkpoint, and uses a read-only checkpoint validation mode
+  after rollback. StructArray payloads are part of this oracle.
+- Registered scenarios reject WorkflowTemplate, schema matrix, index target,
+  validator flag, storage feature, pressure policy, or data-scale drift before
+  Milvus deployment.
 - Missing matrix collections and validators with no applicable runtime target
   fail instead of reporting a zero-work pass.
 - Required workflow validations must report `passed`; `skipped` is accepted
@@ -245,6 +254,19 @@ Result: passed with no whitespace errors.
 
 Whole-repository Ruff was not used as a completion gate because legacy scripts currently contain unrelated pre-existing Ruff violations. All changed Python files are clean.
 
+### 2026-08-10 Final Review Verification
+
+The final review hardening, including release/reload validation and schema
+evolution rollback checkpoints, completed with:
+
+```text
+PYTHONPATH=. pytest -q milvus_client/tests: 374 passed
+argo lint --offline argo: passed
+ruff check on changed Python files: passed
+ruff format --check on changed Python files: passed
+git diff --check: passed
+```
+
 ## Live Environment Validation
 
 Live Milvus, Kubernetes, Helm, and Argo validation was completed on the QA
@@ -286,6 +308,4 @@ Each blocker has a reproduction and issue draft in this report directory. The
 test gates remain strict and expose these failures rather than converting them
 to warnings.
 
-The final offline unit test set completed with `336 passed, 2 deselected`. The
-two online Helm rendering tests still fail before chart rendering because the
-external GitHub Pages repository resets the connection.
+The final 2026-08-10 offline unit test set completed with `374 passed`.

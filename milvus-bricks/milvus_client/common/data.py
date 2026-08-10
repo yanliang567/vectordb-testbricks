@@ -136,13 +136,94 @@ def checksum_fields_for_spec(spec: SchemaSpec) -> list[str]:
     if spec.checksum_fields:
         return list(spec.checksum_fields)
     function_outputs = function_output_fields(spec)
-    return [
+    scalar_fields = [
         field.name
         for field in spec.fields
         if field.dtype not in VECTOR_TYPES
         and not field.auto_id
         and field.name not in function_outputs
     ]
+    return [*scalar_fields, *(struct_array.name for struct_array in spec.struct_arrays)]
+
+
+def update_projection_field(spec: SchemaSpec) -> str | None:
+    function_outputs = function_output_fields(spec)
+    for field in spec.fields:
+        if (
+            field.primary
+            or field.is_partition_key
+            or field.name in function_outputs
+            or field.dtype in VECTOR_TYPES
+        ):
+            continue
+        return field.name
+    if spec.struct_arrays:
+        return spec.struct_arrays[0].name
+    for field in spec.fields:
+        if not field.primary and field.name not in function_outputs:
+            return field.name
+    return None
+
+
+def _deterministic_update_value(field: FieldSpec, pk: int, current: Any) -> Any:
+    if field.dtype in {"INT64", "INT32", "INT16", "INT8"}:
+        return pk % 97 + 1
+    if field.dtype in {"FLOAT", "DOUBLE"}:
+        return float(pk % 997) + 0.25
+    if field.dtype == "BOOL":
+        return not bool(current)
+    if field.dtype in {"VARCHAR", "STRING", "TEXT"}:
+        value = f"phase_upsert_{pk}_milvus_upgrade_rollback"
+        return value[: field.max_length] if field.max_length else value
+    if field.dtype == "JSON":
+        return {"phase_upsert_pk": pk, "active": True}
+    if field.dtype == "ARRAY":
+        if field.element_type in {"INT64", "INT32", "INT16", "INT8"}:
+            return [pk % 97, (pk + 1) % 97]
+        if field.element_type in {"FLOAT", "DOUBLE"}:
+            return [float(pk % 97) + 0.25]
+        if field.element_type == "BOOL":
+            return [True, False]
+        return [f"phase_upsert_{pk}"]
+    if field.dtype == "GEOMETRY":
+        return f"POINT ({-100.0 + (pk % 10):g} {20.0 + (pk % 10):g})"
+    if field.dtype == "TIMESTAMPTZ":
+        return (
+            (datetime(2200, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=pk))
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+    if field.dtype in VECTOR_TYPES:
+        return stable_vector_value(field, pk, 909)
+    return current
+
+
+def apply_deterministic_update(
+    spec: SchemaSpec, row: dict[str, Any], pk: int
+) -> str | None:
+    projection = update_projection_field(spec)
+    if projection is None:
+        return None
+    top_level = next((field for field in spec.fields if field.name == projection), None)
+    if top_level is not None:
+        row[projection] = _deterministic_update_value(
+            top_level, pk, row.get(projection)
+        )
+        return projection
+    struct_array = next(
+        (item for item in spec.struct_arrays if item.name == projection), None
+    )
+    values = row.get(projection)
+    if struct_array is None or not values:
+        return projection
+    field = next(
+        (item for item in struct_array.fields if item.dtype not in VECTOR_TYPES),
+        struct_array.fields[0],
+    )
+    values[0][field.name] = _deterministic_update_value(
+        field, pk * 1000, values[0].get(field.name)
+    )
+    return projection
 
 
 def generate_primary_key_value(field: FieldSpec, pk: int) -> Any:

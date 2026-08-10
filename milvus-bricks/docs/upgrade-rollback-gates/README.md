@@ -245,12 +245,17 @@ The current gates validate:
   - delete 100 rows from that inserted PK range;
   - expected net increase: 900 rows per phase;
 - DQL on old and new collections after each phase;
-- index compatibility and load/search/query probes;
+- index compatibility and loaded-state load/search/query probes, followed by a
+  strict release/reload cycle and the same query/search probes again;
 - forward collection index compatibility after upgrade, with a separate
   `/tmp/milvus-bricks/checkpoints/forward/index_compatibility.json` checkpoint;
 - forward index compatibility after rollback only when
   `rollback-forward-validation-enabled=true`;
+- schema-evolution checkpoints written after upgrade and validated read-only
+  after rollback for existing and rollback-compatible forward collections;
 - Woodpecker 2CU topology requirements at render time and again before Helm
   deployment for registered runtime scenarios;
+- registered scenario schema/index/validator parameters and WorkflowTemplate
+  topology revalidated immediately before deployment;
 - continuous pressure workload, with rollout maintenance windows only excluding
   confirmed connectivity failures.
