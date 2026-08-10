@@ -20,6 +20,14 @@ MILVUS_3_0_BASELINE_IMAGE = (
     "harbor.milvus.io/milvusdb/milvus:v3.0.0@"
     "sha256:49371c30af46b1013e4d3e0b980e691d81376d69cdbe1b372725baf1d7255862"
 )
+MILVUS_3_0_VORTEX_CANDIDATE_BASELINE_IMAGE = (
+    "harbor.milvus.io/milvusdb/milvus:3.0-20260807-697431f2@"
+    "sha256:e29d3275d1184ecf5e00995dd8b2c234e6912ea3c899c6b9d6f8807f7d6db5a3"
+)
+MILVUS_3_0_VORTEX_CANDIDATE_TARGET_IMAGE = (
+    "harbor.milvus.io/milvusdb/milvus:3.0-20260807-1439dc7d@"
+    "sha256:ed46e16fcb58bd460722e6fc1c0e6294e86fd4e062431877d0a872dcb510cd64"
+)
 WORKFLOW_PATHS = {
     "milvus-standalone-2-6-upgrade-rollback": (
         ROOT.parent / "argo" / "standalone-2-6-upgrade-rollback.yaml"
@@ -244,23 +252,20 @@ def test_render_standalone_3_0_gate_parameters():
     assert params["rollback-forward-validation-enabled"] == "true"
 
 
-def test_render_standalone_3_0_loon_vortex_gate_parameters():
+def test_render_standalone_3_0_loon_vortex_candidate_parameters():
     manifest = load_gate_manifest(GATES)
     scenario = resolve_gate_scenario(
         manifest,
-        "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "standalone-3-0-vortex-candidate-upgrade-rollback",
     )
 
     submission = render_submission(scenario, manifest, allow_placeholder=True)
     params = submission["parameters"]
 
     assert submission["workflow_template"] == "milvus-standalone-3-0-upgrade-rollback"
-    assert params["base-milvus-image"] == MILVUS_3_0_BASELINE_IMAGE
-    assert (
-        params["target-milvus-image"]
-        == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
-    )
-    assert params["rollback-milvus-image"] == MILVUS_3_0_BASELINE_IMAGE
+    assert params["base-milvus-image"] == MILVUS_3_0_VORTEX_CANDIDATE_BASELINE_IMAGE
+    assert params["target-milvus-image"] == MILVUS_3_0_VORTEX_CANDIDATE_TARGET_IMAGE
+    assert params["rollback-milvus-image"] == MILVUS_3_0_VORTEX_CANDIDATE_BASELINE_IMAGE
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
     assert params["base-loon-ffi-enabled"] == "false"
     assert params["base-vortex-enabled"] == "false"
@@ -297,11 +302,11 @@ def test_render_standalone_json_shredding_gate_parameters():
     assert params["gate-allow-warning"] == "false"
 
 
-def test_render_cluster_3_0_loon_vortex_gate_parameters():
+def test_render_cluster_3_0_loon_vortex_candidate_parameters():
     manifest = load_gate_manifest(GATES)
     scenario = resolve_gate_scenario(
         manifest,
-        "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "cluster-3-0-vortex-candidate-upgrade-rollback",
     )
 
     submission = render_submission(scenario, manifest, allow_placeholder=True)
@@ -312,12 +317,9 @@ def test_render_cluster_3_0_loon_vortex_gate_parameters():
         params["deploy-profile"]
         == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
     )
-    assert params["base-milvus-image"] == MILVUS_3_0_BASELINE_IMAGE
-    assert (
-        params["target-milvus-image"]
-        == "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder"
-    )
-    assert params["rollback-milvus-image"] == MILVUS_3_0_BASELINE_IMAGE
+    assert params["base-milvus-image"] == MILVUS_3_0_VORTEX_CANDIDATE_BASELINE_IMAGE
+    assert params["target-milvus-image"] == MILVUS_3_0_VORTEX_CANDIDATE_TARGET_IMAGE
+    assert params["rollback-milvus-image"] == MILVUS_3_0_VORTEX_CANDIDATE_BASELINE_IMAGE
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
     assert params["base-loon-ffi-enabled"] == "false"
     assert params["base-vortex-enabled"] == "false"

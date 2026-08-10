@@ -1,5 +1,15 @@
 # Milvus Issue Draft: Vortex Variant Encoding Breaks 3.0 Rollback
 
+## Disposition Update
+
+Milvus issue [#52340](https://github.com/milvus-io/milvus/issues/52340) was
+submitted from this draft. Product follow-up on 2026-08-10 established that
+v3.0.0 is not recommended or supported with Vortex enabled; supported rollback
+coverage starts at v3.0.1. The reproduction below remains valid historical
+evidence for that boundary. The test repository now rejects v3.0.0 Vortex
+release gates and uses reviewed Vortex 0.75 branch images only as pre-release
+candidate coverage until a pinned v3.0.1 release image is available.
+
 ## Suggested Title
 
 `[Bug]: v3.0.0 cannot load Vortex segments written by a newer 3.0 build because vortex.variant is not registered`

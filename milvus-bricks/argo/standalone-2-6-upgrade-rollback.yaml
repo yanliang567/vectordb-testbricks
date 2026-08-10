@@ -1092,6 +1092,7 @@ spec:
                 print(f"invalid Milvus collection prefix parameters: {invalid}", file=sys.stderr)
                 raise SystemExit(2)
             schema_matrix = "{{workflow.parameters.schema-matrix}}"
+            base_version = "{{workflow.parameters.base-version}}"
             target_version = "{{workflow.parameters.target-version}}"
             rollback_version = "{{workflow.parameters.rollback-version}}"
             rollback_enabled = "{{workflow.parameters.rollback-enabled}}" == "true"
@@ -1100,6 +1101,7 @@ spec:
             approved_unsafe_negative_scenarios = {
                 "standalone-3-0-loon-vortex-to-2-6-negative",
             }
+            approved_vortex_candidate_scenarios = set()
             if allow_unsafe_negative_coverage and scenario_id not in approved_unsafe_negative_scenarios:
                 print(
                     "invalid unsafe negative coverage bypass: allow-unsafe-negative-coverage=true "
@@ -1130,6 +1132,56 @@ spec:
                     file=sys.stderr,
                 )
                 raise SystemExit(2)
+            version_pattern = re.compile(
+                r"^v?(?P<major>\d+)\.(?P<minor>\d+)(?:\.(?P<patch>\d+))?(?:[-+]|$)"
+            )
+
+            def version_core(value):
+                match = version_pattern.match(value.strip())
+                if match is None:
+                    print(f"invalid Milvus phase version: {value!r}", file=sys.stderr)
+                    raise SystemExit(2)
+                return (
+                    int(match.group("major")),
+                    int(match.group("minor")),
+                    int(match.group("patch") or 0),
+                )
+
+            vortex_min_version = (3, 0, 1)
+            phase_versions = {
+                "base": base_version,
+                "target": target_version,
+                "rollback": rollback_version,
+            }
+            vortex_enabled_by_phase = {
+                "base": "{{workflow.parameters.base-vortex-enabled}}" == "true",
+                "target": "{{workflow.parameters.target-vortex-enabled}}" == "true",
+                "rollback": "{{workflow.parameters.rollback-vortex-enabled}}" == "true",
+            }
+            is_approved_candidate = scenario_id in approved_vortex_candidate_scenarios
+
+            def phase_supports_vortex(phase):
+                return version_core(phase_versions[phase]) >= vortex_min_version or is_approved_candidate
+
+            if not allow_unsafe_negative_coverage:
+                for phase, enabled in vortex_enabled_by_phase.items():
+                    if enabled and not phase_supports_vortex(phase):
+                        print(
+                            f"invalid {phase} Vortex version {phase_versions[phase]!r}: "
+                            "Milvus >= 3.0.1 or an approved pre-release candidate is required",
+                            file=sys.stderr,
+                        )
+                        raise SystemExit(2)
+                vortex_data_may_exist = (
+                    vortex_enabled_by_phase["base"] or vortex_enabled_by_phase["target"]
+                )
+                if rollback_enabled and vortex_data_may_exist and not phase_supports_vortex("rollback"):
+                    print(
+                        "invalid Vortex rollback reader: target/base Vortex data requires "
+                        "rollback Milvus >= 3.0.1 or an approved pre-release candidate",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(2)
             PY
             mkdir -p /tmp/milvus-bricks/reports
             cat > /tmp/milvus-bricks/reports/env_snapshot.json <<EOF
