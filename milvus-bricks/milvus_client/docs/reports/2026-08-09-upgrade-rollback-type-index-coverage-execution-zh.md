@@ -18,7 +18,7 @@ fail-closed hardening；这些变更未重新执行历史 Kubernetes workflow。
 
 总体结论：
 
-- 后续 review 提出的 3 个 P1、3 个 P2 均已修复，未留下未处理的 P1/P2 问题。
+- 后续 review 提出的 3 个 P1、4 个 P2 均已修复，未留下未处理的 P1/P2 问题。
 - `2.6.18 -> 3.0 -> latest 2.6` rollback-safe 路径通过。
 - index engine version `10/4` 的 sealed index 构建及回滚复用通过。
 - standalone JSON Shredding 全 DML 升级/回滚通过。
@@ -462,10 +462,11 @@ Review 范围：
 
 Review 结论：
 
-- 后续 review 发现并修复 5 个覆盖/实现缺口：phase search 旧数据假命中、
+- 后续 review 发现并修复 6 个覆盖/实现缺口：phase search 旧数据假命中、
   Auto-ID 空 ID 响应假绿、resolved index type 不可观测时 fail-open、
   MinHash 近重复召回覆盖口径过强，以及 existing collection 在 upsert 后
-  仍使用旧 seed 构造 search probe。
+  仍使用旧 seed 构造 search probe，以及 index search 缺少 score/distance
+  或 BM25 命中无关 PK 时假绿。
 - phase search 现在按本阶段真实 PK 加 filter，并校验 PK、StructArray offset
   和适用的 self-search score/distance。
 - Auto-ID 现在要求每行返回唯一 ID，按原始数据行顺序保存实际 Milvus PK，
@@ -474,6 +475,8 @@ Review 结论：
   checkpoint，rollback 验证优先复用记录值。
 - matrix 声明 `expected_resolved_index_type` 后，SDK metadata 不可观测也会
   以 `INDEX_METADATA_MISMATCH` 失败。
+- 所有 index search probe 现在都要求返回期望 PK 和可观测的
+  score/distance，BM25 function output index 不再接受无关的非空命中。
 - MinHash exact self-search 保持强校验；近重复召回明确降级为观测指标，
   仅在 near/unrelated 都返回时强校验排序。
 - 所有已知产品失败均保持 fail-closed。
@@ -481,7 +484,7 @@ Review 结论：
 - index version 场景使用 read-only continuous pressure 是已知 SINDI crash 下的明确隔离策略，phase DML/DQL 仍覆盖写操作。
 - 最终 review 发现两份 issue 草稿末尾多余空行，已修复。
 
-上述 5 项属于真实执行完成后的测试框架 review hardening，已完成离线回归；
+上述 6 项属于真实执行完成后的测试框架 review hardening，已完成离线回归；
 本报告中的历史 Kubernetes workflow 没有因这些纯测试框架变更重新执行。
 
 剩余风险：
@@ -493,7 +496,7 @@ Review 结论：
 ## 11. 自动化验证
 
 ```text
-offline pytest: 344 passed, 2 deselected
+offline pytest: 346 passed, 2 deselected
 Argo offline lint: passed
 Ruff check: passed
 Ruff format check: passed

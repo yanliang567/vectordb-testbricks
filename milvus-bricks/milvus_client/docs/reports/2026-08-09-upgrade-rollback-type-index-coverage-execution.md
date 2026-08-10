@@ -326,6 +326,8 @@ Real execution exposed and drove the following PR improvements:
   both generation PKs and actual Milvus PKs for rollback search probes
 - made declared `expected_resolved_index_type` fail closed when public index
   metadata cannot expose the resolved type
+- required every index search probe, including BM25 function output indexes,
+  to return the expected PK and an observable score/distance
 - corrected FAISS search parameter scoping
 - used typed TIMESTAMPTZ filter probes
 - added visibility waits for phase DML/DQL
@@ -337,17 +339,17 @@ Real execution exposed and drove the following PR improvements:
 Final review also found two test files that did not match the configured Ruff
 formatter. They were mechanically formatted; no runtime behavior changed.
 
-The phase-search, upsert-seed, AutoID, resolved-index, and MinHash coverage
-changes above were post-execution review hardening. They were covered by offline
-regression tests; the historical Kubernetes runs in this report were not rerun
-for these test-framework-only changes.
+The phase-search, upsert-seed, AutoID, resolved-index, index-search, and MinHash
+coverage changes above were post-execution review hardening. They were covered
+by offline regression tests; the historical Kubernetes runs in this report
+were not rerun for these test-framework-only changes.
 
 ## Local and CI Verification
 
 Offline unit tests:
 
 ```text
-344 passed, 2 deselected
+346 passed, 2 deselected
 ```
 
 The two deselected tests require the external Helm GitHub Pages repository.

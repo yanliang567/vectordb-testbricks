@@ -420,6 +420,38 @@ def _nullable_json_spec():
     )
 
 
+def _bm25_spec():
+    return SchemaSpec(
+        name="text_lob_storage_v3",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(
+                name="text",
+                dtype="TEXT",
+                nullable=True,
+                value_profile="text_lob_boundary",
+            ),
+            FieldSpec(name="sparse_bm25", dtype="SPARSE_FLOAT_VECTOR"),
+        ],
+        indexes=[
+            IndexSpec(
+                field="sparse_bm25",
+                index_type="SPARSE_INVERTED_INDEX",
+                metric_type="BM25",
+            )
+        ],
+        functions=[
+            FunctionSpec(
+                name="text_bm25",
+                function_type="BM25",
+                input_fields=["text"],
+                output_fields=["sparse_bm25"],
+            )
+        ],
+    )
+
+
 def _nested_json_path_spec():
     return SchemaSpec(
         name="json_nested",
@@ -1519,37 +1551,8 @@ def test_struct_max_sim_probe_uses_embedding_list_without_offset_requirement():
 
 
 def test_bm25_function_probe_skips_null_and_empty_source_values():
-    text = FieldSpec(
-        name="text",
-        dtype="TEXT",
-        nullable=True,
-        value_profile="text_lob_boundary",
-    )
-    sparse = FieldSpec(name="sparse_bm25", dtype="SPARSE_FLOAT_VECTOR")
-    spec = SchemaSpec(
-        name="text_lob_storage_v3",
-        version="3.0",
-        fields=[
-            FieldSpec(name="id", dtype="INT64", primary=True),
-            text,
-            sparse,
-        ],
-        indexes=[
-            IndexSpec(
-                field="sparse_bm25",
-                index_type="SPARSE_INVERTED_INDEX",
-                metric_type="BM25",
-            )
-        ],
-        functions=[
-            FunctionSpec(
-                name="text_bm25",
-                function_type="BM25",
-                input_fields=["text"],
-                output_fields=["sparse_bm25"],
-            )
-        ],
-    )
+    spec = _bm25_spec()
+    sparse = spec.fields[2]
     meta = {
         "primary_field": "id",
         "min_pk": 0,
@@ -1568,6 +1571,46 @@ def test_bm25_function_probe_skips_null_and_empty_source_values():
         "Milvus Unicode compatibility: 中文 日本語 한국어",
         None,
     )
+
+
+def test_vector_search_fails_when_score_is_unobservable():
+    report = ValidationReport()
+
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": 3}]],
+        "qa",
+        "embedding",
+        "id",
+        3,
+        None,
+        "COSINE",
+        report,
+        index_type="HNSW",
+    )
+
+    assert not report.passed
+    assert report.failures[0]["type"] == "INDEX_SEARCH_FAILED"
+
+
+def test_bm25_index_search_requires_expected_primary_key():
+    class Client:
+        def search(self, **kwargs):
+            return [[{"id": 1, "distance": 1.0}]]
+
+    report = ValidationReport()
+    searches = validate_index_compatibility._validate_index_searches(
+        Client(),
+        "qa_bm25",
+        _bm25_spec(),
+        {"primary_field": "id", "min_pk": 2, "max_pk": 2},
+        7,
+        report,
+    )
+
+    assert searches == 1
+    assert not report.passed
+    assert report.failures[0]["expected_pk"] == 2
+    assert report.failures[0]["actual_pks"] == [1]
 
 
 def test_vector_score_failure_records_actual_hits():

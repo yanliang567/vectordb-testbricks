@@ -681,6 +681,17 @@ def _validate_vector_search_hit(
 
     distance = _hit_distance(expected_hit)
     if distance is None:
+        report.fail(
+            INDEX_SEARCH_FAILED,
+            "indexed vector self-search did not expose a distance or score",
+            collection=collection,
+            field=field_name,
+            metric_type=metric_type,
+            index_type=index_type,
+            expected_pk=expected_pk,
+            expected_offset=expected_offset,
+            actual_hits=actual_hits,
+        )
         return
     metric = metric_type.upper().removeprefix("MAX_SIM_")
     lossy_index = index_type.upper() in {
@@ -781,7 +792,6 @@ def _validate_index_searches(
     primary_name = meta.get("primary_field") or (
         primary.name if primary is not None else "id"
     )
-    function_outputs = function_output_fields(spec)
     for index, vector_field in _indexed_vector_indexes(spec):
         metric_type = metric_type_for_field(spec, index.field)
         probe = _vector_index_probe(spec, meta, index, vector_field, seed)
@@ -807,20 +817,17 @@ def _validate_index_searches(
                     "params": search_params_for_field(spec, index.field),
                 },
             )
-            if vector_field.name in function_outputs and metric_type == "BM25":
-                assert_search_result(response, collection, index.field)
-            else:
-                _validate_vector_search_hit(
-                    response,
-                    collection,
-                    index.field,
-                    primary_name,
-                    expected_pk,
-                    expected_offset,
-                    metric_type,
-                    report,
-                    index_type=index.index_type,
-                )
+            _validate_vector_search_hit(
+                response,
+                collection,
+                index.field,
+                primary_name,
+                expected_pk,
+                expected_offset,
+                metric_type,
+                report,
+                index_type=index.index_type,
+            )
             searches += 1
         except Exception as exc:
             report.fail(

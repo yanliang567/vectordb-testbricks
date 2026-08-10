@@ -130,6 +130,8 @@ PR review added the following fail-closed protections:
 - Vector search failures persist the returned PK, element offset, and score for
   every hit so server-side ranking/sign regressions remain diagnosable after
   workflow cleanup.
+- Index search probes require the expected PK and an observable score/distance;
+  BM25 function output indexes no longer pass on an unrelated non-empty hit.
 - Missing matrix collections and validators with no applicable runtime target
   fail instead of reporting a zero-work pass.
 - Required workflow validations must report `passed`; `skipped` is accepted
