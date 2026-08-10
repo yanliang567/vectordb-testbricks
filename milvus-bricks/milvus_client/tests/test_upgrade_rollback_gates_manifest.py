@@ -395,6 +395,9 @@ def test_registered_scenario_runtime_allows_operational_overrides():
         ("target-target-vec-index-version", "10"),
         ("index-compatibility-validation-enabled", "false"),
         ("schema-evolution-existing-enabled", "false"),
+        ("scenario-classification", "candidate"),
+        ("scenario-support-status", "pre_release_candidate"),
+        ("release-gate-eligible", "false"),
     ],
 )
 def test_registered_scenario_runtime_rejects_protected_parameter_drift(

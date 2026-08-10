@@ -158,6 +158,12 @@ def render_argo_parameters(
         "repo-url": str(defaults.get("repo_url", "")),
         "repo-revision": str(defaults.get("repo_revision", "main")),
         "scenario-id": str(scenario["id"]),
+        "scenario-classification": str(scenario["classification"]),
+        "scenario-support-status": str(scenario["support_status"]),
+        "release-gate-eligible": _bool_str(
+            scenario.get("classification") == "gate"
+            and scenario.get("support_status") == "supported"
+        ),
         "deploy-profile": str(scenario["deploy_profile"]),
         "base-milvus-image": str(scenario["base"]["image"]),
         "base-version": str(scenario["base"]["version"]),

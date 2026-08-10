@@ -99,7 +99,8 @@ metadata into a passing gate.
 
 ### Gate Scenarios and Workflows
 
-The gate manifest now contains 13 promoted scenarios and one negative scenario. Added promoted scenarios:
+The gate manifest now contains 11 promoted gate scenarios, two pre-release
+candidate scenarios, and one negative scenario. Added promoted scenarios:
 
 - `standalone-3-0-index-v10-v4-upgrade-rollback`
 - `cluster-3-0-index-v10-v4-upgrade-rollback`
@@ -264,11 +265,12 @@ Whole-repository Ruff was not used as a completion gate because legacy scripts c
 
 ### 2026-08-10 Final Review Verification
 
-The final review hardening, including release/reload validation and schema
-evolution rollback checkpoints, completed with:
+The final review hardening, including release/reload validation, schema
+evolution rollback checkpoints, and explicit pre-release candidate eligibility
+metadata, completed with:
 
 ```text
-PYTHONPATH=. pytest -q milvus_client/tests: 408 passed
+PYTHONPATH=. pytest -q milvus_client/tests: 415 passed
 argo lint --offline argo: passed
 ruff check on changed Python files: passed
 ruff format --check on changed Python files: passed
@@ -320,4 +322,4 @@ Each item has a reproduction and issue draft in this report directory. Active
 blockers remain strict failures; the v3.0.0 Vortex result is preserved as an
 unsupported-path boundary rather than converted to a warning.
 
-The final 2026-08-10 offline unit test set completed with `408 passed`.
+The final 2026-08-10 offline unit test set completed with `415 passed`.

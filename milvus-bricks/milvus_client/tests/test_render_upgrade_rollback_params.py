@@ -155,6 +155,9 @@ def test_render_cluster_3_0_gate_parameters():
     assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_3_0.yaml"
     assert params["schema-evolution-existing-enabled"] == "true"
     assert params["rollback-forward-validation-enabled"] == "true"
+    assert params["scenario-classification"] == "gate"
+    assert params["scenario-support-status"] == "supported"
+    assert params["release-gate-eligible"] == "true"
     assert params["index-compatibility-validation-enabled"] == "true"
     assert params["phase-dml-dql-validation-enabled"] == "true"
 
@@ -231,6 +234,9 @@ def test_render_cluster_woodpecker_2cu_ha_gate_parameters():
     assert params["phase-dml-dql-validation-enabled"] == "true"
     assert params["pressure-fail-on-error"] == "true"
     assert params["gate-allow-warning"] == "false"
+    assert params["scenario-classification"] == "gate"
+    assert params["scenario-support-status"] == "supported"
+    assert params["release-gate-eligible"] == "true"
 
 
 def test_render_standalone_3_0_gate_parameters():
@@ -275,6 +281,9 @@ def test_render_standalone_3_0_loon_vortex_candidate_parameters():
     assert params["rollback-vortex-enabled"] == "true"
     assert params["allow-unsafe-negative-coverage"] == "false"
     assert params["gate-allow-warning"] == "false"
+    assert params["scenario-classification"] == "candidate"
+    assert params["scenario-support-status"] == "pre_release_candidate"
+    assert params["release-gate-eligible"] == "false"
 
 
 def test_render_standalone_json_shredding_gate_parameters():
@@ -329,6 +338,9 @@ def test_render_cluster_3_0_loon_vortex_candidate_parameters():
     assert params["rollback-vortex-enabled"] == "true"
     assert params["allow-unsafe-negative-coverage"] == "false"
     assert params["gate-allow-warning"] == "false"
+    assert params["scenario-classification"] == "candidate"
+    assert params["scenario-support-status"] == "pre_release_candidate"
+    assert params["release-gate-eligible"] == "false"
 
 
 def test_render_cluster_2_6_to_3_0_gate_uses_pulsar_profile():
@@ -371,6 +383,9 @@ def test_render_negative_scenario_enables_explicit_unsafe_coverage_escape_hatch(
     assert params["target-loon-ffi-enabled"] == "true"
     assert params["target-vortex-enabled"] == "true"
     assert params["gate-allow-warning"] == "true"
+    assert params["scenario-classification"] == "negative"
+    assert params["scenario-support-status"] == "unsupported"
+    assert params["release-gate-eligible"] == "false"
 
 
 def test_render_params_cli_writes_json(tmp_path):

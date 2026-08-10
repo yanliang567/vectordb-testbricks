@@ -946,6 +946,9 @@ def test_upgrade_templates_validate_registered_scenario_before_deploy(template_n
     assert "validate_registered_scenario_parameters" in command
     assert '"workflow-template": "milvus-' in command
     for protected_parameter in (
+        "scenario-classification",
+        "scenario-support-status",
+        "release-gate-eligible",
         "schema-matrix",
         "forward-schema-matrix",
         "target-target-vec-index-version",
@@ -959,6 +962,74 @@ def test_upgrade_templates_validate_registered_scenario_before_deploy(template_n
             f'"{protected_parameter}": '
             f'"{{{{workflow.parameters.{protected_parameter}}}}}"' in command
         )
+
+
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
+def test_upgrade_templates_report_release_gate_eligibility(template_name):
+    template = yaml.safe_load((ROOT / "argo" / template_name).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    parameter_values = {
+        parameter["name"]: parameter["value"]
+        for parameter in template["spec"]["arguments"]["parameters"]
+    }
+
+    assert parameter_values["scenario-classification"] == "unregistered"
+    assert parameter_values["scenario-support-status"] == "unknown"
+    assert parameter_values["release-gate-eligible"] == "false"
+
+    resolve_command = templates["resolve-inputs"]["container"]["args"][0]
+    assert (
+        '"scenario_classification": '
+        '"{{workflow.parameters.scenario-classification}}"' in resolve_command
+    )
+    assert (
+        '"scenario_support_status": '
+        '"{{workflow.parameters.scenario-support-status}}"' in resolve_command
+    )
+    assert (
+        '"release_gate_eligible": '
+        "{{workflow.parameters.release-gate-eligible}}" in resolve_command
+    )
+
+    final_command = templates["generate-final-report"]["container"]["args"][0]
+    assert (
+        '--scenario-classification "{{workflow.parameters.scenario-classification}}"'
+        in final_command
+    )
+    assert (
+        '--scenario-support-status "{{workflow.parameters.scenario-support-status}}"'
+        in final_command
+    )
+    assert (
+        '--release-gate-eligible "{{workflow.parameters.release-gate-eligible}}"'
+        in final_command
+    )
+    assert '"flow_summary_fallback": true' in final_command
+    assert '"release_gate_eligible": {{workflow.parameters.release-gate-eligible}}' in (
+        final_command
+    )
+
+    cleanup_command = templates["maybe-cleanup"]["container"]["args"][0]
+    assert (
+        '"release_gate_eligible": '
+        'json.loads("""{{workflow.parameters.release-gate-eligible}}""")'
+        in cleanup_command
+    )
+    assert (
+        '"scenario_classification": '
+        '"{{workflow.parameters.scenario-classification}}"' in cleanup_command
+    )
+    assert (
+        "- release gate eligible: "
+        "`{{workflow.parameters.release-gate-eligible}}`" in cleanup_command
+    )
 
 
 def _run_storage_assertion_heredoc(
