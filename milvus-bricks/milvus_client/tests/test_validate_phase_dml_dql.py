@@ -143,10 +143,10 @@ class PhaseClient:
             return []
         if "== 1000" in filter_expr:
             return []
-        equality = re.search(r"==\s*(\d+)", filter_expr)
-        if equality:
+        equalities = re.findall(r"==\s*(\d+)", filter_expr)
+        if equalities:
             rows = self._project_rows(
-                collection_name, [int(equality.group(1))], output_fields
+                collection_name, [int(equalities[-1])], output_fields
             )
             if rows:
                 return rows
@@ -395,6 +395,9 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
     assert result["metrics"]["existing_upserted_total"] == 4
     assert result["metrics"]["existing_deleted_total"] == 1
     assert result["metrics"]["new_collection_inserted_total"] == 4
+    assert result["metrics"]["scalar_index_queries_total"] == 2
+    assert result["metrics"]["existing_collections"][0]["scalar_index_queries"] == 1
+    assert result["metrics"]["new_collections"][0]["scalar_index_queries"] == 1
     assert "create_collection" in call_names
     assert "upsert" in call_names
     assert "delete" in call_names
@@ -668,6 +671,16 @@ def test_phase_dml_dql_writes_after_upgrade_phase_checkpoint(monkeypatch, tmp_pa
         ]
         == 17
     )
+    assert (
+        checkpoint_payload["existing_collections"]["qa_dense"]["scalar_index_queries"]
+        == 1
+    )
+    assert (
+        checkpoint_payload["new_collections"]["qa_after_upgrade_dense"][
+            "scalar_index_queries"
+        ]
+        == 1
+    )
 
 
 def test_phase_checkpoint_reuses_recorded_existing_search_probe_seed():
@@ -706,6 +719,318 @@ def test_phase_checkpoint_reuses_recorded_existing_search_probe_seed():
     assert searches == 1
     assert report.passed
     assert search_call["data"] == [expected]
+
+
+def test_phase_checkpoint_reloads_existing_and_target_written_collections(
+    monkeypatch,
+    tmp_path,
+):
+    checkpoint = tmp_path / "phase.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "existing_collections": {
+                    "qa_dense": {
+                        "collection": "qa_dense",
+                        "schema_name": "dense",
+                    }
+                },
+                "new_collections": {
+                    "qa_after_upgrade_dense": {
+                        "collection": "qa_after_upgrade_dense",
+                        "schema_name": "dense",
+                    }
+                },
+            }
+        )
+    )
+    client = PhaseClient()
+    client.collections.add("qa_after_upgrade_dense")
+    report = ValidationReport()
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "_validate_existing_phase_checkpoint_collection",
+        lambda *args, **kwargs: 1,
+    )
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "_validate_new_phase_checkpoint_collection",
+        lambda *args, **kwargs: 1,
+    )
+
+    metrics = validate_phase_dml_dql._validate_phase_checkpoint_before_rollback(
+        client,
+        {"dense": _dense_spec()},
+        checkpoint,
+        seed=7,
+        report=report,
+    )
+
+    assert report.passed
+    assert metrics["phase_checkpoint_reload_collections_total"] == 2
+    assert metrics["phase_checkpoint_reload_failures_total"] == 0
+    assert metrics["phase_checkpoint_searches_total"] == 2
+    reload_calls = [
+        call
+        for call in client.calls
+        if call[0] in {"release_collection", "load_collection"}
+    ]
+    assert reload_calls == [
+        (
+            "release_collection",
+            {"args": (), "collection_name": "qa_dense"},
+        ),
+        (
+            "load_collection",
+            {"args": (), "collection_name": "qa_dense"},
+        ),
+        (
+            "release_collection",
+            {"args": (), "collection_name": "qa_after_upgrade_dense"},
+        ),
+        (
+            "load_collection",
+            {"args": (), "collection_name": "qa_after_upgrade_dense"},
+        ),
+    ]
+
+
+def test_phase_checkpoint_reload_failure_fails_closed(monkeypatch, tmp_path):
+    checkpoint = tmp_path / "phase.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "existing_collections": {
+                    "qa_dense": {
+                        "collection": "qa_dense",
+                        "schema_name": "dense",
+                    }
+                },
+                "new_collections": {
+                    "qa_after_upgrade_dense": {
+                        "collection": "qa_after_upgrade_dense",
+                        "schema_name": "dense",
+                    }
+                },
+            }
+        )
+    )
+    client = PhaseClient()
+    client.collections.add("qa_after_upgrade_dense")
+    original_load = client.load_collection
+
+    def fail_target_written_load(*args, **kwargs):
+        collection = kwargs.get("collection_name") or args[0]
+        if collection == "qa_after_upgrade_dense":
+            raise RuntimeError("persisted index load failed")
+        return original_load(*args, **kwargs)
+
+    client.load_collection = fail_target_written_load
+    report = ValidationReport()
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "_validate_existing_phase_checkpoint_collection",
+        lambda *args, **kwargs: 1,
+    )
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "_validate_new_phase_checkpoint_collection",
+        lambda *args, **kwargs: 1,
+    )
+
+    metrics = validate_phase_dml_dql._validate_phase_checkpoint_before_rollback(
+        client,
+        {"dense": _dense_spec()},
+        checkpoint,
+        seed=7,
+        report=report,
+    )
+
+    assert not report.passed
+    assert metrics["phase_checkpoint_validated"] is False
+    assert metrics["phase_checkpoint_reload_collections_total"] == 1
+    assert metrics["phase_checkpoint_reload_failures_total"] == 1
+    assert metrics["phase_checkpoint_searches_total"] == 1
+    assert any(
+        failure["type"] == "PHASE_CHECKPOINT_RELOAD_FAILED"
+        and failure["collection"] == "qa_after_upgrade_dense"
+        and failure["operation"] == "load_collection"
+        for failure in report.failures
+    )
+
+
+def test_phase_checkpoint_queries_scalar_indexes_after_reload(monkeypatch, tmp_path):
+    checkpoint = tmp_path / "phase.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "existing_collections": {
+                    "qa_dense": {
+                        "collection": "qa_dense",
+                        "schema_name": "dense",
+                        "primary_field": "id",
+                        "start_id": 100,
+                        "rows": 4,
+                        "deleted": 1,
+                    }
+                },
+                "new_collections": {
+                    "qa_after_upgrade_dense": {
+                        "collection": "qa_after_upgrade_dense",
+                        "schema_name": "dense",
+                        "primary_field": "id",
+                        "start_id": 200,
+                        "rows": 4,
+                    }
+                },
+            }
+        )
+    )
+    client = PhaseClient()
+    client.collections.add("qa_after_upgrade_dense")
+    report = ValidationReport()
+    observed = []
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "_validate_existing_phase_checkpoint_collection",
+        lambda *args, **kwargs: 0,
+    )
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "_validate_new_phase_checkpoint_collection",
+        lambda *args, **kwargs: 0,
+    )
+
+    def record_scalar_queries(
+        client,
+        collection,
+        spec,
+        meta,
+        seed,
+        report,
+        probe_overrides=None,
+    ):
+        observed.append((collection, meta, seed, probe_overrides))
+        return 2
+
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "validate_scalar_index_queries",
+        record_scalar_queries,
+    )
+
+    metrics = validate_phase_dml_dql._validate_phase_checkpoint_before_rollback(
+        client,
+        {"dense": _dense_spec()},
+        checkpoint,
+        seed=7,
+        report=report,
+    )
+
+    assert report.passed
+    assert metrics["phase_checkpoint_scalar_index_queries_total"] == 4
+    assert metrics["phase_checkpoint.qa_dense.scalar_index_queries_total"] == 2
+    assert (
+        metrics["phase_checkpoint.qa_after_upgrade_dense.scalar_index_queries_total"]
+        == 2
+    )
+    assert observed == [
+        (
+            "qa_dense",
+            {
+                "primary_field": "id",
+                "min_pk": 101,
+                "max_pk": 103,
+                "data_min_pk": 101,
+                "data_max_pk": 103,
+            },
+            7,
+            {},
+        ),
+        (
+            "qa_after_upgrade_dense",
+            {
+                "primary_field": "id",
+                "min_pk": 200,
+                "max_pk": 203,
+                "data_min_pk": 200,
+                "data_max_pk": 203,
+            },
+            24,
+            {},
+        ),
+    ]
+
+
+def test_phase_checkpoint_scalar_index_meta_maps_remaining_auto_ids():
+    meta = validate_phase_dml_dql._phase_checkpoint_index_meta(
+        _dense_spec(auto_id=True),
+        {
+            "primary_field": "id",
+            "start_id": 100,
+            "rows": 4,
+            "deleted": 1,
+            "remaining_values": [1001, 1002, 1003],
+        },
+        existing=True,
+    )
+
+    assert meta == {
+        "primary_field": "id",
+        "min_pk": 101,
+        "max_pk": 103,
+        "data_min_pk": 101,
+        "data_max_pk": 103,
+        "pk_values": [1001, 1002, 1003],
+    }
+
+
+def test_phase_upsert_scalar_probe_overrides_use_checkpoint_values():
+    struct_spec = SchemaSpec(
+        name="struct_scalar",
+        version="2.6",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        struct_arrays=[
+            StructArraySpec(
+                name="items",
+                max_capacity=4,
+                fields=[
+                    FieldSpec(name="score", dtype="FLOAT"),
+                    FieldSpec(name="category", dtype="VARCHAR"),
+                ],
+            )
+        ],
+        indexes=[
+            IndexSpec(field="items[score]", index_type="AUTOINDEX"),
+            IndexSpec(field="items[category]", index_type="AUTOINDEX"),
+        ],
+    )
+
+    overrides = validate_phase_dml_dql._phase_upsert_scalar_probe_overrides(
+        struct_spec,
+        {
+            "start_id": 100,
+            "deleted": 1,
+            "upsert_samples": {
+                "field": "items",
+                "samples": [
+                    {
+                        "pk": 101,
+                        "expected": [{"score": 91.25, "category": "updated_category"}],
+                    }
+                ],
+            },
+        },
+    )
+
+    assert overrides == {
+        "items[score]": (101, 101, "MATCH_ANY(items, $[score] == 91.25)"),
+        "items[category]": (
+            101,
+            101,
+            'MATCH_ANY(items, $[category] == "updated_category")',
+        ),
+    }
 
 
 def test_after_rollback_validates_after_upgrade_phase_checkpoint_before_new_dml(
@@ -853,6 +1178,7 @@ def test_phase_dml_dql_deletes_auto_id_inserted_rows_and_skips_upsert(
     assert result["status"] == "passed"
     assert result["metrics"]["existing_upserted_total"] == 0
     assert result["metrics"]["existing_upsert_skipped_auto_id_total"] == 1
+    assert result["metrics"]["scalar_index_queries_total"] == 2
     existing = result["metrics"]["existing_collections"][0]
     assert existing["inserted_values"] == [1000, 1001, 1002, 1003]
     assert existing["remaining_values"] == [1001, 1002, 1003]

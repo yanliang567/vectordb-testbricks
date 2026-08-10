@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from milvus_client.common.data import stable_vector_value
 from milvus_client.common.schema import (
@@ -731,6 +732,13 @@ def test_index_validation_rechecks_query_and_search_after_release_reload(
     assert result["metrics"]["reload_cycles_total"] == 1
     assert result["metrics"]["reload_searches_total"] == 1
     assert result["metrics"]["reload_scalar_index_queries_total"] == 1
+    assert result["metrics"]["qa_dense.actual_indexes_total"] == 2
+    assert result["metrics"]["qa_dense.vector_searches_total"] == 1
+    assert result["metrics"]["qa_dense.scalar_index_queries_total"] == 1
+    assert result["metrics"]["qa_dense.reload_cycles_total"] == 1
+    assert result["metrics"]["qa_dense.reload_vector_searches_total"] == 1
+    assert result["metrics"]["qa_dense.reload_scalar_index_queries_total"] == 1
+    assert result["metrics"]["qa_dense.declared_autoindexes_total"] == 0
     assert "search" in call_names[:release_position]
     assert "search" in call_names[release_position + 1 :]
     assert "query" in call_names[:release_position]
@@ -1591,6 +1599,53 @@ def test_struct_scalar_index_filters_use_match_any():
     assert category_filter == (
         'MATCH_ANY(attributes, $[category_inverted] == "category_3")'
     )
+
+
+def test_rollback_safe_autoindex_matrix_builds_deterministic_scalar_filters():
+    matrix = (
+        Path(__file__).resolve().parents[1] / "manifests" / "schema_matrix_2_6.yaml"
+    )
+    specs = validate_index_compatibility.load_schema_matrix(matrix)
+    autoindex_filters = {}
+    for spec in specs:
+        meta = {"min_pk": 3, "max_pk": 3, "data_min_pk": 3, "data_max_pk": 3}
+        for index, field in validate_index_compatibility.indexed_scalar_indexes(spec):
+            if index.index_type != "AUTOINDEX":
+                continue
+            probe = validate_index_compatibility._scalar_index_probe(
+                spec, meta, index, field, seed=7
+            )
+            autoindex_filters[f"{spec.name}.{index.field}"] = (
+                None if probe is None else probe[2]
+            )
+
+    assert autoindex_filters == {
+        "scalar_dynamic_partition_key.int64_category": "int64_category == 3",
+        "scalar_autoindex_formats_rollback_safe.int64_auto": "int64_auto == 3",
+        "scalar_autoindex_formats_rollback_safe.float_auto": "float_auto == 0.3",
+        "scalar_autoindex_formats_rollback_safe.bool_auto": "bool_auto == False",
+        "scalar_autoindex_formats_rollback_safe.varchar_auto": (
+            'varchar_auto == "varchar_auto_3"'
+        ),
+        "scalar_autoindex_formats_rollback_safe.json_auto": (
+            "json_auto['bucket'] == 3"
+        ),
+        "scalar_autoindex_formats_rollback_safe.arr_varchar_auto": (
+            'ARRAY_CONTAINS(arr_varchar_auto, "tag_3")'
+        ),
+        "struct_array_varchar_autoindex_rollback_safe.items[category]": (
+            'MATCH_ANY(items, $[category] == "category_3")'
+        ),
+        "struct_array_numeric_autoindex_rollback_safe.items[score]": (
+            "MATCH_ANY(items, $[score] == 3.0)"
+        ),
+        "struct_array_numeric_autoindex_rollback_safe.items[rank]": (
+            "MATCH_ANY(items, $[rank] == 30)"
+        ),
+        "struct_array_numeric_autoindex_rollback_safe.items[enabled]": (
+            "MATCH_ANY(items, $[enabled] == False)"
+        ),
+    }
 
 
 def test_timestamptz_scalar_index_filter_uses_iso_literal():

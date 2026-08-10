@@ -102,7 +102,11 @@ def test_pressure_workload_records_operation_failure_details():
 
 
 def test_search_operation_covers_all_vector_fields():
-    spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")[1]
+    spec = next(
+        spec
+        for spec in load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")
+        if spec.name == "vector_autoid_bm25"
+    )
     client = FakeSearchClient()
 
     op, count = _run_operation(

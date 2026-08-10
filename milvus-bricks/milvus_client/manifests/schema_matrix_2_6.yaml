@@ -42,6 +42,30 @@ schemas:
       - {field: arr_varchar, index_type: INVERTED}
       - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}}
 
+  - name: scalar_autoindex_formats_rollback_safe
+    description: "2.6 primitive, JSON path, and ARRAY AutoIndex persisted-format coverage"
+    feature_tags: ["compat_basic_vector", "compat_json_array"]
+    compat_mode: rollback_safe
+    required_capabilities: []
+    validators: ["count", "pk_sample", "search_smoke"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: int64_auto, dtype: INT64}
+      - {name: float_auto, dtype: FLOAT}
+      - {name: bool_auto, dtype: BOOL}
+      - {name: varchar_auto, dtype: VARCHAR, max_length: 256}
+      - {name: json_auto, dtype: JSON}
+      - {name: arr_varchar_auto, dtype: ARRAY, element_type: VARCHAR, max_capacity: 16, max_length: 128}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 64}
+    indexes:
+      - {field: int64_auto, index_type: AUTOINDEX}
+      - {field: float_auto, index_type: AUTOINDEX}
+      - {field: bool_auto, index_type: AUTOINDEX}
+      - {field: varchar_auto, index_type: AUTOINDEX}
+      - {field: json_auto, index_type: AUTOINDEX, params: {json_cast_type: double, json_path: "json_auto['bucket']"}}
+      - {field: arr_varchar_auto, index_type: AUTOINDEX}
+      - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+
   - name: vector_autoid_bm25
     description: "2.6 auto-id, BM25 function, all vector data types, and vector-index coverage"
     feature_tags: ["compat_basic_vector", "compat_multi_vector"]
@@ -128,6 +152,58 @@ schemas:
     indexes:
       - {field: normal_vector, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
       - {field: "items[embedding]", index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+
+  - name: struct_array_varchar_autoindex_rollback_safe
+    description: "2.6 StructArray VARCHAR AutoIndex persisted-format reproducer for Milvus #52359"
+    feature_tags: ["struct_array"]
+    compat_mode: rollback_safe
+    required_capabilities: ["StructArray"]
+    validators:
+      - count
+      - pk_sample
+      - search_smoke
+      - struct_array_scalar_round_trip
+      - struct_array_scalar_index_queries
+    validator_params: {min_struct_scalar_index_queries: 1}
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: normal_vector, dtype: FLOAT_VECTOR, dim: 64}
+    struct_arrays:
+      - name: items
+        max_capacity: 8
+        fields:
+          - {name: category, dtype: VARCHAR, max_length: 128}
+    indexes:
+      - {field: normal_vector, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+      - {field: "items[category]", index_type: AUTOINDEX}
+
+  - name: struct_array_numeric_autoindex_rollback_safe
+    description: "2.6 StructArray FLOAT, INT64, and BOOL AutoIndex persisted-format coverage"
+    feature_tags: ["struct_array"]
+    compat_mode: rollback_safe
+    required_capabilities: ["StructArray"]
+    validators:
+      - count
+      - pk_sample
+      - search_smoke
+      - struct_array_scalar_round_trip
+      - struct_array_scalar_index_queries
+    validator_params: {min_struct_scalar_index_queries: 3}
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: normal_vector, dtype: FLOAT_VECTOR, dim: 64}
+    struct_arrays:
+      - name: items
+        max_capacity: 8
+        fields:
+          - {name: score, dtype: FLOAT}
+          - {name: rank, dtype: INT64}
+          - {name: enabled, dtype: BOOL}
+    indexes:
+      - {field: normal_vector, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+      - {field: "items[score]", index_type: AUTOINDEX}
+      - {field: "items[rank]", index_type: AUTOINDEX}
+      - {field: "items[enabled]", index_type: AUTOINDEX}
 
   - name: nullable_vectors_all
     description: "All six nullable vector data types available in Milvus 2.6.18"

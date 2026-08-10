@@ -99,7 +99,11 @@ def test_checksum_fields_exclude_vectors():
 
 
 def test_generate_rows_uses_sdk_compatible_vector_values():
-    spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")[1]
+    spec = next(
+        spec
+        for spec in load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")
+        if spec.name == "vector_autoid_bm25"
+    )
     row = generate_rows(spec, start_id=1, count=1, seed=7)[0]
 
     assert "id" not in row
