@@ -1,0 +1,25 @@
+version: "3.0"
+schemas:
+  - name: text_lob_storage_v3
+    description: "Storage V3 TEXT LOB round-trip, lexical filter, and BM25 coverage"
+    feature_tags: ["storage_v3"]
+    compat_mode: forward_only
+    required_capabilities: ["StorageV3"]
+    validators:
+      - count
+      - pk_sample
+      - text_lob_round_trip
+      - text_match_phrase_match
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: text, dtype: TEXT, nullable: true, enable_analyzer: true, enable_match: true, analyzer_params: {type: standard}, value_profile: text_lob_boundary}
+      - {name: sparse_bm25, dtype: SPARSE_FLOAT_VECTOR}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 64}
+    functions:
+      - name: text_bm25
+        function_type: BM25
+        input_fields: [text]
+        output_fields: [sparse_bm25]
+    indexes:
+      - {field: sparse_bm25, index_type: SPARSE_INVERTED_INDEX, metric_type: BM25, params: {drop_ratio_build: 0.0}, search_params: {drop_ratio_search: 0.0}}
+      - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}

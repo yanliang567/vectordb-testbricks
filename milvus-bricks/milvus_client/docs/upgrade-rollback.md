@@ -175,6 +175,10 @@ filter queries, and checkpoint count/PK queries, and writes
 `/tmp/milvus-bricks/checkpoints/index_compatibility.json`. After rollback, the
 workflow reads that checkpoint, re-enumerates the actual indexes, compares
 index name/field/type/metric metadata, and validates load/search/query again.
+In both phases, every collection is first validated while loaded, then strictly
+released and loaded again before the same count/PK, vector search, and scalar
+index queries are repeated. A missing release API or a post-reload query/search
+failure fails the gate.
 Scalar index validation selects a deterministic non-null probe row when
 possible, runs a scalar-only query to prove the predicate has matches, then runs
 `scalar predicate + primary-key predicate` so non-unique scalar conditions do not
@@ -188,6 +192,45 @@ actual PKs.
 Promoted gates do not drop/recreate baseline indexes while the pressure daemon
 is running; `--rebuild-index=true` remains available only for manual diagnostic
 runs outside strict pressure.
+
+When schema evolution is enabled, the after-upgrade workload now validates the
+evolved PK range count, deterministic evolved field values, top-level vector
+content and nullable state, StructArray payload checksums, and indexed vector
+search PK/offset/metric-specific self-match score before writing a dedicated
+checkpoint. AutoID schemas insert real evolved rows, require one unique returned
+PK per row, and checkpoint the generated-to-actual PK mapping. After rollback, a
+read-only schema-evolution task must validate the same checkpoint; it never
+repeats add/drop/function/upsert mutations. Forward schema evolution is required
+after rollback only when forward rollback validation is enabled.
+
+Registered manifest scenarios are re-resolved inside the selected repository
+revision immediately before deployment. WorkflowTemplate topology, schema
+matrices, index target versions, validation flags, storage feature flags,
+pressure policy, and data scale must match the registered contract. Repository
+revision, legal immutable image/version overrides, deploy profile overrides
+that satisfy topology requirements, and collection prefixes remain operational
+overrides.
+
+Every promoted matrix also declares feature-semantic validators. The three
+WorkflowTemplates run them at base, after upgrade, and after rollback, plus the
+forward collection phases when enabled. These checks cover StructArray scalar
+round-trip, non-`MAX_SIM_*` element search `id + offset`, `MAX_SIM_*`
+`EmbeddingList` row-level search by expected PK, nested scalar `MATCH_ANY`
+predicates, nullable-vector null state, Geometry predicates, TEXT LOB hashes
+and lexical search with exact deterministic postings counts and complete sample
+query limits, MinHash exact self-search, observational near-duplicate recall
+with conditional ranking checks, Entity TTL visibility using a PK namespace
+reserved outside continuous pressure writes, and runtime index engine target
+configuration. Unknown validator names fail closed during matrix validation.
+
+The dedicated matrices are:
+
+- `schema_matrix_3_0_storage_v3.yaml` for LoonFFI/Vortex TEXT LOB coverage.
+- `schema_matrix_3_0_index_v10_v4.yaml` for SINDI/Block-Max and JSON scalar
+  index coverage with target versions `10/4` configured in all three phases.
+  Milvus may resolve or clamp to a current engine version; exact build-version
+  evidence must come from preserved DataNode build logs because public SDK
+  index metadata does not expose it.
 
 When `phase-dml-dql-validation-enabled=true`, rollback workflows also exercise
 active request compatibility at both phase boundaries:

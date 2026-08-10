@@ -8,6 +8,7 @@ from milvus_client.common.gates import (
     render_argo_parameters,
     resolve_gate_scenario,
     validate_gate_manifest,
+    validate_registered_scenario_parameters,
     validate_resolved_gate_scenario,
 )
 
@@ -16,6 +17,10 @@ GATES = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
 MILVUS_3_0_BASELINE_IMAGE = (
     "harbor.milvus.io/milvusdb/milvus:v3.0.0@"
     "sha256:49371c30af46b1013e4d3e0b980e691d81376d69cdbe1b372725baf1d7255862"
+)
+MILVUS_2_6_18_BASELINE_IMAGE = (
+    "harbor.milvus.io/milvusdb/milvus:v2.6.18@"
+    "sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6"
 )
 
 
@@ -41,12 +46,14 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+        "standalone-3-0-index-v10-v4-upgrade-rollback",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
+        "cluster-3-0-index-v10-v4-upgrade-rollback",
     } <= set(scenarios)
     for scenario_id in [
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
@@ -54,12 +61,14 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+        "standalone-3-0-index-v10-v4-upgrade-rollback",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
+        "cluster-3-0-index-v10-v4-upgrade-rollback",
     ]:
         scenario = scenarios[scenario_id]
         assert scenario["classification"] == "gate"
@@ -100,6 +109,25 @@ def test_standalone_2_6_target_only_feature_gate_contract():
     assert scenario["base"]["version"].startswith("2.6")
     assert scenario["target"]["version"].startswith("3.0")
     assert scenario["rollback"]["version"].startswith("2.6")
+
+
+@pytest.mark.parametrize(
+    "scenario_id",
+    [
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+        "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+    ],
+)
+def test_3_0_core_gates_validate_target_created_indexes_after_rollback(
+    scenario_id,
+):
+    scenario = resolve_gate_scenario(_manifest(), scenario_id)
+
+    assert scenario["forward_schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_3_0.yaml"
+    )
+    assert scenario["forward_workload_enabled"] is True
+    assert scenario["rollback_forward_validation_enabled"] is True
 
 
 @pytest.mark.parametrize(
@@ -187,7 +215,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 6
+    assert len(cluster_scenarios) == 7
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-rollback-2-6-latest"]["deploy_profile"]
@@ -221,6 +249,10 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         by_id[
             "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline"
         ]["deploy_profile"]
+        == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+    )
+    assert (
+        by_id["cluster-3-0-index-v10-v4-upgrade-rollback"]["deploy_profile"]
         == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
     )
     for scenario in cluster_scenarios:
@@ -331,6 +363,81 @@ def test_gate_scenario_allows_concrete_master_build_tag():
     )
 
     assert scenario["target"]["version"] == "3.0.1"
+
+
+def test_registered_scenario_runtime_allows_operational_overrides():
+    manifest = _manifest()
+    scenario_id = "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline"
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+    runtime = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+    runtime.update(
+        {
+            "workflow-template": scenario["workflow_template"],
+            "repo-revision": "1102cc54b52050b3f156188cda435b54e8888680",
+            "collection-prefix": "qa_pr25_runtime",
+            "forward-collection-prefix": "qa_pr25_runtime_forward",
+            "target-milvus-image": (
+                "harbor.milvus.io/milvusdb/milvus:master-20260810-a1b2c3d4"
+            ),
+            "target-version": "3.0.1",
+        }
+    )
+
+    resolved = validate_registered_scenario_parameters(manifest, scenario_id, runtime)
+
+    assert resolved is not None
+    assert resolved["target"]["version"] == "3.0.1"
+    assert resolved["target"]["image"].endswith("master-20260810-a1b2c3d4")
+
+
+@pytest.mark.parametrize(
+    ("parameter", "value"),
+    [
+        ("schema-matrix", "milvus_client/manifests/schema_matrix_2_6.yaml"),
+        ("target-target-vec-index-version", "10"),
+        ("index-compatibility-validation-enabled", "false"),
+        ("schema-evolution-existing-enabled", "false"),
+    ],
+)
+def test_registered_scenario_runtime_rejects_protected_parameter_drift(
+    parameter,
+    value,
+):
+    manifest = _manifest()
+    scenario_id = "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline"
+    runtime = render_argo_parameters(
+        resolve_gate_scenario(manifest, scenario_id),
+        manifest,
+        allow_placeholder=True,
+    )
+    runtime["workflow-template"] = "milvus-standalone-3-0-upgrade-rollback"
+    runtime["target-milvus-image"] = (
+        "harbor.milvus.io/milvusdb/milvus:master-20260810-a1b2c3d4"
+    )
+    runtime["target-version"] = "3.0.1"
+    runtime[parameter] = value
+
+    with pytest.raises(ValueError, match=parameter):
+        validate_registered_scenario_parameters(manifest, scenario_id, runtime)
+
+
+def test_registered_scenario_runtime_rejects_wrong_workflow_template():
+    manifest = _manifest()
+    scenario_id = "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline"
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+    runtime = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+    runtime.update(
+        {
+            "workflow-template": "milvus-standalone-3-0-upgrade-rollback",
+            "target-milvus-image": (
+                "harbor.milvus.io/milvusdb/milvus:master-20260810-a1b2c3d4"
+            ),
+            "target-version": "3.0.1",
+        }
+    )
+
+    with pytest.raises(ValueError, match="workflow-template"):
+        validate_registered_scenario_parameters(manifest, scenario_id, runtime)
 
 
 def test_gate_scenario_allows_mutable_tag_when_pinned_by_digest():
@@ -530,6 +637,10 @@ def test_manifest_references_are_centralized():
         "image": MILVUS_3_0_BASELINE_IMAGE,
         "version": "3.0.0",
     }
+    assert manifest["image_aliases"]["milvus-2-6-18"] == {
+        "image": MILVUS_2_6_18_BASELINE_IMAGE,
+        "version": "2.6.18",
+    }
     for scenario in manifest["scenarios"]:
         for phase in ["base", "target", "rollback"]:
             assert "image_ref" in scenario[phase]
@@ -551,9 +662,8 @@ def test_3_0_loon_vortex_gate_scenarios_keep_storage_features_enabled_after_upgr
         assert scenario["classification"] == "gate"
         assert scenario["support_status"] == "supported"
         assert scenario.get("allow_unsafe_negative_coverage") is not True
-        assert (
-            scenario["schema_matrix"]
-            == "milvus_client/manifests/schema_matrix_3_0.yaml"
+        assert scenario["schema_matrix"] == (
+            "milvus_client/manifests/schema_matrix_2_6.yaml"
         )
         assert scenario["base"].get("loon_ffi_enabled", False) is False
         assert scenario["base"]["vortex_enabled"] is False
@@ -562,8 +672,39 @@ def test_3_0_loon_vortex_gate_scenarios_keep_storage_features_enabled_after_upgr
         assert scenario["rollback"]["loon_ffi_enabled"] is True
         assert scenario["rollback"]["vortex_enabled"] is True
         assert scenario["rollback"]["image"] == scenario["base"]["image"]
+        assert scenario["forward_workload_enabled"] is True
+        assert scenario["rollback_forward_validation_enabled"] is True
+        assert scenario["forward_schema_matrix"] == (
+            "milvus_client/manifests/schema_matrix_3_0_storage_v3.yaml"
+        )
         assert scenario["validation_policy"]["pressure_fail_on_error"] is True
         assert scenario["validation_policy"]["gate_allow_warning"] is False
+
+
+@pytest.mark.parametrize(
+    "scenario_id",
+    [
+        "standalone-3-0-index-v10-v4-upgrade-rollback",
+        "cluster-3-0-index-v10-v4-upgrade-rollback",
+    ],
+)
+def test_index_v10_v4_scenarios_pin_runtime_versions_in_every_phase(scenario_id):
+    manifest = _manifest()
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+    parameters = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+
+    assert scenario["schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_3_0_index_v10_v4.yaml"
+    )
+    for phase in ("base", "target", "rollback"):
+        assert scenario[phase]["target_vec_index_version"] == 10
+        assert scenario[phase]["target_scalar_index_version"] == 4
+    assert parameters["base-target-vec-index-version"] == "10"
+    assert parameters["target-target-vec-index-version"] == "10"
+    assert parameters["rollback-target-vec-index-version"] == "10"
+    assert parameters["base-target-scalar-index-version"] == "4"
+    assert parameters["target-target-scalar-index-version"] == "4"
+    assert parameters["rollback-target-scalar-index-version"] == "4"
 
 
 def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle():
@@ -580,6 +721,9 @@ def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle(
     assert scenario["post_upgrade_config_toggle_enabled"] is True
     assert scenario["post_upgrade_json_shredding_enabled"] is True
     assert scenario["rollback"]["json_shredding_enabled"] is True
+    assert scenario["schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_2_6.yaml"
+    )
     assert scenario["forward_workload_enabled"] is True
     assert scenario["rollback_forward_validation_enabled"] is True
     assert scenario["forward_schema_matrix"] == (
@@ -587,6 +731,23 @@ def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle(
     )
     assert scenario["validation_policy"]["pressure_fail_on_error"] is True
     assert scenario["validation_policy"]["gate_allow_warning"] is False
+
+
+@pytest.mark.parametrize(
+    "scenario_id",
+    [
+        "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+        "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
+    ],
+)
+def test_storage_feature_gates_use_stable_rollback_safe_base_matrix(scenario_id):
+    scenario = resolve_gate_scenario(_manifest(), scenario_id)
+
+    assert scenario["schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_2_6.yaml"
+    )
 
 
 def test_negative_vortex_to_2_6_scenario_is_not_a_gate():

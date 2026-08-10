@@ -1,0 +1,47 @@
+version: "3.0"
+schemas:
+  - name: sparse_index_v10_algorithms
+    description: "SINDI and Block-Max algorithm coverage with target vector index version 10 configured"
+    feature_tags: ["index_engine_v10_v4"]
+    compat_mode: forward_only
+    required_capabilities: ["IndexEngineV10V4"]
+    validators: ["count", "pk_sample", "index_engine_version"]
+    validator_params: {target_vec_index_version: 10, target_scalar_index_version: 4}
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: document, dtype: VARCHAR, max_length: 2048, enable_analyzer: true, analyzer_params: {type: standard}}
+      - {name: sparse_sindi, dtype: SPARSE_FLOAT_VECTOR}
+      - {name: sparse_block_max_maxscore, dtype: SPARSE_FLOAT_VECTOR}
+      - {name: sparse_block_max_wand, dtype: SPARSE_FLOAT_VECTOR}
+      - {name: sparse_bm25, dtype: SPARSE_FLOAT_VECTOR}
+    functions:
+      - name: document_bm25_v10
+        function_type: BM25
+        input_fields: [document]
+        output_fields: [sparse_bm25]
+    indexes:
+      - {field: sparse_sindi, index_type: SPARSE_INVERTED_INDEX, metric_type: IP, params: {inverted_index_algo: SINDI, drop_ratio_build: 0.0}, search_params: {drop_ratio_search: 0.0}}
+      - {field: sparse_block_max_maxscore, index_type: SPARSE_INVERTED_INDEX, metric_type: IP, params: {inverted_index_algo: BLOCK_MAX_MAXSCORE, drop_ratio_build: 0.0}, search_params: {drop_ratio_search: 0.0}}
+      - {field: sparse_block_max_wand, index_type: SPARSE_INVERTED_INDEX, metric_type: IP, params: {inverted_index_algo: BLOCK_MAX_WAND, drop_ratio_build: 0.0}, search_params: {drop_ratio_search: 0.0}}
+      - {field: sparse_bm25, index_type: SPARSE_INVERTED_INDEX, metric_type: BM25, params: {inverted_index_algo: BLOCK_MAX_MAXSCORE, drop_ratio_build: 0.0}, search_params: {drop_ratio_search: 0.0}}
+
+  - name: json_scalar_index_v4
+    description: "JSON path index families and HYBRID AutoIndex with target scalar index version 4 configured"
+    feature_tags: ["index_engine_v10_v4"]
+    compat_mode: forward_only
+    required_capabilities: ["IndexEngineV10V4"]
+    validators: ["count", "pk_sample", "index_engine_version"]
+    validator_params: {target_vec_index_version: 10, target_scalar_index_version: 4}
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: json_bool, dtype: JSON}
+      - {name: json_double, dtype: JSON}
+      - {name: json_varchar, dtype: JSON}
+      - {name: json_auto, dtype: JSON}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 64}
+    indexes:
+      - {field: json_bool, index_type: BITMAP, params: {json_cast_type: bool, json_path: "json_bool['active']"}}
+      - {field: json_double, index_type: STL_SORT, params: {json_cast_type: double, json_path: "json_double['score']"}}
+      - {field: json_varchar, index_type: NGRAM, params: {json_cast_type: varchar, json_path: "json_varchar['label']", min_gram: 2, max_gram: 4}}
+      - {field: json_auto, index_type: AUTOINDEX, params: {json_cast_type: double, json_path: "json_auto['score']"}, expected_resolved_index_type: HYBRID}
+      - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}

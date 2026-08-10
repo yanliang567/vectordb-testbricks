@@ -4,8 +4,14 @@ from milvus_client.common.data import (
     checksum_fields_for_spec,
     generate_rows,
     stable_checksum,
+    text_payload_metadata,
 )
-from milvus_client.common.schema import FieldSpec, SchemaSpec, load_schema_matrix
+from milvus_client.common.schema import (
+    FieldSpec,
+    SchemaSpec,
+    StructArraySpec,
+    load_schema_matrix,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -109,7 +115,7 @@ def test_generate_rows_uses_timestamptz_string():
     spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_3_0.yaml")[2]
     row = generate_rows(spec, start_id=1, count=1, seed=7)[0]
 
-    assert row["event_time"] == "2024-01-01T00:00:01Z"
+    assert row["event_time"] == "2100-01-01T00:00:01Z"
 
 
 def test_generate_rows_uses_canonical_geometry_wkt():
@@ -200,3 +206,101 @@ def test_generate_rows_caps_int64_partition_key_by_field_attribute():
     row = generate_rows(spec, start_id=2049, count=1, seed=1)[0]
 
     assert row["tenant_id"] == 1
+
+
+def test_generate_rows_builds_deterministic_struct_array_values():
+    spec = SchemaSpec(
+        name="struct_array",
+        version="3.0",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        struct_arrays=[
+            StructArraySpec(
+                name="attributes",
+                max_capacity=8,
+                fields=[
+                    FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+                    FieldSpec(name="score_sort", dtype="FLOAT"),
+                    FieldSpec(name="category_inverted", dtype="VARCHAR"),
+                    FieldSpec(name="tag_bitmap", dtype="VARCHAR"),
+                    FieldSpec(name="rank_sort", dtype="INT64"),
+                    FieldSpec(name="enabled_bitmap", dtype="BOOL"),
+                ],
+            )
+        ],
+    )
+
+    first = generate_rows(spec, start_id=3, count=1, seed=7)[0]
+    second = generate_rows(spec, start_id=3, count=1, seed=7)[0]
+
+    assert first == second
+    assert len(first["attributes"]) == 4
+    assert first["attributes"][0]["score_sort"] == 3.0
+    assert first["attributes"][0]["category_inverted"] == "category_3"
+    assert first["attributes"][0]["tag_bitmap"] == "tag_3"
+    assert first["attributes"][1]["rank_sort"] == 31
+    assert first["attributes"][1]["enabled_bitmap"] is True
+    assert first["attributes"][0]["embedding"] != first["attributes"][1]["embedding"]
+
+
+def test_generate_rows_supports_nullable_struct_array():
+    spec = SchemaSpec(
+        name="nullable_struct_array",
+        version="3.0",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        struct_arrays=[
+            StructArraySpec(
+                name="attributes",
+                max_capacity=4,
+                nullable=True,
+                fields=[FieldSpec(name="score", dtype="FLOAT")],
+            )
+        ],
+    )
+
+    rows = generate_rows(spec, start_id=9, count=2, seed=1)
+
+    assert rows[0]["attributes"] is not None
+    assert rows[1]["attributes"] is None
+
+
+def test_text_lob_boundary_profile_covers_storage_v3_boundaries():
+    spec = SchemaSpec(
+        name="text_lob",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(
+                name="text",
+                dtype="TEXT",
+                nullable=True,
+                value_profile="text_lob_boundary",
+            ),
+        ],
+    )
+
+    rows = generate_rows(spec, start_id=0, count=7, seed=1)
+
+    assert rows[0]["text"] is None
+    assert text_payload_metadata(rows[1]["text"])["state"] == "empty"
+    assert "\u4e2d\u6587" in rows[2]["text"]
+    assert text_payload_metadata(rows[3]["text"])["bytes"] == 64 * 1024 - 1
+    assert text_payload_metadata(rows[4]["text"])["bytes"] == 64 * 1024
+    assert text_payload_metadata(rows[5]["text"])["bytes"] == 64 * 1024 + 1
+    assert text_payload_metadata(rows[6]["text"])["bytes"] == 1024 * 1024
+
+
+def test_struct_array_payload_is_included_in_default_checksum_fields():
+    spec = SchemaSpec(
+        name="struct",
+        version="3.0",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        struct_arrays=[
+            StructArraySpec(
+                name="items",
+                max_capacity=4,
+                fields=[FieldSpec(name="score", dtype="FLOAT")],
+            )
+        ],
+    )
+
+    assert checksum_fields_for_spec(spec) == ["id", "items"]

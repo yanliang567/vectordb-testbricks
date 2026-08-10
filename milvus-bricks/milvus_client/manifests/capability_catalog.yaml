@@ -13,13 +13,13 @@ capabilities:
 
   - id: NullableVector
     detect:
-      server_version_min: "3.0.0"
+      server_version_min: "2.6.18"
       sdk_probe: "create_nullable_vector_schema"
     unsupported_behavior: skip
 
   - id: Geometry
     detect:
-      server_version_min: "3.0.0"
+      server_version_min: "2.6.18"
       sdk_probe: "geometry_field"
     unsupported_behavior: skip
 
@@ -37,8 +37,14 @@ capabilities:
 
   - id: StructArray
     detect:
-      server_version_min: "3.0.0"
+      server_version_min: "2.6.18"
       sdk_probe: "struct_array_schema"
+    unsupported_behavior: skip
+
+  - id: StructArrayExtended
+    detect:
+      server_version_min: "3.0.0"
+      sdk_probe: "struct_array_extended_schema"
     unsupported_behavior: skip
 
   - id: ElementHybridSearch
@@ -49,6 +55,26 @@ capabilities:
 
   - id: StorageV3
     detect:
+      server_version_min: "3.0.0"
       config_probe: "common.storage.useLoonFFI"
+    unsupported_behavior: skip
+    requires_cluster_admin: true
+
+  - id: FaissIndex
+    detect:
+      server_version_min: "3.0.0"
+      sdk_probe: "faiss_index"
+    unsupported_behavior: skip
+
+  - id: MinHash
+    detect:
+      server_version_min: "3.0.0"
+      sdk_probe: "minhash_function"
+    unsupported_behavior: skip
+
+  - id: IndexEngineV10V4
+    detect:
+      server_version_min: "3.0.0"
+      config_probe: "dataCoord.targetVecIndexVersion=10,dataCoord.targetScalarIndexVersion=4"
     unsupported_behavior: skip
     requires_cluster_admin: true

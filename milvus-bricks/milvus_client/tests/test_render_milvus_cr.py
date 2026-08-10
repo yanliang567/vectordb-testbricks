@@ -167,6 +167,45 @@ def test_render_cluster_helm_values_from_profile_emits_enabled_3_0_storage_field
     assert user_config["dataNode"]["storage"]["format"] == "vortex"
 
 
+def test_renderers_emit_explicit_index_engine_versions():
+    standalone = load_deploy_profile(
+        ROOT / "manifests" / "deploy_profiles" / "standalone-rocksmq.yaml"
+    )
+    cluster = load_deploy_profile(
+        ROOT / "manifests" / "deploy_profiles" / "cluster-woodpecker-1cu.yaml"
+    )
+
+    cr = render_milvus_cr(
+        profile=standalone,
+        name="index-version-test",
+        namespace="qa-milvus",
+        image="harbor.milvus.io/milvusdb/milvus:v3.0.0",
+        version="3.0.0",
+        image_update_mode="all",
+        target_vec_index_version=10,
+        target_scalar_index_version=4,
+    )
+    values = render_milvus_helm_values(
+        profile=cluster,
+        name="index-version-test",
+        namespace="qa-milvus",
+        image="harbor.milvus.io/milvusdb/milvus:v3.0.0",
+        version="3.0.0",
+        target_vec_index_version=10,
+        target_scalar_index_version=4,
+    )
+
+    assert cr["spec"]["config"]["dataCoord"] == {
+        "targetVecIndexVersion": 10,
+        "targetScalarIndexVersion": 4,
+    }
+    user_config = yaml.safe_load(values["extraConfigFiles"]["user.yaml"])
+    assert user_config["dataCoord"] == {
+        "targetVecIndexVersion": 10,
+        "targetScalarIndexVersion": 4,
+    }
+
+
 def test_render_milvus_cr_cli_writes_yaml_and_topology_summary(tmp_path):
     output_yaml = tmp_path / "milvus.yaml"
     summary_json = tmp_path / "deploy_topology.json"

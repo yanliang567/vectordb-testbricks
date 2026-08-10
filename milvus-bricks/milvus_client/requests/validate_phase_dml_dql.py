@@ -2,16 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import math
 import sys
+from time import monotonic, sleep
 from typing import Any
 
 from milvus_client.common.args import build_common_parser, parse_bool
 from milvus_client.common.client import create_client
 from milvus_client.common.data import (
+    apply_deterministic_update,
+    generate_field_value,
     generate_primary_key_value,
     generate_rows,
-    stable_vector_value,
-    vector_fields,
+    generate_struct_array_value,
+    indexed_vector_fields,
+    prepare_struct_vector_query,
+    update_projection_field,
 )
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import (
@@ -24,6 +30,7 @@ from milvus_client.common.schema import (
     create_collection_kwargs,
     function_output_fields,
     load_schema_matrix,
+    struct_array_for_field,
 )
 from milvus_client.common.validators import (
     ValidationReport,
@@ -34,6 +41,8 @@ from milvus_client.common.validators import (
 )
 from milvus_client.common.workload import (
     assert_search_result,
+    function_input_query_value,
+    index_type_for_field,
     metric_type_for_field,
     search_params_for_field,
 )
@@ -45,6 +54,7 @@ PHASE_NEW_COLLECTION_FAILED = "PHASE_NEW_COLLECTION_FAILED"
 PHASE_UPSERT_NOT_APPLIED = "PHASE_UPSERT_NOT_APPLIED"
 CHECKPOINT_NOT_FOUND = "CHECKPOINT_NOT_FOUND"
 PHASE_CHECKPOINT_NOT_FOUND = "PHASE_CHECKPOINT_NOT_FOUND"
+_EXPECTED_PK_UNSET = object()
 
 
 def add_args(parser):
@@ -61,6 +71,8 @@ def add_args(parser):
     parser.add_argument("--new-start-id", type=int, default=60_000_000)
     parser.add_argument("--phase-checkpoint-file", default="")
     parser.add_argument("--validate-phase-checkpoint", type=parse_bool, default=False)
+    parser.add_argument("--visibility-timeout-sec", type=int, default=120)
+    parser.add_argument("--visibility-interval-sec", type=float, default=2.0)
     parser.add_argument(
         "--drop-new-collections-if-exist", type=parse_bool, default=True
     )
@@ -115,25 +127,52 @@ def _insert_rows(
     rows: list[dict[str, Any]],
     start_id: int,
 ) -> list[Any]:
-    responses = []
+    responses: list[tuple[Any, list[int]]] = []
     if spec.partitions:
-        partition_rows: dict[str, list[dict[str, Any]]] = {}
+        partition_rows: dict[str, list[tuple[int, dict[str, Any]]]] = {}
         for offset, row in enumerate(rows):
             partition = _partition_for_id(spec.partitions, start_id + offset)
-            partition_rows.setdefault(partition or "", []).append(row)
-        for partition, batch in partition_rows.items():
+            partition_rows.setdefault(partition or "", []).append((offset, row))
+        for partition, indexed_batch in partition_rows.items():
+            positions = [offset for offset, _ in indexed_batch]
+            batch = [row for _, row in indexed_batch]
             responses.append(
-                client.insert(
-                    collection_name=target_collection,
-                    data=batch,
-                    partition_name=partition or None,
+                (
+                    client.insert(
+                        collection_name=target_collection,
+                        data=batch,
+                        partition_name=partition or None,
+                    ),
+                    positions,
                 )
             )
     else:
-        responses.append(client.insert(collection_name=target_collection, data=rows))
+        responses.append(
+            (
+                client.insert(collection_name=target_collection, data=rows),
+                list(range(len(rows))),
+            )
+        )
+
+    if auto_id_enabled(spec):
+        ids_by_position: list[Any] = [None] * len(rows)
+        for response, positions in responses:
+            ids = _extract_insert_ids(response)
+            if len(ids) != len(positions):
+                raise RuntimeError(
+                    f"{target_collection}: auto-id insert returned {len(ids)} "
+                    f"primary keys for {len(positions)} rows"
+                )
+            for position, pk in zip(positions, ids):
+                ids_by_position[position] = pk
+        if any(pk is None for pk in ids_by_position):
+            raise RuntimeError(
+                f"{target_collection}: auto-id insert response contains an empty primary key"
+            )
+        return ids_by_position
 
     ids: list[Any] = []
-    for response in responses:
+    for response, _ in responses:
         ids.extend(_extract_insert_ids(response))
     return ids
 
@@ -184,6 +223,22 @@ def _flush_and_load_best_effort(client: Any, target_collection: str) -> dict[str
             target_collection,
         ),
     }
+
+
+def _wait_for_validation(
+    validator: Any,
+    timeout_sec: int,
+    interval_sec: float,
+) -> tuple[ValidationReport, int]:
+    deadline = monotonic() + max(0, timeout_sec)
+    attempts = 0
+    while True:
+        attempts += 1
+        current = ValidationReport()
+        validator(current)
+        if current.passed or monotonic() >= deadline:
+            return current, attempts
+        sleep(max(0.0, interval_sec))
 
 
 def _create_new_collection(
@@ -249,24 +304,29 @@ def _validate_deleted_pk_values(
     pk_values: list[Any],
     report: ValidationReport,
 ) -> None:
-    for pk in pk_values[:3]:
+    if not pk_values:
+        return
+    for start in range(0, len(pk_values), 100):
+        batch = pk_values[start : start + 100]
         try:
-            rows = client.query(
-                collection_name=target_collection,
-                filter=f"{primary_name} == {format_filter_value(pk)}",
-                output_fields=[primary_name],
-                limit=1,
+            rows = _query_rows_by_pk_values(
+                client,
+                target_collection,
+                primary_name,
+                batch,
+                [primary_name],
             )
         except Exception as exc:
             report.fail(
                 PHASE_DQL_FAILED,
-                "deleted primary key query failed",
+                "deleted primary key batch query failed",
                 collection=target_collection,
-                pk=pk,
+                pk_values=batch,
                 error=str(exc),
             )
             continue
-        if rows:
+        for row in rows:
+            pk = row.get(primary_name)
             report.fail(
                 PHASE_DQL_FAILED,
                 "deleted primary key is still queryable",
@@ -302,23 +362,27 @@ def _validate_pk_values_present_strict(
 ) -> None:
     if not pk_values:
         return
-    try:
-        rows = _query_rows_by_pk_values(
-            client,
-            target_collection,
-            primary_name,
-            pk_values,
-            [primary_name],
-        )
-    except Exception as exc:
-        report.fail(
-            PHASE_DQL_FAILED,
-            "primary key checkpoint query failed",
-            collection=target_collection,
-            error=str(exc),
-        )
-        return
-    found = {row.get(primary_name) for row in rows}
+    found = set()
+    for start in range(0, len(pk_values), 100):
+        batch = pk_values[start : start + 100]
+        try:
+            rows = _query_rows_by_pk_values(
+                client,
+                target_collection,
+                primary_name,
+                batch,
+                [primary_name],
+            )
+        except Exception as exc:
+            report.fail(
+                PHASE_DQL_FAILED,
+                "primary key checkpoint query failed",
+                collection=target_collection,
+                pk_values=batch,
+                error=str(exc),
+            )
+            continue
+        found.update(row.get(primary_name) for row in rows)
     for pk in pk_values:
         if pk not in found:
             report.fail(
@@ -329,6 +393,215 @@ def _validate_pk_values_present_strict(
             )
 
 
+def _hit_value(hit: Any, key: str) -> Any:
+    if isinstance(hit, dict):
+        return hit.get(key)
+    return getattr(hit, key, None)
+
+
+def _hit_primary_key(hit: Any, primary_name: str) -> Any:
+    value = _hit_value(hit, "id")
+    if value is not None:
+        return value
+    value = _hit_value(hit, primary_name)
+    if value is not None:
+        return value
+    entity = _hit_value(hit, "entity")
+    if isinstance(entity, dict):
+        return entity.get(primary_name)
+    return None
+
+
+def _hit_offset(hit: Any) -> int | None:
+    value = _hit_value(hit, "offset")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _hit_distance(hit: Any) -> float | None:
+    for key in ("distance", "score"):
+        value = _hit_value(hit, key)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _phase_search_query(
+    spec: SchemaSpec,
+    field_name: str,
+    vector_field: FieldSpec,
+    data_pk: int,
+    seed: int,
+) -> tuple[Any, int | None] | None:
+    function_outputs = function_output_fields(spec)
+    if vector_field.name in function_outputs:
+        query = function_input_query_value(spec, vector_field.name, data_pk, seed)
+        if query is None or query == "":
+            return None
+        return query, None
+    struct_array = struct_array_for_field(spec, field_name)
+    if struct_array is not None:
+        value = generate_struct_array_value(struct_array, data_pk, seed)
+        if value is None:
+            return None
+        for offset, element in enumerate(value):
+            vector = element.get(vector_field.name)
+            if vector is not None:
+                return prepare_struct_vector_query(
+                    metric_type_for_field(spec, field_name), vector, offset
+                )
+        return None
+    query = generate_field_value(vector_field, data_pk, seed)
+    if query is None:
+        return None
+    return query, None
+
+
+def _select_phase_search_probe_pk(
+    spec: SchemaSpec,
+    start_id: int,
+    rows: int,
+    seed: int,
+) -> int:
+    if rows <= 0:
+        return start_id
+    fields = indexed_vector_fields(spec)
+    for data_pk in range(start_id + rows - 1, start_id - 1, -1):
+        if all(
+            _phase_search_query(spec, field_name, vector_field, data_pk, seed)
+            is not None
+            for field_name, vector_field in fields
+        ):
+            return data_pk
+    return start_id + rows - 1
+
+
+def _validate_phase_search_hit(
+    result: Any,
+    target_collection: str,
+    field_name: str,
+    primary_name: str,
+    expected_pk: Any,
+    expected_offset: int | None,
+    metric_type: str,
+    index_type: str,
+    report: ValidationReport,
+) -> None:
+    assert_search_result(result, target_collection, field_name)
+    hits = result[0]
+    matched_hit = None
+    for hit in hits:
+        if _hit_primary_key(hit, primary_name) == expected_pk and (
+            expected_offset is None or _hit_offset(hit) == expected_offset
+        ):
+            matched_hit = hit
+            break
+    if matched_hit is None:
+        report.fail(
+            PHASE_DQL_FAILED,
+            "phase vector search did not return the newly written primary key",
+            collection=target_collection,
+            field=field_name,
+            expected_pk=expected_pk,
+            expected_offset=expected_offset,
+            actual_pks=[_hit_primary_key(hit, primary_name) for hit in hits],
+            actual_offsets=[_hit_offset(hit) for hit in hits],
+        )
+        return
+
+    distance = _hit_distance(matched_hit)
+    if distance is None:
+        report.fail(
+            PHASE_DQL_FAILED,
+            "phase vector self-search did not expose a distance or score",
+            collection=target_collection,
+            field=field_name,
+            expected_pk=expected_pk,
+            metric_type=metric_type,
+        )
+        return
+    if not math.isfinite(distance):
+        report.fail(
+            PHASE_DQL_FAILED,
+            "phase vector self-search returned a non-finite distance or score",
+            collection=target_collection,
+            field=field_name,
+            expected_pk=expected_pk,
+            metric_type=metric_type,
+            index_type=index_type,
+            distance=distance,
+        )
+        return
+    metric = metric_type.upper().removeprefix("MAX_SIM_")
+    lossy_index = index_type.upper() in {
+        "IVF_PQ",
+        "IVF_SQ8",
+        "HNSW_SQ",
+        "IVF_RABITQ",
+        "SCANN",
+    }
+    max_distance = 0.5 if lossy_index and metric == "L2" else 1e-3
+    min_score = 0.5 if lossy_index and metric in {"COSINE", "IP"} else 0.9
+    if metric in {"L2", "HAMMING", "JACCARD"} and distance < 0:
+        report.fail(
+            PHASE_DQL_FAILED,
+            "phase vector self-search distance is lower than the metric minimum",
+            collection=target_collection,
+            field=field_name,
+            expected_pk=expected_pk,
+            metric_type=metric_type,
+            index_type=index_type,
+            distance=distance,
+            min_distance=0.0,
+        )
+        return
+    if metric in {"COSINE", "MHJACCARD"} and distance > 1.001:
+        report.fail(
+            PHASE_DQL_FAILED,
+            "phase vector self-search score is higher than the metric maximum",
+            collection=target_collection,
+            field=field_name,
+            expected_pk=expected_pk,
+            metric_type=metric_type,
+            index_type=index_type,
+            distance=distance,
+            max_score=1.001,
+        )
+        return
+    if metric in {"L2", "HAMMING", "JACCARD"} and distance > max_distance:
+        report.fail(
+            PHASE_DQL_FAILED,
+            "phase vector self-search distance is higher than expected",
+            collection=target_collection,
+            field=field_name,
+            expected_pk=expected_pk,
+            metric_type=metric_type,
+            index_type=index_type,
+            distance=distance,
+            max_distance=max_distance,
+        )
+    if metric in {"COSINE", "IP", "MHJACCARD"} and distance < min_score:
+        report.fail(
+            PHASE_DQL_FAILED,
+            "phase vector self-search score is lower than expected",
+            collection=target_collection,
+            field=field_name,
+            expected_pk=expected_pk,
+            metric_type=metric_type,
+            index_type=index_type,
+            distance=distance,
+            min_score=min_score,
+        )
+
+
 def _run_searches(
     client: Any,
     spec: SchemaSpec,
@@ -336,34 +609,64 @@ def _run_searches(
     seed: int,
     pk: int,
     report: ValidationReport,
+    expected_pk: Any = _EXPECTED_PK_UNSET,
 ) -> int:
     searches = 0
-    function_outputs = function_output_fields(spec)
-    for vector_field in vector_fields(spec):
-        metric_type = metric_type_for_field(spec, vector_field.name)
-        if vector_field.name in function_outputs and metric_type == "BM25":
-            query_vector = f"milvus phase dml dql token_{pk % 16}"
-        else:
-            query_vector = stable_vector_value(vector_field, pk, seed)
+    primary = _primary_field(spec)
+    primary_name = primary.name if primary is not None else "id"
+    if expected_pk is _EXPECTED_PK_UNSET:
+        expected_pk = (
+            generate_primary_key_value(primary, pk) if primary is not None else pk
+        )
+    for field_name, vector_field in indexed_vector_fields(spec):
+        metric_type = metric_type_for_field(spec, field_name)
+        query_probe = _phase_search_query(spec, field_name, vector_field, pk, seed)
+        if query_probe is None:
+            report.fail(
+                PHASE_DQL_FAILED,
+                "could not build deterministic phase vector search probe",
+                collection=target_collection,
+                field=field_name,
+                data_pk=pk,
+                expected_pk=expected_pk,
+            )
+            continue
+        query_vector, expected_offset = query_probe
+        filter_expr = f"{primary_name} == {format_filter_value(expected_pk)}"
         try:
             result = client.search(
                 collection_name=target_collection,
                 data=[query_vector],
-                anns_field=vector_field.name,
+                anns_field=field_name,
+                filter=filter_expr,
                 limit=5,
                 search_params={
                     "metric_type": metric_type,
-                    "params": search_params_for_field(spec, vector_field.name),
+                    "params": search_params_for_field(spec, field_name),
                 },
             )
-            assert_search_result(result, target_collection, vector_field.name)
+            _validate_phase_search_hit(
+                result,
+                target_collection,
+                field_name,
+                primary_name,
+                expected_pk,
+                expected_offset,
+                metric_type,
+                index_type_for_field(spec, field_name),
+                report,
+            )
             searches += 1
         except Exception as exc:
             report.fail(
                 PHASE_DQL_FAILED,
                 "phase vector search failed",
                 collection=target_collection,
-                field=vector_field.name,
+                field=field_name,
+                data_pk=pk,
+                expected_pk=expected_pk,
+                expected_offset=expected_offset,
+                filter=filter_expr,
                 error=str(exc),
             )
     return searches
@@ -386,23 +689,6 @@ def _normalize_for_compare(value: Any) -> Any:
     return value
 
 
-def _upsert_validation_field(spec: SchemaSpec) -> FieldSpec | None:
-    function_outputs = function_output_fields(spec)
-    float_vectors = [
-        field
-        for field in vector_fields(spec)
-        if field.name not in function_outputs and field.dtype == "FLOAT_VECTOR"
-    ]
-    if float_vectors:
-        return float_vectors[0]
-    non_function_vectors = [
-        field for field in vector_fields(spec) if field.name not in function_outputs
-    ]
-    if non_function_vectors:
-        return non_function_vectors[0]
-    return None
-
-
 def _validate_upserted_values(
     client: Any,
     spec: SchemaSpec,
@@ -413,8 +699,14 @@ def _validate_upserted_values(
     seed: int,
     report: ValidationReport,
 ) -> None:
-    validation_field = _upsert_validation_field(spec)
+    validation_field = update_projection_field(spec)
     if validation_field is None:
+        report.fail(
+            PHASE_UPSERT_NOT_APPLIED,
+            "schema has no queryable field for upsert visibility validation",
+            collection=target_collection,
+            schema=spec.name,
+        )
         return
     primary_name = primary.name
     sample_values = [
@@ -426,7 +718,7 @@ def _validate_upserted_values(
         rows = client.query(
             collection_name=target_collection,
             filter=f"{primary_name} in [{values}]",
-            output_fields=[primary_name, validation_field.name],
+            output_fields=[primary_name, validation_field],
             limit=len(sample_values),
         )
     except Exception as exc:
@@ -434,7 +726,7 @@ def _validate_upserted_values(
             PHASE_DQL_FAILED,
             "upserted value query failed",
             collection=target_collection,
-            field=validation_field.name,
+            field=validation_field,
             error=str(exc),
         )
         return
@@ -447,21 +739,22 @@ def _validate_upserted_values(
                 "upserted primary key is missing",
                 collection=target_collection,
                 pk=pk_value,
-                field=validation_field.name,
+                field=validation_field,
             )
             continue
-        actual = _normalize_for_compare(row.get(validation_field.name))
+        actual = _normalize_for_compare(row.get(validation_field))
         expected_rows = generate_rows(
             spec, start_id=start_id + offset, count=1, seed=seed + 101
         )
-        expected = _normalize_for_compare(expected_rows[0].get(validation_field.name))
+        apply_deterministic_update(spec, expected_rows[0], start_id + offset)
+        expected = _normalize_for_compare(expected_rows[0].get(validation_field))
         if actual != expected:
             report.fail(
                 PHASE_UPSERT_NOT_APPLIED,
                 "upserted field value does not match expected updated value",
                 collection=target_collection,
                 pk=pk_value,
-                field=validation_field.name,
+                field=validation_field,
                 expected=expected,
                 actual=actual,
             )
@@ -474,7 +767,7 @@ def _upsert_sample_payload(
     sample_offsets: list[int],
     seed: int,
 ) -> dict[str, Any]:
-    validation_field = _upsert_validation_field(spec)
+    validation_field = update_projection_field(spec)
     if validation_field is None:
         return {"field": None, "samples": []}
     samples = []
@@ -485,16 +778,17 @@ def _upsert_sample_payload(
             count=1,
             seed=seed + 101,
         )
+        apply_deterministic_update(spec, expected_rows[0], start_id + offset)
         pk_value = generate_primary_key_value(primary, start_id + offset)
         samples.append(
             {
                 "pk": pk_value,
                 "expected": _normalize_for_compare(
-                    expected_rows[0].get(validation_field.name)
+                    expected_rows[0].get(validation_field)
                 ),
             }
         )
-    return {"field": validation_field.name, "samples": samples}
+    return {"field": validation_field, "samples": samples}
 
 
 def _validate_upsert_samples(
@@ -560,6 +854,8 @@ def _run_existing_collection_dml_dql(
     batch_size: int,
     start_id: int,
     seed: int,
+    visibility_timeout_sec: int,
+    visibility_interval_sec: float,
     report: ValidationReport,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
@@ -573,6 +869,7 @@ def _run_existing_collection_dml_dql(
         "inserted": 0,
         "upserted": 0,
         "deleted": 0,
+        "inserted_values": [],
         "remaining_count": 0,
         "deleted_values": [],
         "remaining_values": [],
@@ -580,7 +877,11 @@ def _run_existing_collection_dml_dql(
         "remaining_max_pk": None,
         "upsert_samples": {"field": None, "samples": []},
         "searches": 0,
+        "search_probe_data_pk": None,
+        "search_probe_pk": None,
+        "search_probe_seed": None,
         "upsert_skipped_auto_id": False,
+        "visibility_attempts": 0,
     }
     inserted_ids: list[Any] = []
 
@@ -590,7 +891,19 @@ def _run_existing_collection_dml_dql(
             batch = generate_rows(spec, start_id=start, count=count, seed=seed)
             ids = _insert_rows(client, spec, target_collection, batch, start)
             inserted_ids.extend(ids)
-            metrics["inserted"] += len(batch)
+            metrics["inserted"] += len(ids) if auto_id_enabled(spec) else len(batch)
+
+        if auto_id_enabled(spec):
+            if len(inserted_ids) != rows:
+                raise RuntimeError(
+                    f"{target_collection}: auto-id insert returned {len(inserted_ids)} "
+                    f"primary keys for {rows} rows"
+                )
+            if len(set(inserted_ids)) != len(inserted_ids):
+                raise RuntimeError(
+                    f"{target_collection}: auto-id insert returned duplicate primary keys"
+                )
+            metrics["inserted_values"] = list(inserted_ids)
 
         if auto_id_enabled(spec):
             metrics["upsert_skipped_auto_id"] = True
@@ -600,6 +913,8 @@ def _run_existing_collection_dml_dql(
                 batch = generate_rows(
                     spec, start_id=start, count=count, seed=seed + 101
                 )
+                for offset, row in enumerate(batch):
+                    apply_deterministic_update(spec, row, start + offset)
                 _upsert_rows(client, spec, target_collection, batch, start)
                 metrics["upserted"] += len(batch)
 
@@ -629,12 +944,9 @@ def _run_existing_collection_dml_dql(
         return metrics
 
     if auto_id_enabled(spec):
-        remaining_values = inserted_ids[metrics["deleted"] : metrics["deleted"] + 3]
+        remaining_values = inserted_ids[metrics["deleted"] :]
         metrics["remaining_count"] = max(0, metrics["inserted"] - metrics["deleted"])
         metrics["remaining_values"] = list(remaining_values)
-        validate_pk_samples(
-            client, target_collection, primary_name, remaining_values, report
-        )
     else:
         remaining_start_id = start_id + metrics["deleted"]
         min_pk = generate_primary_key_value(primary, remaining_start_id)
@@ -642,32 +954,11 @@ def _run_existing_collection_dml_dql(
         metrics["remaining_count"] = rows - metrics["deleted"]
         metrics["remaining_min_pk"] = min_pk
         metrics["remaining_max_pk"] = max_pk
-        validate_collection_count(
-            client,
-            target_collection,
-            rows - metrics["deleted"],
-            report,
-            filter_expr=pk_range_filter(primary_name, min_pk, max_pk),
-            metric_suffix="phase_existing_dml_count",
-        )
         sample_values = [
             generate_primary_key_value(primary, remaining_start_id),
             generate_primary_key_value(primary, start_id + rows - 1),
         ]
         metrics["remaining_values"] = sample_values
-        validate_pk_samples(
-            client, target_collection, primary_name, sample_values, report
-        )
-        _validate_upserted_values(
-            client,
-            spec,
-            target_collection,
-            primary,
-            start_id,
-            [metrics["deleted"], rows - 1],
-            seed,
-            report,
-        )
         metrics["upsert_samples"] = _upsert_sample_payload(
             spec,
             primary,
@@ -675,15 +966,85 @@ def _run_existing_collection_dml_dql(
             [metrics["deleted"], rows - 1],
             seed,
         )
-    _validate_deleted_pk_values(
-        client,
-        target_collection,
-        primary_name,
-        deleted_values,
-        report,
+
+    def validate_visibility(current: ValidationReport) -> None:
+        if auto_id_enabled(spec):
+            _validate_pk_values_present_strict(
+                client,
+                target_collection,
+                primary_name,
+                metrics["remaining_values"],
+                current,
+            )
+        else:
+            validate_collection_count(
+                client,
+                target_collection,
+                rows - metrics["deleted"],
+                current,
+                filter_expr=pk_range_filter(
+                    primary_name,
+                    metrics["remaining_min_pk"],
+                    metrics["remaining_max_pk"],
+                ),
+                metric_suffix="phase_existing_dml_count",
+            )
+            validate_pk_samples(
+                client,
+                target_collection,
+                primary_name,
+                metrics["remaining_values"],
+                current,
+            )
+            _validate_upserted_values(
+                client,
+                spec,
+                target_collection,
+                primary,
+                start_id,
+                [metrics["deleted"], rows - 1],
+                seed,
+                current,
+            )
+        _validate_deleted_pk_values(
+            client,
+            target_collection,
+            primary_name,
+            deleted_values,
+            current,
+        )
+
+    visibility_report, visibility_attempts = _wait_for_validation(
+        validate_visibility,
+        visibility_timeout_sec,
+        visibility_interval_sec,
     )
+    metrics["visibility_attempts"] = visibility_attempts
+    report.metrics.update(visibility_report.metrics)
+    if not visibility_report.passed:
+        report.passed = False
+        report.failures.extend(visibility_report.failures)
+    if rows <= 0:
+        return metrics
+    search_probe_seed = seed if auto_id_enabled(spec) else seed + 101
+    search_probe_data_pk = _select_phase_search_probe_pk(
+        spec, start_id, rows, search_probe_seed
+    )
+    if auto_id_enabled(spec):
+        search_probe_pk = inserted_ids[search_probe_data_pk - start_id]
+    else:
+        search_probe_pk = generate_primary_key_value(primary, search_probe_data_pk)
+    metrics["search_probe_data_pk"] = search_probe_data_pk
+    metrics["search_probe_pk"] = search_probe_pk
+    metrics["search_probe_seed"] = search_probe_seed
     metrics["searches"] = _run_searches(
-        client, spec, target_collection, seed, start_id + rows - 1, report
+        client,
+        spec,
+        target_collection,
+        search_probe_seed,
+        search_probe_data_pk,
+        report,
+        expected_pk=search_probe_pk,
     )
     return metrics
 
@@ -708,10 +1069,14 @@ def _run_new_collection_dml_dql(
         "start_id": start_id,
         "rows": rows,
         "inserted": 0,
+        "inserted_values": [],
         "sample_values": [],
         "min_pk": None,
         "max_pk": None,
         "searches": 0,
+        "search_probe_data_pk": None,
+        "search_probe_pk": None,
+        "search_probe_seed": None,
     }
     inserted_ids: list[Any] = []
     try:
@@ -721,7 +1086,18 @@ def _run_new_collection_dml_dql(
             batch = generate_rows(spec, start_id=start, count=count, seed=seed)
             ids = _insert_rows(client, spec, target_collection, batch, start)
             inserted_ids.extend(ids)
-            metrics["inserted"] += len(batch)
+            metrics["inserted"] += len(ids) if auto_id_enabled(spec) else len(batch)
+        if auto_id_enabled(spec):
+            if len(inserted_ids) != rows:
+                raise RuntimeError(
+                    f"{target_collection}: auto-id insert returned {len(inserted_ids)} "
+                    f"primary keys for {rows} rows"
+                )
+            if len(set(inserted_ids)) != len(inserted_ids):
+                raise RuntimeError(
+                    f"{target_collection}: auto-id insert returned duplicate primary keys"
+                )
+            metrics["inserted_values"] = list(inserted_ids)
         _flush_and_load_best_effort(client, target_collection)
     except Exception as exc:
         report.fail(
@@ -741,8 +1117,8 @@ def _run_new_collection_dml_dql(
             report,
             metric_suffix="phase_new_collection_count",
         )
-        validate_pk_samples(
-            client, target_collection, primary_name, inserted_ids[:3], report
+        _validate_pk_values_present_strict(
+            client, target_collection, primary_name, inserted_ids, report
         )
         metrics["sample_values"] = list(inserted_ids[:3])
     else:
@@ -766,8 +1142,27 @@ def _run_new_collection_dml_dql(
         validate_pk_samples(
             client, target_collection, primary_name, sample_values, report
         )
+    if rows <= 0:
+        return metrics
+    search_probe_seed = seed
+    search_probe_data_pk = _select_phase_search_probe_pk(
+        spec, start_id, rows, search_probe_seed
+    )
+    if auto_id_enabled(spec):
+        search_probe_pk = inserted_ids[search_probe_data_pk - start_id]
+    else:
+        search_probe_pk = generate_primary_key_value(primary, search_probe_data_pk)
+    metrics["search_probe_data_pk"] = search_probe_data_pk
+    metrics["search_probe_pk"] = search_probe_pk
+    metrics["search_probe_seed"] = search_probe_seed
     metrics["searches"] = _run_searches(
-        client, spec, target_collection, seed, start_id + rows - 1, report
+        client,
+        spec,
+        target_collection,
+        search_probe_seed,
+        search_probe_data_pk,
+        report,
+        expected_pk=search_probe_pk,
     )
     return metrics
 
@@ -778,7 +1173,7 @@ def _write_after_upgrade_phase_checkpoint(
     metrics: dict[str, Any],
 ) -> None:
     payload = {
-        "version": 1,
+        "version": 2,
         "phase": args.phase,
         "existing_start_id": args.existing_start_id,
         "new_start_id": args.new_start_id,
@@ -841,13 +1236,33 @@ def _validate_existing_phase_checkpoint_collection(
         report,
     )
     if checkpoint.get("rows", 0) > 0:
+        search_probe_data_pk = int(
+            checkpoint.get("search_probe_data_pk")
+            or int(checkpoint["start_id"]) + int(checkpoint["rows"]) - 1
+        )
+        search_probe_pk = checkpoint.get("search_probe_pk", _EXPECTED_PK_UNSET)
+        search_probe_seed = int(
+            checkpoint.get(
+                "search_probe_seed",
+                seed if auto_id_enabled(spec) else seed + 101,
+            )
+        )
+        if search_probe_pk is _EXPECTED_PK_UNSET and auto_id_enabled(spec):
+            report.fail(
+                PHASE_DQL_FAILED,
+                "auto-id phase checkpoint lacks the actual search probe primary key",
+                collection=collection,
+                data_pk=search_probe_data_pk,
+            )
+            return searches
         searches += _run_searches(
             client,
             spec,
             collection,
-            seed,
-            int(checkpoint["start_id"]) + int(checkpoint["rows"]) - 1,
+            search_probe_seed,
+            search_probe_data_pk,
             report,
+            expected_pk=search_probe_pk,
         )
     return searches
 
@@ -885,17 +1300,32 @@ def _validate_new_phase_checkpoint_collection(
         client,
         collection,
         primary_name,
-        checkpoint.get("sample_values") or [],
+        checkpoint.get("inserted_values") or checkpoint.get("sample_values") or [],
         report,
     )
     if checkpoint.get("rows", 0) > 0:
+        search_probe_data_pk = int(
+            checkpoint.get("search_probe_data_pk")
+            or int(checkpoint["start_id"]) + int(checkpoint["rows"]) - 1
+        )
+        search_probe_pk = checkpoint.get("search_probe_pk", _EXPECTED_PK_UNSET)
+        search_probe_seed = int(checkpoint.get("search_probe_seed", seed))
+        if search_probe_pk is _EXPECTED_PK_UNSET and auto_id_enabled(spec):
+            report.fail(
+                PHASE_DQL_FAILED,
+                "auto-id phase checkpoint lacks the actual search probe primary key",
+                collection=collection,
+                data_pk=search_probe_data_pk,
+            )
+            return searches
         searches += _run_searches(
             client,
             spec,
             collection,
-            seed,
-            int(checkpoint["start_id"]) + int(checkpoint["rows"]) - 1,
+            search_probe_seed,
+            search_probe_data_pk,
             report,
+            expected_pk=search_probe_pk,
         )
     return searches
 
@@ -1042,6 +1472,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.batch_size,
                 args.existing_start_id,
                 args.seed,
+                args.visibility_timeout_sec,
+                args.visibility_interval_sec,
                 report,
             )
             metrics["existing_collections"].append(existing_metrics)
@@ -1068,6 +1500,8 @@ def main(argv: list[str] | None = None) -> int:
                     args.batch_size,
                     carried_start_id,
                     args.seed + 31,
+                    args.visibility_timeout_sec,
+                    args.visibility_interval_sec,
                     report,
                 )
                 metrics["carried_collections"].append(carried_metrics)
@@ -1107,7 +1541,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.phase == "after-upgrade" and report.passed:
             result.checkpoint = {
                 "path": str(_phase_checkpoint_path(args)),
-                "version": 1,
+                "version": 2,
             }
         result.write(args.output_json)
         return 0 if report.passed else 1

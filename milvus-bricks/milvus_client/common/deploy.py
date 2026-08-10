@@ -72,6 +72,8 @@ def _storage_config(
     json_shredding_enabled: bool,
     loon_ffi_enabled: bool,
     vortex_enabled: bool,
+    target_vec_index_version: int = -1,
+    target_scalar_index_version: int = -1,
 ) -> dict[str, Any]:
     storage: dict[str, Any] = {
         "jsonShreddingEnabled": json_shredding_enabled,
@@ -81,6 +83,13 @@ def _storage_config(
     config: dict[str, Any] = {"common": {"storage": storage}}
     if vortex_enabled:
         config["dataNode"] = {"storage": {"format": "vortex"}}
+    data_coord: dict[str, Any] = {}
+    if target_vec_index_version >= 0:
+        data_coord["targetVecIndexVersion"] = target_vec_index_version
+    if target_scalar_index_version >= 0:
+        data_coord["targetScalarIndexVersion"] = target_scalar_index_version
+    if data_coord:
+        config["dataCoord"] = data_coord
     return config
 
 
@@ -126,11 +135,15 @@ def _storage_user_yaml(
     json_shredding_enabled: bool,
     loon_ffi_enabled: bool,
     vortex_enabled: bool,
+    target_vec_index_version: int = -1,
+    target_scalar_index_version: int = -1,
 ) -> str:
     config = _storage_config(
         json_shredding_enabled=json_shredding_enabled,
         loon_ffi_enabled=loon_ffi_enabled,
         vortex_enabled=vortex_enabled,
+        target_vec_index_version=target_vec_index_version,
+        target_scalar_index_version=target_scalar_index_version,
     )
     return yaml.safe_dump(config, sort_keys=False)
 
@@ -155,6 +168,8 @@ def render_milvus_helm_values(
     json_shredding_enabled: bool = False,
     loon_ffi_enabled: bool = False,
     vortex_enabled: bool = False,
+    target_vec_index_version: int = -1,
+    target_scalar_index_version: int = -1,
     labels: dict[str, str] | None = None,
     annotations: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -179,6 +194,8 @@ def render_milvus_helm_values(
                     json_shredding_enabled=json_shredding_enabled,
                     loon_ffi_enabled=loon_ffi_enabled,
                     vortex_enabled=vortex_enabled,
+                    target_vec_index_version=target_vec_index_version,
+                    target_scalar_index_version=target_scalar_index_version,
                 )
             },
         },
@@ -204,6 +221,8 @@ def render_milvus_helm_values(
                 json_shredding_enabled=json_shredding_enabled,
                 loon_ffi_enabled=loon_ffi_enabled,
                 vortex_enabled=vortex_enabled,
+                target_vec_index_version=target_vec_index_version,
+                target_scalar_index_version=target_scalar_index_version,
             )
         },
     )
@@ -260,6 +279,8 @@ def render_milvus_cr(
     json_shredding_enabled: bool = False,
     loon_ffi_enabled: bool = False,
     vortex_enabled: bool = False,
+    target_vec_index_version: int = -1,
+    target_scalar_index_version: int = -1,
     labels: dict[str, str] | None = None,
     annotations: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -290,6 +311,8 @@ def render_milvus_cr(
                 json_shredding_enabled=json_shredding_enabled,
                 loon_ffi_enabled=loon_ffi_enabled,
                 vortex_enabled=vortex_enabled,
+                target_vec_index_version=target_vec_index_version,
+                target_scalar_index_version=target_scalar_index_version,
             ),
             "components": components,
             "dependencies": deepcopy(profile["dependencies"]),

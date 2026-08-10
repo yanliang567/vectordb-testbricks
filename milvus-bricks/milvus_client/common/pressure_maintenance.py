@@ -471,6 +471,14 @@ def is_rollout_service_switch_failure(
         or "no available shard leaders" in text
     ):
         return True
+    if "internal count result should only have one column" in text:
+        return True
+    if (
+        "reduce_by_groups" in text
+        and "fielddatas length 0" in text
+        and "expected 1" in text
+    ):
+        return True
     return "find no available mixcoord" in text or (
         "empty grpc client" in text and "mixcoord" in text
     )

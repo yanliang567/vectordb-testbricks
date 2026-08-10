@@ -1,14 +1,34 @@
 import json
+import math
 import re
 
-from milvus_client.common.schema import FieldSpec, IndexSpec, SchemaSpec
+from milvus_client.common.data import generate_rows
+from milvus_client.common.schema import (
+    FieldSpec,
+    FunctionSpec,
+    IndexSpec,
+    SchemaSpec,
+    StructArraySpec,
+)
+from milvus_client.common.validators import ValidationReport
 from milvus_client.requests import validate_phase_dml_dql
 
 
 class PhaseClient:
-    def __init__(self, *, auto_id: bool = False, search_fails: bool = False):
+    def __init__(
+        self,
+        *,
+        auto_id: bool = False,
+        search_fails: bool = False,
+        search_hit_id=None,
+        search_hit_offset=None,
+        search_distance: float = 1.0,
+    ):
         self.auto_id = auto_id
         self.search_fails = search_fails
+        self.search_hit_id = search_hit_id
+        self.search_hit_offset = search_hit_offset
+        self.search_distance = search_distance
         self.calls = []
         self.collections = {"qa_dense"}
         self.rows = {}
@@ -114,8 +134,7 @@ class PhaseClient:
         if " in [" in filter_expr:
             pks = [int(value) for value in re.findall(r"\d+", filter_expr)]
             rows = self._project_rows(collection_name, pks, output_fields)
-            if rows:
-                return rows
+            return rows
         if collection_name == "qa_dense" and (
             "== 50000000" in filter_expr or "== 70000000" in filter_expr
         ):
@@ -137,7 +156,29 @@ class PhaseClient:
         self.calls.append(("search", kwargs))
         if self.search_fails:
             raise RuntimeError("search unavailable")
-        return [[{"id": 1, "distance": 0.1}]]
+        equality = re.search(r"==\s*(\d+)", kwargs.get("filter", ""))
+        hit_id = self.search_hit_id
+        if hit_id is None:
+            hit_id = int(equality.group(1)) if equality else 1
+        hit = {"id": hit_id, "distance": self.search_distance}
+        if self.search_hit_offset is not None:
+            hit["offset"] = self.search_hit_offset
+        return [[hit]]
+
+
+class StoredVectorSearchPhaseClient(PhaseClient):
+    def search(self, **kwargs):
+        self.calls.append(("search", kwargs))
+        equality = re.search(r"==\s*(\d+)", kwargs.get("filter", ""))
+        hit_id = int(equality.group(1))
+        query = kwargs["data"][0]
+        stored = self.rows[kwargs["collection_name"]][hit_id][kwargs["anns_field"]]
+        numerator = sum(
+            float(left) * float(right) for left, right in zip(query, stored)
+        )
+        query_norm = math.sqrt(sum(float(value) ** 2 for value in query))
+        stored_norm = math.sqrt(sum(float(value) ** 2 for value in stored))
+        return [[{"id": hit_id, "distance": numerator / (query_norm * stored_norm)}]]
 
 
 class NoopUpsertPhaseClient(PhaseClient):
@@ -146,14 +187,23 @@ class NoopUpsertPhaseClient(PhaseClient):
         return {"upsert_count": len(kwargs["data"])}
 
 
-def _dense_spec(auto_id: bool = False) -> SchemaSpec:
+class MissingAutoIdResponseClient(PhaseClient):
+    def __init__(self):
+        super().__init__(auto_id=True)
+
+    def insert(self, **kwargs):
+        self.calls.append(("insert", kwargs))
+        return {}
+
+
+def _dense_spec(auto_id: bool = False, dim: int = 4) -> SchemaSpec:
     return SchemaSpec(
         name="dense",
         version="test",
         fields=[
             FieldSpec(name="id", dtype="INT64", primary=True, auto_id=auto_id),
             FieldSpec(name="category", dtype="INT64"),
-            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=dim),
         ],
         indexes=[
             IndexSpec(field="category", index_type="INVERTED"),
@@ -178,6 +228,75 @@ def _explicit_partition_spec() -> SchemaSpec:
             FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
         ],
         indexes=[IndexSpec(field="embedding", index_type="HNSW", metric_type="COSINE")],
+    )
+
+
+def _auto_id_partition_spec() -> SchemaSpec:
+    return SchemaSpec(
+        name="auto_id_partition",
+        version="test",
+        partitions=["p0", "p1"],
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True, auto_id=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+        ],
+        indexes=[IndexSpec(field="embedding", index_type="HNSW", metric_type="COSINE")],
+    )
+
+
+def _minhash_spec() -> SchemaSpec:
+    return SchemaSpec(
+        name="minhash",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(
+                name="document",
+                dtype="VARCHAR",
+                max_length=65535,
+                value_profile="minhash_documents",
+            ),
+            FieldSpec(name="minhash", dtype="BINARY_VECTOR", dim=4096),
+        ],
+        functions=[
+            FunctionSpec(
+                name="text_to_minhash",
+                function_type="MINHASH",
+                input_fields=["document"],
+                output_fields=["minhash"],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="minhash",
+                index_type="MINHASH_LSH",
+                metric_type="MHJACCARD",
+            )
+        ],
+    )
+
+
+def _struct_array_spec() -> SchemaSpec:
+    return SchemaSpec(
+        name="struct_array",
+        version="3.0",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        struct_arrays=[
+            StructArraySpec(
+                name="items",
+                max_capacity=4,
+                fields=[
+                    FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+                ],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="items[embedding]",
+                index_type="HNSW",
+                metric_type="COSINE",
+            )
+        ],
     )
 
 
@@ -227,6 +346,10 @@ def _args(tmp_path, checkpoint):
         "1",
         "--batch-size",
         "2",
+        "--visibility-timeout-sec",
+        "0",
+        "--visibility-interval-sec",
+        "0",
     ]
 
 
@@ -278,6 +401,177 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
     assert "search" in call_names
 
 
+def test_existing_phase_search_uses_upserted_vector_values():
+    spec = _dense_spec(dim=128)
+    client = StoredVectorSearchPhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        spec,
+        "qa_dense",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    search_call = next(payload for name, payload in client.calls if name == "search")
+    expected = generate_rows(spec, 50_000_003, 1, seed=108)[0]["embedding"]
+    assert report.passed
+    assert metrics["search_probe_seed"] == 108
+    assert search_call["data"] == [expected]
+
+
+def test_phase_dml_dql_minhash_search_uses_function_input_text():
+    client = PhaseClient()
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._run_searches(
+        client,
+        _minhash_spec(),
+        "qa_minhash",
+        seed=7,
+        pk=6_000_001,
+        report=report,
+    )
+
+    search_call = next(call[1] for call in client.calls if call[0] == "search")
+    assert report.passed
+    assert searches == 1
+    assert search_call["data"] == ["the quick brown fox jumps over a lazy dog"]
+    assert search_call["filter"] == "id == 6000001"
+    assert search_call["search_params"]["metric_type"] == "MHJACCARD"
+
+
+def test_phase_search_rejects_irrelevant_old_primary_key_hit():
+    client = PhaseClient(search_hit_id=1)
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._run_searches(
+        client,
+        _dense_spec(),
+        "qa_dense",
+        seed=7,
+        pk=50_000_003,
+        report=report,
+    )
+
+    assert searches == 1
+    assert not report.passed
+    assert report.failures[0]["type"] == validate_phase_dml_dql.PHASE_DQL_FAILED
+    assert report.failures[0]["expected_pk"] == 50_000_003
+    assert report.failures[0]["actual_pks"] == [1]
+
+
+def test_phase_struct_array_search_requires_matching_element_offset():
+    client = PhaseClient(search_hit_offset=1)
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._run_searches(
+        client,
+        _struct_array_spec(),
+        "qa_struct_array",
+        seed=7,
+        pk=50_000_003,
+        report=report,
+    )
+
+    assert searches == 1
+    assert not report.passed
+    assert report.failures[0]["expected_pk"] == 50_000_003
+    assert report.failures[0]["expected_offset"] == 0
+    assert report.failures[0]["actual_offsets"] == [1]
+
+
+def test_phase_search_rejects_invalid_self_search_score():
+    client = PhaseClient(search_distance=0.1)
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._run_searches(
+        client,
+        _dense_spec(),
+        "qa_dense",
+        seed=7,
+        pk=50_000_003,
+        report=report,
+    )
+
+    assert searches == 1
+    assert not report.passed
+    assert report.failures[0]["type"] == validate_phase_dml_dql.PHASE_DQL_FAILED
+    assert report.failures[0]["distance"] == 0.1
+    assert report.failures[0]["min_score"] == 0.9
+
+
+def test_phase_search_rejects_non_finite_score():
+    client = PhaseClient(search_distance=float("nan"))
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._run_searches(
+        client,
+        _dense_spec(),
+        "qa_dense",
+        seed=7,
+        pk=50_000_003,
+        report=report,
+    )
+
+    assert searches == 1
+    assert not report.passed
+    assert report.failures[0]["message"] == (
+        "phase vector self-search returned a non-finite distance or score"
+    )
+
+
+def test_phase_bm25_search_requires_observable_score():
+    report = ValidationReport()
+
+    validate_phase_dml_dql._validate_phase_search_hit(
+        [[{"id": 3}]],
+        "qa_bm25",
+        "sparse_bm25",
+        "id",
+        3,
+        None,
+        "BM25",
+        "SPARSE_INVERTED_INDEX",
+        report,
+    )
+
+    assert not report.passed
+    assert report.failures[0]["message"] == (
+        "phase vector self-search did not expose a distance or score"
+    )
+
+
+def test_wait_for_validation_retries_until_dml_becomes_visible(monkeypatch):
+    attempts = 0
+
+    def validate(report):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 2:
+            report.fail("COUNT_DRIFT", "DML is not visible yet")
+
+    times = iter([0.0, 0.1])
+    monkeypatch.setattr(validate_phase_dml_dql, "monotonic", lambda: next(times))
+    monkeypatch.setattr(validate_phase_dml_dql, "sleep", lambda _: None)
+
+    report, actual_attempts = validate_phase_dml_dql._wait_for_validation(
+        validate,
+        timeout_sec=1,
+        interval_sec=0,
+    )
+
+    assert report.passed
+    assert actual_attempts == 2
+
+
 def test_phase_dml_dql_upserts_explicit_partition_rows_in_original_partitions():
     client = PhaseClient()
     spec = _explicit_partition_spec()
@@ -292,6 +586,26 @@ def test_phase_dml_dql_upserts_explicit_partition_rows_in_original_partitions():
     upsert_calls = [payload for name, payload in client.calls if name == "upsert"]
     assert [call["partition_name"] for call in upsert_calls] == ["p0", "p1"]
     assert [len(call["data"]) for call in upsert_calls] == [2, 1]
+
+
+def test_auto_id_insert_preserves_data_row_to_generated_pk_mapping_across_partitions():
+    client = PhaseClient(auto_id=True)
+    spec = _auto_id_partition_spec()
+    rows = [
+        {"embedding": [0.1] * 4},
+        {"embedding": [0.2] * 4},
+        {"embedding": [0.3] * 4},
+    ]
+
+    ids = validate_phase_dml_dql._insert_rows(
+        client,
+        spec,
+        "qa_auto_partitioned",
+        rows,
+        start_id=0,
+    )
+
+    assert ids == [1000, 1002, 1001]
 
 
 def test_phase_dml_dql_writes_after_upgrade_phase_checkpoint(monkeypatch, tmp_path):
@@ -317,6 +631,8 @@ def test_phase_dml_dql_writes_after_upgrade_phase_checkpoint(monkeypatch, tmp_pa
     checkpoint_payload = json.loads(phase_checkpoint.read_text())
     assert code == 0
     assert result["status"] == "passed"
+    assert result["checkpoint"]["version"] == 2
+    assert checkpoint_payload["version"] == 2
     assert checkpoint_payload["phase"] == "after-upgrade"
     assert (
         checkpoint_payload["existing_collections"]["qa_dense"]["start_id"] == 50000000
@@ -329,11 +645,67 @@ def test_phase_dml_dql_writes_after_upgrade_phase_checkpoint(monkeypatch, tmp_pa
     ]
     assert checkpoint_payload["existing_collections"]["qa_dense"]["upsert_samples"]
     assert (
+        checkpoint_payload["existing_collections"]["qa_dense"]["search_probe_data_pk"]
+        == 50000003
+    )
+    assert (
+        checkpoint_payload["existing_collections"]["qa_dense"]["search_probe_pk"]
+        == 50000003
+    )
+    assert (
+        checkpoint_payload["existing_collections"]["qa_dense"]["search_probe_seed"]
+        == 101
+    )
+    assert (
         checkpoint_payload["new_collections"]["qa_after_upgrade_dense"]["inserted"] == 4
     )
     assert checkpoint_payload["new_collections"]["qa_after_upgrade_dense"][
         "sample_values"
     ] == [60000000, 60000003]
+    assert (
+        checkpoint_payload["new_collections"]["qa_after_upgrade_dense"][
+            "search_probe_seed"
+        ]
+        == 17
+    )
+
+
+def test_phase_checkpoint_reuses_recorded_existing_search_probe_seed():
+    spec = _dense_spec(dim=128)
+    client = StoredVectorSearchPhaseClient()
+    client._store_rows(
+        "qa_dense",
+        generate_rows(spec, start_id=50_000_003, count=1, seed=108),
+    )
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._validate_existing_phase_checkpoint_collection(
+        client,
+        spec,
+        {
+            "collection": "qa_dense",
+            "primary_field": "id",
+            "remaining_count": 1,
+            "remaining_min_pk": 50_000_003,
+            "remaining_max_pk": 50_000_003,
+            "remaining_values": [50_000_003],
+            "deleted_values": [],
+            "upsert_samples": {"field": None, "samples": []},
+            "rows": 1,
+            "start_id": 50_000_003,
+            "search_probe_data_pk": 50_000_003,
+            "search_probe_pk": 50_000_003,
+            "search_probe_seed": 108,
+        },
+        report,
+        seed=7,
+    )
+
+    search_call = next(payload for name, payload in client.calls if name == "search")
+    expected = generate_rows(spec, 50_000_003, 1, seed=108)[0]["embedding"]
+    assert searches == 1
+    assert report.passed
+    assert search_call["data"] == [expected]
 
 
 def test_after_rollback_validates_after_upgrade_phase_checkpoint_before_new_dml(
@@ -413,6 +785,54 @@ def test_phase_dml_dql_fails_when_upsert_does_not_update_values(monkeypatch, tmp
     )
 
 
+def test_phase_dml_dql_fails_when_minhash_upsert_is_a_noop():
+    client = NoopUpsertPhaseClient()
+    report = ValidationReport()
+
+    validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        _minhash_spec(),
+        "qa_minhash",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    assert not report.passed
+    assert any(
+        failure["type"] == "PHASE_UPSERT_NOT_APPLIED" for failure in report.failures
+    )
+
+
+def test_phase_dml_dql_fails_when_struct_array_upsert_is_a_noop():
+    client = NoopUpsertPhaseClient()
+    report = ValidationReport()
+
+    validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        _struct_array_spec(),
+        "qa_struct_array",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    assert not report.passed
+    assert any(
+        failure["type"] == "PHASE_UPSERT_NOT_APPLIED" for failure in report.failures
+    )
+
+
 def test_phase_dml_dql_deletes_auto_id_inserted_rows_and_skips_upsert(
     monkeypatch, tmp_path
 ):
@@ -433,10 +853,43 @@ def test_phase_dml_dql_deletes_auto_id_inserted_rows_and_skips_upsert(
     assert result["status"] == "passed"
     assert result["metrics"]["existing_upserted_total"] == 0
     assert result["metrics"]["existing_upsert_skipped_auto_id_total"] == 1
+    existing = result["metrics"]["existing_collections"][0]
+    assert existing["inserted_values"] == [1000, 1001, 1002, 1003]
+    assert existing["remaining_values"] == [1001, 1002, 1003]
+    assert existing["search_probe_data_pk"] == 50000003
+    assert existing["search_probe_pk"] == 1003
     assert "upsert" not in call_names
     assert any(
         call[0] == "delete" and "1000" in call[1]["filter"] for call in client.calls
     )
+    assert any(
+        call[0] == "search" and call[1]["filter"] == "id == 1003"
+        for call in client.calls
+    )
+
+
+def test_existing_auto_id_phase_fails_when_insert_response_has_no_ids():
+    client = MissingAutoIdResponseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        _dense_spec(auto_id=True),
+        "qa_dense",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    assert not report.passed
+    assert metrics["inserted"] == 0
+    assert report.failures[0]["type"] == validate_phase_dml_dql.PHASE_DML_FAILED
+    assert "returned 0 primary keys for 2 rows" in report.failures[0]["error"]
 
 
 def test_phase_dml_dql_mutates_carried_upgrade_collection_after_rollback(

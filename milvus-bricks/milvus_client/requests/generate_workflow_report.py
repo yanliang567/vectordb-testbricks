@@ -22,10 +22,16 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
-    required = ["validate_before_upgrade", "validate_after_upgrade"]
+    required = [
+        "validate_before_upgrade",
+        "validate_schema_features_base",
+        "validate_after_upgrade",
+        "validate_schema_features_after_upgrade",
+    ]
     if config_matrix["forward_workload_enabled"]:
         required.append("validate_forward_after_upgrade")
         required.append("validate_forward_indexes_after_upgrade")
+        required.append("validate_forward_schema_features_after_upgrade")
     if (
         config_matrix["rollback_enabled"]
         and config_matrix["index_compatibility_validation_enabled"]
@@ -36,8 +42,16 @@ def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
         and config_matrix["phase_dml_dql_validation_enabled"]
     ):
         required.append("validate_phase_dml_dql_after_upgrade")
+    if config_matrix["schema_evolution_existing_enabled"]:
+        required.append("validate_schema_evolution_existing_after_upgrade")
+    if (
+        config_matrix["forward_workload_enabled"]
+        and config_matrix["schema_evolution_forward_enabled"]
+    ):
+        required.append("validate_schema_evolution_forward_after_upgrade")
     if config_matrix["rollback_enabled"]:
         required.append("validate_after_rollback")
+        required.append("validate_schema_features_after_rollback")
     if (
         config_matrix["rollback_enabled"]
         and config_matrix["index_compatibility_validation_enabled"]
@@ -50,11 +64,19 @@ def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
         required.append("validate_phase_dml_dql_after_rollback")
     if (
         config_matrix["rollback_enabled"]
+        and config_matrix["schema_evolution_existing_enabled"]
+    ):
+        required.append("validate_schema_evolution_existing_after_rollback")
+    if (
+        config_matrix["rollback_enabled"]
         and config_matrix["forward_workload_enabled"]
         and config_matrix["rollback_forward_validation_enabled"]
     ):
         required.append("validate_forward_after_rollback")
         required.append("validate_forward_indexes_after_rollback")
+        required.append("validate_forward_schema_features_after_rollback")
+        if config_matrix["schema_evolution_forward_enabled"]:
+            required.append("validate_schema_evolution_forward_after_rollback")
     return required
 
 
@@ -98,6 +120,12 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "base_vortex_enabled": parse_bool(args.base_vortex_enabled),
         "target_vortex_enabled": parse_bool(args.target_vortex_enabled),
         "rollback_vortex_enabled": parse_bool(args.rollback_vortex_enabled),
+        "base_target_vec_index_version": args.base_target_vec_index_version,
+        "target_target_vec_index_version": args.target_target_vec_index_version,
+        "rollback_target_vec_index_version": args.rollback_target_vec_index_version,
+        "base_target_scalar_index_version": args.base_target_scalar_index_version,
+        "target_target_scalar_index_version": args.target_target_scalar_index_version,
+        "rollback_target_scalar_index_version": args.rollback_target_scalar_index_version,
         "post_upgrade_config_toggle_enabled": parse_bool(
             args.post_upgrade_config_toggle_enabled
         ),
@@ -131,10 +159,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         for name, payload in results.items()
         if name.startswith("validate_")
     }
+    required_validation_names = _required_validation_names(config_matrix)
     missing_validations = [
-        name
-        for name in _required_validation_names(config_matrix)
-        if name not in validation
+        name for name in required_validation_names if name not in validation
     ]
     for name in missing_validations:
         validation[name] = {
@@ -169,14 +196,19 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
                 }
             ],
         }
+    required_validation_failures = {
+        name: validation[name]
+        for name in required_validation_names
+        if validation[name].get("status") != "passed"
+    }
     failed_results = {
         name: payload
         for name, payload in {**results, **validation, **serviceability}.items()
         if payload.get("status") not in {"passed", "skipped"}
     }
+    failed_results.update(required_validation_failures)
     validation_passed = bool(validation) and all(
-        payload.get("status") in {"passed", "skipped"}
-        for payload in validation.values()
+        validation[name].get("status") == "passed" for name in required_validation_names
     )
     pressure_failed = int(pressure.get("failed", 0) or 0)
     pressure_fail_on_error = parse_bool(args.pressure_fail_on_error)
@@ -471,6 +503,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-vortex-enabled", default="false")
     parser.add_argument("--target-vortex-enabled", default="false")
     parser.add_argument("--rollback-vortex-enabled", default="false")
+    parser.add_argument("--base-target-vec-index-version", type=int, default=-1)
+    parser.add_argument("--target-target-vec-index-version", type=int, default=-1)
+    parser.add_argument("--rollback-target-vec-index-version", type=int, default=-1)
+    parser.add_argument("--base-target-scalar-index-version", type=int, default=-1)
+    parser.add_argument("--target-target-scalar-index-version", type=int, default=-1)
+    parser.add_argument("--rollback-target-scalar-index-version", type=int, default=-1)
     parser.add_argument("--post-upgrade-config-toggle-enabled", default="false")
     parser.add_argument("--post-upgrade-json-shredding-enabled", default="false")
     parser.add_argument("--forward-workload-enabled", default="false")

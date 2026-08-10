@@ -5,9 +5,9 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 ## Current scenario set
 
-The manifest currently registers 12 scenarios:
+The manifest currently registers 14 scenarios:
 
-- 11 promoted gate scenarios
+- 13 promoted gate scenarios
 - 1 negative coverage scenario
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
@@ -16,13 +16,15 @@ The manifest currently registers 12 scenarios:
 | `standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest` | standalone | gate | `2.6.18 -> 3.0 latest + 3.0-only forward features -> 2.6 latest` | Forward 3.0 collections are required after upgrade but intentionally excluded from rollback validation. |
 | `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | LoonFFI/storage v3 and Vortex must stay disabled. |
 | `cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest + 3.0-only forward features -> 2.6 latest` | Forward 3.0 collections are required after upgrade but intentionally excluded from rollback validation. |
-| `standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled. |
-| `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled. |
+| `standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
+| `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
 | `cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
 | `cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` on Woodpecker 2CU | Proxy, QueryNode, DataNode, and StreamingNode must each keep at least two replicas. |
 | `standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
 | `cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
 | `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
+| `standalone-3-0-index-v10-v4-upgrade-rollback` | standalone | gate | `3.0 baseline + target 10/4 -> 3.0 latest + target 10/4 -> 3.0 baseline + target 10/4` | Runtime target config is checked and SINDI/Block-Max plus JSON scalar index families are executed. |
+| `cluster-3-0-index-v10-v4-upgrade-rollback` | cluster | gate | `3.0 baseline + target 10/4 -> 3.0 latest + target 10/4 -> 3.0 baseline + target 10/4` | Distributed equivalent of the target-version and algorithm-coverage gate. |
 | `standalone-3-0-loon-vortex-to-2-6-negative` | standalone | negative | `2.6.18 -> 3.0 latest + LoonFFI/Vortex -> 2.6 latest` | Unsupported negative coverage only; not a promoted gate. |
 
 For the 3.0 LoonFFI/Vortex gates, the rollback phase uses the 3.0 baseline
@@ -42,6 +44,28 @@ data only after the post-upgrade configuration rollout has enabled JSON
 Shredding. The rollback phase keeps the setting enabled and requires the
 forward data, dynamic JSON fields, JSON path indexes, and filters to remain
 usable.
+
+The LoonFFI/Vortex gates create forward collections from
+`schema_matrix_3_0_storage_v3.yaml`. They validate TEXT payloads below, at, and
+above 64 KiB plus a 1 MiB value, then rerun payload hash, lexical filter, BM25,
+index, and feature-semantic checks after rollback.
+Workflow clients use `pymilvus==3.0.1`; the 3.0.0 wheel predates the client-side
+`DataType.TEXT` backport and cannot render this matrix.
+
+The regular matrices include the promoted type/index coverage:
+
+- `schema_matrix_2_6.yaml`: StructArray scalar round-trip and element search,
+  all six nullable vector types, Geometry/RTREE, and explicit legacy indexes.
+- `schema_matrix_3_0.yaml`: StructArray nested scalar indexes including
+  `FLOAT + STL_SORT/INVERTED` and `VARCHAR + INVERTED/BITMAP`, EmbList DISKANN,
+  FAISS, MinHash exact self-search with observational near-duplicate recall,
+  and TIMESTAMPTZ entity TTL.
+- `schema_matrix_3_0_index_v10_v4.yaml`: SINDI, Block-Max sparse algorithms,
+  JSON scalar indexes, and resolved HYBRID AutoIndex with runtime target
+  versions `10/4` configured. Public SDK index metadata does not expose the
+  exact engine version selected by Milvus after its version resolution/clamp
+  logic, so execution reports must preserve DataNode index-build logs as
+  supplementary evidence rather than claim exact `10/4` builds automatically.
 
 The Woodpecker 2CU gate reuses the cluster Helm rolling upgrade workflow with
 a multi-replica data plane. Its scenario contract rejects deploy-profile
@@ -67,10 +91,11 @@ For normal branch or version updates, start here:
 4. `argo/*.yaml`
    - only when a new workflow parameter or DAG behavior is required.
 
-The `milvus-3-0-baseline` alias is pinned to the official multi-arch `v3.0.0`
-manifest-list digest:
+The release baseline aliases are pinned to their official multi-arch
+manifest-list digests:
 
 ```text
+harbor.milvus.io/milvusdb/milvus:v2.6.18@sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6
 harbor.milvus.io/milvusdb/milvus:v3.0.0@sha256:49371c30af46b1013e4d3e0b980e691d81376d69cdbe1b372725baf1d7255862
 ```
 
@@ -200,6 +225,17 @@ The current gates validate:
     formats;
   - mismatched LoonFFI/storage v3 or Vortex settings fail the gate before
     baseline seed, precheck, DML/DQL, or index compatibility validation;
+- schema feature semantics at base, after upgrade, and after rollback:
+  - non-`MAX_SIM_*` StructArray element searches require the expected primary
+    key and element offset;
+  - `MAX_SIM_*` StructArray searches use PyMilvus `EmbeddingList` row-level
+    queries and require the expected primary key without an element offset;
+  - nested scalar indexes execute real `MATCH_ANY` filters;
+  - unknown validator names fail manifest validation rather than silently pass;
+  - index engine scenarios verify `dataCoord.targetVecIndexVersion` and
+    `dataCoord.targetScalarIndexVersion` from merged runtime pod config and
+    execute the matrix algorithms; this is target-configuration validation,
+    not proof of an exact resolved build version;
 - baseline seed data after upgrade and after rollback;
 - phase checkpoints for data written after upgrade before rollback;
 - new collections created after upgrade and after rollback;
@@ -209,12 +245,17 @@ The current gates validate:
   - delete 100 rows from that inserted PK range;
   - expected net increase: 900 rows per phase;
 - DQL on old and new collections after each phase;
-- index compatibility and load/search/query probes;
+- index compatibility and loaded-state load/search/query probes, followed by a
+  strict release/reload cycle and the same query/search probes again;
 - forward collection index compatibility after upgrade, with a separate
   `/tmp/milvus-bricks/checkpoints/forward/index_compatibility.json` checkpoint;
 - forward index compatibility after rollback only when
   `rollback-forward-validation-enabled=true`;
+- schema-evolution checkpoints written after upgrade and validated read-only
+  after rollback for existing and rollback-compatible forward collections;
 - Woodpecker 2CU topology requirements at render time and again before Helm
   deployment for registered runtime scenarios;
+- registered scenario schema/index/validator parameters and WorkflowTemplate
+  topology revalidated immediately before deployment;
 - continuous pressure workload, with rollout maintenance windows only excluding
   confirmed connectivity failures.

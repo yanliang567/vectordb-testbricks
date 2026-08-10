@@ -11,7 +11,9 @@ from milvus_client.common.schema import (
     VECTOR_TYPES,
     FieldSpec,
     SchemaSpec,
+    StructArraySpec,
     function_output_fields,
+    resolve_field,
 )
 
 
@@ -75,6 +77,18 @@ def stable_vector_value(field: FieldSpec, pk: int, seed: int) -> Any:
     raise ValueError(f"Unsupported generated vector dtype: {field.dtype}")
 
 
+def prepare_struct_vector_query(
+    metric_type: str, vector: Any, offset: int
+) -> tuple[Any, int | None]:
+    if metric_type.upper().startswith("MAX_SIM_"):
+        from pymilvus.client.embedding_list import EmbeddingList
+
+        query = EmbeddingList()
+        query.add(vector)
+        return query, None
+    return vector, offset
+
+
 def _normalize_for_checksum(value: Any) -> Any:
     if isinstance(value, bytes):
         return {"__bytes__": value.hex()}
@@ -122,19 +136,117 @@ def checksum_fields_for_spec(spec: SchemaSpec) -> list[str]:
     if spec.checksum_fields:
         return list(spec.checksum_fields)
     function_outputs = function_output_fields(spec)
-    return [
+    scalar_fields = [
         field.name
         for field in spec.fields
         if field.dtype not in VECTOR_TYPES
         and not field.auto_id
         and field.name not in function_outputs
     ]
+    return [*scalar_fields, *(struct_array.name for struct_array in spec.struct_arrays)]
+
+
+def update_projection_field(spec: SchemaSpec) -> str | None:
+    function_outputs = function_output_fields(spec)
+    for field in spec.fields:
+        if (
+            field.primary
+            or field.is_partition_key
+            or field.name in function_outputs
+            or field.dtype in VECTOR_TYPES
+        ):
+            continue
+        return field.name
+    if spec.struct_arrays:
+        return spec.struct_arrays[0].name
+    for field in spec.fields:
+        if not field.primary and field.name not in function_outputs:
+            return field.name
+    return None
+
+
+def _deterministic_update_value(field: FieldSpec, pk: int, current: Any) -> Any:
+    if field.dtype in {"INT64", "INT32", "INT16", "INT8"}:
+        return pk % 97 + 1
+    if field.dtype in {"FLOAT", "DOUBLE"}:
+        return float(pk % 997) + 0.25
+    if field.dtype == "BOOL":
+        return not bool(current)
+    if field.dtype in {"VARCHAR", "STRING", "TEXT"}:
+        value = f"phase_upsert_{pk}_milvus_upgrade_rollback"
+        return value[: field.max_length] if field.max_length else value
+    if field.dtype == "JSON":
+        return {"phase_upsert_pk": pk, "active": True}
+    if field.dtype == "ARRAY":
+        if field.element_type in {"INT64", "INT32", "INT16", "INT8"}:
+            return [pk % 97, (pk + 1) % 97]
+        if field.element_type in {"FLOAT", "DOUBLE"}:
+            return [float(pk % 97) + 0.25]
+        if field.element_type == "BOOL":
+            return [True, False]
+        return [f"phase_upsert_{pk}"]
+    if field.dtype == "GEOMETRY":
+        return f"POINT ({-100.0 + (pk % 10):g} {20.0 + (pk % 10):g})"
+    if field.dtype == "TIMESTAMPTZ":
+        return (
+            (datetime(2200, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=pk))
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+    if field.dtype in VECTOR_TYPES:
+        return stable_vector_value(field, pk, 909)
+    return current
+
+
+def apply_deterministic_update(
+    spec: SchemaSpec, row: dict[str, Any], pk: int
+) -> str | None:
+    projection = update_projection_field(spec)
+    if projection is None:
+        return None
+    top_level = next((field for field in spec.fields if field.name == projection), None)
+    if top_level is not None:
+        row[projection] = _deterministic_update_value(
+            top_level, pk, row.get(projection)
+        )
+        return projection
+    struct_array = next(
+        (item for item in spec.struct_arrays if item.name == projection), None
+    )
+    values = row.get(projection)
+    if struct_array is None or not values:
+        return projection
+    field = next(
+        (item for item in struct_array.fields if item.dtype not in VECTOR_TYPES),
+        struct_array.fields[0],
+    )
+    values[0][field.name] = _deterministic_update_value(
+        field, pk * 1000, values[0].get(field.name)
+    )
+    return projection
 
 
 def generate_primary_key_value(field: FieldSpec, pk: int) -> Any:
     if field.dtype in {"VARCHAR", "STRING"}:
         return f"pk_{pk:020d}"
     return pk
+
+
+def _text_lob_boundary_value(pk: int) -> str:
+    boundary_slot = pk % 1000
+    if boundary_slot == 1:
+        return ""
+    if boundary_slot == 2:
+        return "Milvus Unicode compatibility: \u4e2d\u6587 \u65e5\u672c\u8a9e \ud55c\uad6d\uc5b4"
+    if boundary_slot == 3:
+        return "a" * (64 * 1024 - 1)
+    if boundary_slot == 4:
+        return "b" * (64 * 1024)
+    if boundary_slot == 5:
+        return "c" * (64 * 1024 + 1)
+    if boundary_slot == 6:
+        return "d" * (1024 * 1024)
+    return f"text lob document {pk} milvus upgrade rollback token_{pk % 16}"
 
 
 def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
@@ -153,6 +265,15 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
     if field.dtype == "BOOL":
         return pk % 2 == 0
     if field.dtype in {"VARCHAR", "STRING", "TEXT"}:
+        if field.value_profile == "text_lob_boundary":
+            return _text_lob_boundary_value(pk)
+        if field.value_profile == "minhash_documents":
+            variants = (
+                "the quick brown fox jumps over the lazy dog",
+                "the quick brown fox jumps over a lazy dog",
+                "distributed vector databases provide scalable similarity search",
+            )
+            return variants[pk % len(variants)]
         if field.name in {"text", "document"}:
             return (
                 f"document {pk} milvus compatibility upgrade rollback token_{pk % 16}"
@@ -161,6 +282,20 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
             return f"tenant_{pk % 16}"
         return f"{field.name}_{pk}"
     if field.dtype == "JSON":
+        if field.name == "json_bool":
+            return {"active": pk % 2 == 0, "pk": pk}
+        if field.name == "json_double":
+            return {"score": float(pk % 1000) / 10.0, "pk": pk}
+        if field.name == "json_varchar":
+            return {"label": f"label_{pk % 8}", "pk": pk}
+        if field.name == "json_auto":
+            return {
+                "active": pk % 2 == 0,
+                "score": float(pk % 1000) / 10.0,
+                "label": f"label_{pk % 8}",
+                "bucket": pk % 16,
+                "pk": pk,
+            }
         if field.name == "json_nested":
             return {
                 "pk": pk,
@@ -187,9 +322,57 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
         lat = 37.0 + (pk % 100) * 0.001
         return f"POINT ({lon:g} {lat:g})"
     if field.dtype == "TIMESTAMPTZ":
-        timestamp = datetime(2024, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=pk)
+        base = (
+            datetime(2100, 1, 1, tzinfo=timezone.utc)
+            if field.value_profile == "future_timestamptz"
+            else datetime(2024, 1, 1, tzinfo=timezone.utc)
+        )
+        timestamp = base + timedelta(seconds=pk)
         return timestamp.isoformat().replace("+00:00", "Z")
     raise ValueError(f"Unsupported generated dtype: {field.dtype}")
+
+
+def generate_struct_field_value(
+    field: FieldSpec,
+    pk: int,
+    offset: int,
+    seed: int,
+) -> Any:
+    nested_pk = pk * 1000 + offset
+    if field.nullable and (pk + offset) % 10 == 0:
+        return None
+    if field.dtype in VECTOR_TYPES:
+        return stable_vector_value(field, nested_pk, seed)
+    if field.dtype in {"FLOAT", "DOUBLE"}:
+        return float((pk % 1000) * 10 + offset) / 10.0
+    if field.dtype in {"INT64", "INT32", "INT16", "INT8"}:
+        return pk * 10 + offset
+    if field.dtype == "BOOL":
+        return (pk + offset) % 2 == 0
+    if field.dtype in {"VARCHAR", "STRING"}:
+        if "category" in field.name:
+            return f"category_{(pk + offset) % 8}"
+        if "tag" in field.name:
+            return f"tag_{(pk + offset) % 4}"
+        return f"{field.name}_{pk}_{offset}"
+    raise ValueError(f"Unsupported generated StructArray dtype: {field.dtype}")
+
+
+def generate_struct_array_value(
+    struct_array: StructArraySpec,
+    pk: int,
+    seed: int,
+) -> list[dict[str, Any]] | None:
+    if struct_array.nullable and pk % 10 == 0:
+        return None
+    length = min(struct_array.max_capacity, 1 + pk % 4)
+    return [
+        {
+            field.name: generate_struct_field_value(field, pk, offset, seed)
+            for field in struct_array.fields
+        }
+        for offset in range(length)
+    ]
 
 
 def generate_rows(
@@ -207,6 +390,8 @@ def generate_rows(
             if (field.primary and field.auto_id) or field.name in function_outputs:
                 continue
             row[field.name] = generate_field_value(field, pk, seed)
+        for struct_array in spec.struct_arrays:
+            row[struct_array.name] = generate_struct_array_value(struct_array, pk, seed)
         if spec.enable_dynamic_field:
             row.update(generate_dynamic_fields(pk))
         rows.append(row)
@@ -230,3 +415,26 @@ def first_vector_field(spec: SchemaSpec) -> FieldSpec | None:
 
 def vector_fields(spec: SchemaSpec) -> list[FieldSpec]:
     return [field for field in spec.fields if field.dtype in VECTOR_TYPES]
+
+
+def indexed_vector_fields(spec: SchemaSpec) -> list[tuple[str, FieldSpec]]:
+    fields = []
+    for index in spec.indexes:
+        field = resolve_field(spec, index.field)
+        if field is not None and field.dtype in VECTOR_TYPES:
+            fields.append((index.field, field))
+    return fields
+
+
+def text_payload_metadata(value: str | None) -> dict[str, Any]:
+    if value is None:
+        return {"state": "null", "bytes": 0, "chars": 0, "sha256": None}
+    encoded = value.encode("utf-8")
+    return {
+        "state": "empty" if value == "" else "value",
+        "bytes": len(encoded),
+        "chars": len(value),
+        "prefix": value[:32],
+        "suffix": value[-32:] if value else "",
+        "sha256": sha256(encoded).hexdigest(),
+    }

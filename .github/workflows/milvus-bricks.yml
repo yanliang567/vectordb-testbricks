@@ -25,7 +25,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest pyyaml numpy pymilvus==3.0.0 ruff==0.15.22
+          python -m pip install pytest pyyaml numpy pymilvus==3.0.1 ruff==0.15.22
 
       - name: Install Helm
         run: |
@@ -52,16 +52,54 @@ jobs:
         working-directory: milvus-bricks
         run: |
           ruff check \
+            milvus_client/common/data.py \
             milvus_client/common/deploy.py \
+            milvus_client/common/feature_validators.py \
+            milvus_client/common/gates.py \
+            milvus_client/common/schema.py \
+            milvus_client/common/workload.py \
+            milvus_client/requests/generate_workflow_report.py \
+            milvus_client/requests/render_milvus_cr.py \
             milvus_client/requests/render_milvus_helm_values.py \
+            milvus_client/requests/validate_index_compatibility.py \
+            milvus_client/requests/validate_phase_dml_dql.py \
+            milvus_client/requests/validate_schema_features.py \
+            milvus_client/tests/test_data_generation.py \
+            milvus_client/tests/test_feature_validators.py \
+            milvus_client/tests/test_generate_workflow_report.py \
             milvus_client/tests/test_render_milvus_cr.py \
-            milvus_client/tests/test_argo_template.py
+            milvus_client/tests/test_argo_template.py \
+            milvus_client/tests/test_schema_manifest.py \
+            milvus_client/tests/test_upgrade_rollback_gates_manifest.py \
+            milvus_client/tests/test_validate_index_compatibility.py \
+            milvus_client/tests/test_validate_phase_dml_dql.py \
+            milvus_client/tests/test_validate_schema_features.py \
+            milvus_client/tests/test_workload.py
 
       - name: Ruff format check
         working-directory: milvus-bricks
         run: |
           ruff format --check \
+            milvus_client/common/data.py \
             milvus_client/common/deploy.py \
+            milvus_client/common/feature_validators.py \
+            milvus_client/common/gates.py \
+            milvus_client/common/schema.py \
+            milvus_client/common/workload.py \
+            milvus_client/requests/generate_workflow_report.py \
+            milvus_client/requests/render_milvus_cr.py \
             milvus_client/requests/render_milvus_helm_values.py \
+            milvus_client/requests/validate_index_compatibility.py \
+            milvus_client/requests/validate_phase_dml_dql.py \
+            milvus_client/requests/validate_schema_features.py \
+            milvus_client/tests/test_data_generation.py \
+            milvus_client/tests/test_feature_validators.py \
+            milvus_client/tests/test_generate_workflow_report.py \
             milvus_client/tests/test_render_milvus_cr.py \
-            milvus_client/tests/test_argo_template.py
+            milvus_client/tests/test_argo_template.py \
+            milvus_client/tests/test_schema_manifest.py \
+            milvus_client/tests/test_upgrade_rollback_gates_manifest.py \
+            milvus_client/tests/test_validate_index_compatibility.py \
+            milvus_client/tests/test_validate_phase_dml_dql.py \
+            milvus_client/tests/test_validate_schema_features.py \
+            milvus_client/tests/test_workload.py
