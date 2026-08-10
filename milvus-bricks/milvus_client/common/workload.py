@@ -15,6 +15,11 @@ from milvus_client.common.data import (
     indexed_vector_fields,
     prepare_struct_vector_query,
 )
+from milvus_client.common.pk_namespaces import (
+    PRESSURE_DELETE_BASE,
+    PRESSURE_INSERT_BASE,
+    PRESSURE_UPSERT_BASE,
+)
 from milvus_client.common.schema import (
     SchemaSpec,
     auto_id_enabled,
@@ -29,10 +34,6 @@ from milvus_client.common.validators import (
     pk_range_filter,
     query_count,
 )
-
-PRESSURE_INSERT_BASE = 10_000_000
-PRESSURE_UPSERT_BASE = 20_000_000
-PRESSURE_DELETE_BASE = 30_000_000
 
 
 @dataclass

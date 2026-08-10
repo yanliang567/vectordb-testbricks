@@ -194,12 +194,14 @@ is running; `--rebuild-index=true` remains available only for manual diagnostic
 runs outside strict pressure.
 
 When schema evolution is enabled, the after-upgrade workload now validates the
-evolved PK range count, deterministic evolved field values, StructArray payload
-checksums, and indexed vector search PK/offset/score before writing a dedicated
-checkpoint. After rollback, a read-only schema-evolution task must validate the
-same checkpoint; it never repeats add/drop/function/upsert mutations. Forward
-schema evolution is required after rollback only when forward rollback
-validation is enabled.
+evolved PK range count, deterministic evolved field values, top-level vector
+content and nullable state, StructArray payload checksums, and indexed vector
+search PK/offset/metric-specific self-match score before writing a dedicated
+checkpoint. AutoID schemas insert real evolved rows, require one unique returned
+PK per row, and checkpoint the generated-to-actual PK mapping. After rollback, a
+read-only schema-evolution task must validate the same checkpoint; it never
+repeats add/drop/function/upsert mutations. Forward schema evolution is required
+after rollback only when forward rollback validation is enabled.
 
 Registered manifest scenarios are re-resolved inside the selected repository
 revision immediately before deployment. WorkflowTemplate topology, schema
@@ -215,10 +217,11 @@ forward collection phases when enabled. These checks cover StructArray scalar
 round-trip, non-`MAX_SIM_*` element search `id + offset`, `MAX_SIM_*`
 `EmbeddingList` row-level search by expected PK, nested scalar `MATCH_ANY`
 predicates, nullable-vector null state, Geometry predicates, TEXT LOB hashes
-and lexical search, MinHash exact self-search, observational near-duplicate
-recall with conditional ranking checks, Entity TTL visibility, and runtime
-index engine target configuration. Unknown validator names fail closed during
-matrix validation.
+and lexical search with exact deterministic postings counts, MinHash exact
+self-search, observational near-duplicate recall with conditional ranking
+checks, Entity TTL visibility using a PK namespace reserved outside continuous
+pressure writes, and runtime index engine target configuration. Unknown
+validator names fail closed during matrix validation.
 
 The dedicated matrices are:
 

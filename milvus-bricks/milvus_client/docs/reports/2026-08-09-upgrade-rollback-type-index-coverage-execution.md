@@ -330,9 +330,16 @@ Real execution exposed and drove the following PR improvements:
   to return the expected PK and an observable score/distance
 - repeated count/PK, vector search, and scalar index queries after an explicit
   collection release/load cycle in both upgrade and rollback index validation
-- made schema evolution compare evolved PK-range counts, evolved field and
-  StructArray checksums, and deterministic indexed search hits; after-upgrade
+- made schema evolution compare evolved PK-range counts, evolved field,
+  top-level vector/null-state and StructArray checksums, and deterministic
+  indexed search hits with metric-specific self-match bounds; after-upgrade
   observations are checkpointed and rollback validation is read-only
+- made AutoID schema evolution insert real rows, fail on missing or duplicate
+  returned IDs, and validate actual generated PKs after rollback
+- required TEXT_MATCH and PHRASE_MATCH complete `count(*)` equality before
+  sampled content checks, so a single correct posting cannot satisfy the gate
+- moved Entity TTL probe rows to a reserved PK namespace outside continuous
+  pressure DML ranges
 - rejected registered scenario WorkflowTemplate, schema/index/validator,
   storage-feature, pressure-policy, and data-scale drift before deployment
 - corrected FAISS search parameter scoping
@@ -347,17 +354,18 @@ Final review also found two test files that did not match the configured Ruff
 formatter. They were mechanically formatted; no runtime behavior changed.
 
 The phase-search, upsert-seed, AutoID, resolved-index, index-search, MinHash,
-release/reload, schema-evolution checkpoint, and registered-scenario guard
-changes above were post-execution review hardening. They were covered by
-offline regression tests; the historical Kubernetes runs in this report were
-not rerun for these test-framework-only changes.
+release/reload, schema-evolution checkpoint/vector oracle, TEXT postings,
+Entity TTL namespace, and registered-scenario guard changes above were
+post-execution review hardening. They were covered by offline regression tests;
+the historical Kubernetes runs in this report were not rerun for these
+test-framework-only changes.
 
 ## Local and CI Verification
 
 Offline unit tests:
 
 ```text
-374 passed
+383 passed
 ```
 
 Static validation:

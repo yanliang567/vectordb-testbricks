@@ -481,8 +481,16 @@ Review 结论：
   release collection、重新 load，并重复 count/PK、vector search 和 scalar
   index query；reload 后任一验证失败都会阻断 gate。
 - schema evolution 现在校验演进 PK 范围 count、演进字段、StructArray
-  payload checksum 和确定性 indexed search；after-upgrade 写 checkpoint，
+  payload、顶层向量内容和 nullable vector NULL 状态 checksum，并按 metric
+  校验确定性 self-search score/distance；after-upgrade 写 checkpoint，
   after-rollback 只读复验，不重复 schema/DML mutation。
+- AutoID schema evolution 现在会实际插入演进行，要求每行返回唯一实际 PK，
+  rollback 阶段按 checkpoint 的实际 PK 完成 count/query/search 复验；缺失或
+  重复 ID 会直接失败。
+- TEXT_MATCH/PHRASE_MATCH 先以确定性 ground truth 校验完整 `count(*)`，再
+  抽样验证返回内容，单个正确 posting 不再能让 gate 通过。
+- Entity TTL 临时行使用独立保留 PK namespace，与 continuous pressure 的
+  insert/upsert/delete 区间隔离。
 - 已注册 scenario 在部署前重新校验 WorkflowTemplate、schema matrix、index
   target version、validator/storage/pressure/data-scale 参数，防止绕过 renderer
   产生假绿。
@@ -504,7 +512,7 @@ Review 结论：
 ## 11. 自动化验证
 
 ```text
-offline pytest: 374 passed
+offline pytest: 383 passed
 Argo offline lint: passed
 Ruff check: passed
 Ruff format check: passed

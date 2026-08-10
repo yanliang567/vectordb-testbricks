@@ -15,6 +15,7 @@ class FakeClient:
     def __init__(self):
         self.calls = []
         self.rows = {}
+        self.next_auto_id = 1000
 
     def has_collection(self, collection_name):
         self.calls.append(("has_collection", collection_name))
@@ -38,6 +39,18 @@ class FakeClient:
             primary_name = "pk" if "pk" in row else "id"
             collection_rows[row[primary_name]] = row
         return {"upsert_count": len(data)}
+
+    def insert(self, collection_name, data):
+        self.calls.append(("insert", collection_name, data))
+        collection_rows = self.rows.setdefault(collection_name, {})
+        ids = []
+        for row in data:
+            inserted_id = self.next_auto_id
+            self.next_auto_id += 1
+            stored = {**row, "id": inserted_id}
+            collection_rows[inserted_id] = stored
+            ids.append(inserted_id)
+        return {"ids": ids}
 
     def query(self, collection_name, filter, output_fields, limit=None):
         self.calls.append(
@@ -93,6 +106,13 @@ class FakeClient:
     def _matches_filter(cls, row, filter_expr):
         if not filter_expr:
             return True
+        in_values = re.search(r"(\w+) in \[(.*)\]", filter_expr)
+        if in_values:
+            values = [
+                cls._parse_filter_value(value)
+                for value in in_values.group(2).split(",")
+            ]
+            return row.get(in_values.group(1)) in values
         exact = re.search(r"(\w+) == (\"(?:\\.|[^\"])*\"|-?\d+(?:\.\d+)?)", filter_expr)
         if exact:
             return row.get(exact.group(1)) == cls._parse_filter_value(exact.group(2))
@@ -119,6 +139,26 @@ class IrrelevantSearchHitClient(FakeClient):
     def search(self, *args, **kwargs):
         super().search(*args, **kwargs)
         return [[{"id": -1, "distance": 1.0}]]
+
+
+class LowSimilaritySearchClient(FakeClient):
+    def search(self, *args, **kwargs):
+        response = super().search(*args, **kwargs)
+        if response and response[0]:
+            response[0][0]["distance"] = 0.1
+        return response
+
+
+class MissingAutoIdResponseClient(FakeClient):
+    def insert(self, collection_name, data):
+        super().insert(collection_name, data)
+        return {}
+
+
+class DuplicateAutoIdResponseClient(FakeClient):
+    def insert(self, collection_name, data):
+        response = super().insert(collection_name, data)
+        return {"ids": [response["ids"][0]] * len(response["ids"])}
 
 
 class FakeBm25DropRequiresFieldClient(FakeClient):
@@ -239,6 +279,21 @@ def _struct_array_spec():
                 metric_type="COSINE",
             ),
             IndexSpec(field="items[score]", index_type="STL_SORT"),
+        ],
+    )
+
+
+def _auto_id_spec():
+    return SchemaSpec(
+        name="auto_id",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True, auto_id=True),
+            FieldSpec(name="category", dtype="INT64"),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=8),
+        ],
+        indexes=[
+            IndexSpec(field="embedding", index_type="AUTOINDEX", metric_type="COSINE")
         ],
     )
 
@@ -502,6 +557,7 @@ def test_schema_evolution_checkpoint_is_reused_read_only_after_rollback():
     assert collection_checkpoint["expected_count"] == 3
     assert collection_checkpoint["validation_fields"] == [
         "id",
+        "normal_vector",
         "items",
         "evo_nullable_varchar",
     ]
@@ -596,3 +652,167 @@ def test_schema_evolution_rollback_rejects_checkpoint_without_struct_array_field
 
     assert rollback["failed_total"] == 1
     assert "validation fields differ" in rollback["collections"][0]["error"]
+
+
+def test_schema_evolution_rollback_detects_top_level_vector_content_drift():
+    client = FakeClient()
+    checkpoint = {"version": 1, "collections": {}}
+    upgrade = run_schema_evolution(
+        client,
+        [_struct_array_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+        checkpoint_output=checkpoint,
+    )
+    assert upgrade["failed_total"] == 0
+    assert (
+        "normal_vector"
+        in checkpoint["collections"]["qa3_struct_array"]["validation_fields"]
+    )
+    for row in client.rows["qa3_struct_array"].values():
+        row["normal_vector"] = [999.0] * 8
+
+    rollback = run_schema_evolution(
+        client,
+        [_struct_array_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+        phase="after-rollback",
+        checkpoint=checkpoint,
+    )
+
+    assert rollback["failed_total"] == 1
+    assert "checkpoint checksum" in rollback["collections"][0]["error"]
+
+
+def test_schema_evolution_rollback_detects_nullable_vector_null_state_drift():
+    client = FakeClient()
+    spec = SchemaSpec(
+        name="nullable_vector",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=8, nullable=True),
+        ],
+        indexes=[
+            IndexSpec(field="embedding", index_type="AUTOINDEX", metric_type="COSINE")
+        ],
+    )
+    checkpoint = {"version": 1, "collections": {}}
+    upgrade = run_schema_evolution(
+        client,
+        [spec],
+        collection_prefix="qa3",
+        rows_per_collection=4,
+        batch_size=2,
+        start_id=6000,
+        seed=11,
+        checkpoint_output=checkpoint,
+    )
+    assert upgrade["failed_total"] == 0
+    assert client.rows["qa3_nullable_vector"][6000]["embedding"] is None
+    client.rows["qa3_nullable_vector"][6000]["embedding"] = [999.0] * 8
+
+    rollback = run_schema_evolution(
+        client,
+        [spec],
+        collection_prefix="qa3",
+        rows_per_collection=4,
+        batch_size=2,
+        start_id=6000,
+        seed=11,
+        phase="after-rollback",
+        checkpoint=checkpoint,
+    )
+
+    assert rollback["failed_total"] == 1
+    assert "checkpoint checksum" in rollback["collections"][0]["error"]
+
+
+def test_schema_evolution_search_requires_metric_specific_self_match_score():
+    metrics = run_schema_evolution(
+        LowSimilaritySearchClient(),
+        [_struct_array_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    assert metrics["failed_total"] == 1
+    assert "self-match score" in metrics["collections"][0]["error"]
+
+
+def test_schema_evolution_auto_id_writes_and_validates_checkpoint_after_rollback():
+    client = FakeClient()
+    checkpoint = {"version": 1, "collections": {}}
+    upgrade = run_schema_evolution(
+        client,
+        [_auto_id_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+        checkpoint_output=checkpoint,
+    )
+
+    assert upgrade["failed_total"] == 0
+    collection_checkpoint = checkpoint["collections"]["qa3_auto_id"]
+    assert collection_checkpoint["pk_values"] == [1000, 1001, 1002]
+    assert collection_checkpoint["expected_count"] == 3
+
+    client.calls.clear()
+    rollback = run_schema_evolution(
+        client,
+        [_auto_id_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=999,
+        batch_size=99,
+        start_id=1,
+        seed=999,
+        phase="after-rollback",
+        checkpoint=checkpoint,
+    )
+
+    assert rollback["failed_total"] == 0
+    assert any(call[0] == "query" for call in client.calls)
+    assert any(call[0] == "search" for call in client.calls)
+    assert not any(call[0] in {"insert", "upsert"} for call in client.calls)
+
+
+def test_schema_evolution_auto_id_rejects_missing_insert_ids():
+    metrics = run_schema_evolution(
+        MissingAutoIdResponseClient(),
+        [_auto_id_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    assert metrics["failed_total"] == 1
+    assert "returned 0 primary keys for 2 rows" in metrics["collections"][0]["error"]
+
+
+def test_schema_evolution_auto_id_rejects_duplicate_insert_ids():
+    metrics = run_schema_evolution(
+        DuplicateAutoIdResponseClient(),
+        [_auto_id_spec()],
+        collection_prefix="qa3",
+        rows_per_collection=3,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    assert metrics["failed_total"] == 1
+    assert "duplicate primary keys" in metrics["collections"][0]["error"]

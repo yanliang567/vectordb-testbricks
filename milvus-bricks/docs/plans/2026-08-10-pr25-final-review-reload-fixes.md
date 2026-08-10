@@ -12,9 +12,11 @@ manifest at runtime and protected parameters are compared before deployment.
 
 **Tech stack:** Python 3.11, PyMilvus 3.0.1, pytest, Argo WorkflowTemplate YAML.
 
-**Status:** Implemented on PR #25. Final local verification: `374 passed`,
-Ruff check/format passed, `argo lint --offline argo` passed, and
-`git diff --check` passed.
+**Status:** Implemented on PR #25. The final review scope also includes schema
+evolution vector/null-state oracles, real AutoID evolution rows, complete TEXT
+postings counts, and a reserved Entity TTL PK namespace. Final local unit tests:
+`383 passed`; static and Argo validation results are recorded in the execution
+reports.
 
 ---
 

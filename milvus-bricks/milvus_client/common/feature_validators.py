@@ -13,6 +13,7 @@ from milvus_client.common.data import (
     stable_vector_value,
     text_payload_metadata,
 )
+from milvus_client.common.pk_namespaces import ENTITY_TTL_BASE
 from milvus_client.common.schema import (
     VECTOR_TYPES,
     FieldSpec,
@@ -22,7 +23,11 @@ from milvus_client.common.schema import (
     resolve_field,
     struct_array_for_field,
 )
-from milvus_client.common.validators import ValidationReport, format_filter_value
+from milvus_client.common.validators import (
+    ValidationReport,
+    format_filter_value,
+    query_count,
+)
 from milvus_client.common.workload import metric_type_for_field, search_params_for_field
 
 
@@ -670,12 +675,58 @@ def validate_text_match_phrase_match(
                     filter=filter_expr,
                 )
                 continue
-            rows = client.query(
-                collection_name=collection,
-                filter=filter_expr,
-                output_fields=[primary.name, field.name],
-                limit=min(100, len(expected_pks)),
+            expected_count = len(expected_pks)
+            try:
+                actual_count = query_count(
+                    client,
+                    collection,
+                    filter_expr=filter_expr,
+                )
+            except Exception as exc:
+                report.fail(
+                    "TEXT_FILTER_FAILED",
+                    "TEXT_MATCH or PHRASE_MATCH count query failed",
+                    collection=collection,
+                    field=field.name,
+                    filter=filter_expr,
+                    expected_count=expected_count,
+                    error=str(exc),
+                )
+                continue
+            report.metrics[
+                f"{collection}.{field.name}.{filter_expr}.expected_count"
+            ] = expected_count
+            report.metrics[f"{collection}.{field.name}.{filter_expr}.actual_count"] = (
+                actual_count
             )
+            if actual_count != expected_count:
+                report.fail(
+                    "TEXT_FILTER_FAILED",
+                    "TEXT_MATCH or PHRASE_MATCH result count differs from deterministic ground truth",
+                    collection=collection,
+                    field=field.name,
+                    filter=filter_expr,
+                    expected_count=expected_count,
+                    actual_count=actual_count,
+                )
+                continue
+            try:
+                rows = client.query(
+                    collection_name=collection,
+                    filter=filter_expr,
+                    output_fields=[primary.name, field.name],
+                    limit=min(100, expected_count),
+                )
+            except Exception as exc:
+                report.fail(
+                    "TEXT_FILTER_FAILED",
+                    "TEXT_MATCH or PHRASE_MATCH sample query failed",
+                    collection=collection,
+                    field=field.name,
+                    filter=filter_expr,
+                    error=str(exc),
+                )
+                continue
             actual_pks = [row.get(primary.name) for row in rows]
             invalid_rows = [
                 row
@@ -699,20 +750,31 @@ def validate_text_match_phrase_match(
         negative_filter = (
             f"TEXT_MATCH({field.name}, 'definitely_absent_upgrade_gate_token')"
         )
-        negative_rows = client.query(
-            collection_name=collection,
-            filter=negative_filter,
-            output_fields=[primary.name, field.name],
-            limit=10,
-        )
-        if negative_rows:
+        try:
+            negative_count = query_count(
+                client,
+                collection,
+                filter_expr=negative_filter,
+            )
+        except Exception as exc:
             report.fail(
                 "TEXT_FILTER_FAILED",
-                "TEXT_MATCH returned rows for a deterministic absent token",
+                "negative TEXT_MATCH count query failed",
                 collection=collection,
                 field=field.name,
                 filter=negative_filter,
-                actual_pks=[row.get(primary.name) for row in negative_rows],
+                error=str(exc),
+            )
+            continue
+        if negative_count:
+            report.fail(
+                "TEXT_FILTER_FAILED",
+                "TEXT_MATCH returned a non-zero count for a deterministic absent token",
+                collection=collection,
+                field=field.name,
+                filter=negative_filter,
+                expected_count=0,
+                actual_count=negative_count,
             )
         else:
             _record_pass(report, collection, "text_match_phrase_match")
@@ -927,11 +989,10 @@ def validate_entity_ttl(
             ttl_field=ttl_field_name,
         )
         return
-    _, data_max_pk = _data_pk_range(meta)
     temp_pks = [
-        data_max_pk + 10_000_001,
-        data_max_pk + 10_000_002,
-        data_max_pk + 10_000_003,
+        ENTITY_TTL_BASE + 1,
+        ENTITY_TTL_BASE + 2,
+        ENTITY_TTL_BASE + 3,
     ]
     function_outputs = function_output_fields(spec)
     rows = []

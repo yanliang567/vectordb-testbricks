@@ -20,6 +20,7 @@ from milvus_client.common.data import (
 )
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import (
+    VECTOR_TYPES,
     FieldSpec,
     FunctionSpec,
     SchemaSpec,
@@ -52,7 +53,7 @@ EVOLUTION_DROP_FIELD = FieldSpec(
     dtype="INT64",
     nullable=True,
 )
-SCHEMA_EVOLUTION_CHECKPOINT_VERSION = 1
+SCHEMA_EVOLUTION_CHECKPOINT_VERSION = 2
 
 
 def add_args(parser):
@@ -236,7 +237,32 @@ def _nullable_vector_update_rows(
     return updated
 
 
-def _upsert_evolution_rows(
+def _extract_insert_ids(response: Any) -> list[Any]:
+    if response is None:
+        return []
+    if isinstance(response, dict):
+        for key in ("ids", "primary_keys", "primaryKeys"):
+            if key in response:
+                return list(response[key])
+    for attr in ("ids", "primary_keys", "primaryKeys"):
+        if hasattr(response, attr):
+            return list(getattr(response, attr))
+    return []
+
+
+def _evolution_field_value(
+    spec: SchemaSpec,
+    row: dict[str, Any],
+    data_pk: int,
+) -> str:
+    primary = primary_field(spec)
+    if auto_id_enabled(spec):
+        return f"evo_auto_{data_pk}"
+    primary_name = primary.name if primary else "id"
+    return f"evo_{row.get(primary_name)}"
+
+
+def _write_evolution_rows(
     client: Any,
     spec: SchemaSpec,
     collection: str,
@@ -244,23 +270,37 @@ def _upsert_evolution_rows(
     batch_size: int,
     start_id: int,
     seed: int,
-) -> tuple[int, int]:
-    if auto_id_enabled(spec):
-        return (0, 0)
+) -> tuple[int, int, list[Any]]:
     evolved = _evolved_spec(spec)
-    upserted = 0
+    written = 0
     nullable_updates = 0
+    inserted_ids: list[Any] = []
     for start in range(start_id, start_id + rows_per_collection, batch_size):
         count = min(batch_size, start_id + rows_per_collection - start)
         rows = generate_rows(evolved, start_id=start, count=count, seed=seed)
-        for row in rows:
-            row[EVOLUTION_FIELD.name] = (
-                f"evo_{row.get(primary_field(spec).name if primary_field(spec) else 'id')}"
+        for offset, row in enumerate(rows):
+            row[EVOLUTION_FIELD.name] = _evolution_field_value(
+                spec, row, start + offset
             )
         nullable_updates += _nullable_vector_update_rows(evolved, rows, start)
-        client.upsert(collection_name=collection, data=rows)
-        upserted += len(rows)
-    return (upserted, nullable_updates)
+        if auto_id_enabled(spec):
+            batch_ids = _extract_insert_ids(
+                client.insert(collection_name=collection, data=rows)
+            )
+            if len(batch_ids) != len(rows) or any(pk is None for pk in batch_ids):
+                raise AssertionError(
+                    f"{collection}: auto-id schema evolution insert returned "
+                    f"{len(batch_ids)} primary keys for {len(rows)} rows"
+                )
+            inserted_ids.extend(batch_ids)
+        else:
+            client.upsert(collection_name=collection, data=rows)
+        written += len(rows)
+    if auto_id_enabled(spec) and len(set(inserted_ids)) != len(inserted_ids):
+        raise AssertionError(
+            f"{collection}: auto-id schema evolution insert returned duplicate primary keys"
+        )
+    return (written, nullable_updates, inserted_ids)
 
 
 def _prepare_collection_for_read(
@@ -285,23 +325,60 @@ def _expected_evolution_row(
     spec: SchemaSpec,
     data_pk: int,
     seed: int,
+    actual_pk: Any | None = None,
 ) -> dict[str, Any]:
     evolved = _evolved_spec(spec)
     row = generate_rows(evolved, start_id=data_pk, count=1, seed=seed)[0]
     primary = primary_field(spec)
-    primary_name = primary.name if primary else "id"
-    row[EVOLUTION_FIELD.name] = f"evo_{row.get(primary_name)}"
+    if auto_id_enabled(spec):
+        if actual_pk is None:
+            raise AssertionError(
+                f"{spec.name}: auto-id evolution row requires an actual primary key"
+            )
+        row[primary.name if primary else "id"] = actual_pk
+    row[EVOLUTION_FIELD.name] = _evolution_field_value(spec, row, data_pk)
     _nullable_vector_update_rows(evolved, [row], data_pk)
     return row
 
 
 def _validation_fields(spec: SchemaSpec) -> list[str]:
     primary = primary_field(spec)
+    function_outputs = function_output_fields(spec)
     return [
         primary.name if primary else "id",
+        *(
+            field.name
+            for field in spec.fields
+            if field.dtype in VECTOR_TYPES and field.name not in function_outputs
+        ),
         *(struct_array.name for struct_array in spec.struct_arrays),
         EVOLUTION_FIELD.name,
     ]
+
+
+def _expected_primary_value(
+    spec: SchemaSpec,
+    data_pk: int,
+    start_id: int,
+    pk_values: list[Any],
+) -> Any:
+    primary = primary_field(spec)
+    if auto_id_enabled(spec):
+        offset = data_pk - start_id
+        if offset < 0 or offset >= len(pk_values):
+            raise AssertionError(
+                f"{spec.name}: auto-id checkpoint has no primary key for data PK {data_pk}"
+            )
+        return pk_values[offset]
+    return generate_primary_key_value(primary, data_pk) if primary else data_pk
+
+
+def _pk_values_filter(primary_name: str, pk_values: list[Any]) -> str:
+    return (
+        f"{primary_name} in ["
+        + ", ".join(format_filter_value(value) for value in pk_values)
+        + "]"
+    )
 
 
 def _sample_data_pks(start_id: int, rows_per_collection: int) -> list[int]:
@@ -375,7 +452,12 @@ def _search_probe(
     for data_pk in data_pks:
         if data_pk is None:
             continue
-        row = _expected_evolution_row(spec, data_pk, seed)
+        row = _expected_evolution_row(
+            spec,
+            data_pk,
+            seed,
+            actual_pk=0 if auto_id_enabled(spec) else None,
+        )
         if vector_field.name in function_outputs:
             function = next(
                 item
@@ -405,6 +487,42 @@ def _search_probe(
     return None
 
 
+def _assert_metric_self_match(
+    collection: str,
+    field_name: str,
+    metric_type: str,
+    index_type: str,
+    distance: float,
+) -> None:
+    metric = metric_type.upper().removeprefix("MAX_SIM_")
+    if metric == "BM25":
+        return
+    lossy_index = index_type.upper() in {
+        "IVF_PQ",
+        "IVF_SQ8",
+        "HNSW_SQ",
+        "IVF_RABITQ",
+        "SCANN",
+    }
+    if metric in {"L2", "HAMMING", "JACCARD"}:
+        max_distance = 0.5 if lossy_index and metric == "L2" else 1e-3
+        if distance < 0 or distance > max_distance:
+            raise AssertionError(
+                f"{collection}.{field_name}: self-match distance {distance} is "
+                f"outside [0, {max_distance}] for {metric_type}/{index_type}"
+            )
+        return
+    if metric in {"COSINE", "IP", "MHJACCARD"}:
+        min_score = 0.5 if lossy_index and metric in {"COSINE", "IP"} else 0.9
+        if distance < min_score or (
+            metric in {"COSINE", "MHJACCARD"} and distance > 1.001
+        ):
+            raise AssertionError(
+                f"{collection}.{field_name}: self-match score {distance} is "
+                f"outside the expected range for {metric_type}/{index_type}"
+            )
+
+
 def _validate_search_probe(
     client: Any,
     collection: str,
@@ -414,6 +532,7 @@ def _validate_search_probe(
     start_id: int,
     rows_per_collection: int,
     seed: int,
+    pk_values: list[Any],
     preferred_data_pk: int | None = None,
 ) -> dict[str, Any]:
     probe = _search_probe(
@@ -430,8 +549,11 @@ def _validate_search_probe(
     data_pk, query_vector, expected_offset = probe
     primary = primary_field(spec)
     primary_name = primary.name if primary else "id"
-    expected_pk = generate_primary_key_value(primary, data_pk) if primary else data_pk
+    expected_pk = _expected_primary_value(spec, data_pk, start_id, pk_values)
     metric_type = metric_type_for_field(spec, field_name)
+    index_type = next(
+        index.index_type for index in spec.indexes if index.field == field_name
+    )
     result = client.search(
         collection_name=collection,
         data=[query_vector],
@@ -464,12 +586,20 @@ def _validate_search_probe(
         raise AssertionError(
             f"{collection}.{field_name}: expected hit has no finite score/distance"
         )
+    _assert_metric_self_match(
+        collection,
+        field_name,
+        metric_type,
+        index_type,
+        distance,
+    )
     return {
         "field": field_name,
         "data_pk": data_pk,
         "expected_pk": expected_pk,
         "expected_offset": expected_offset,
         "metric_type": metric_type,
+        "index_type": index_type,
     }
 
 
@@ -480,21 +610,42 @@ def _read_validate(
     start_id: int,
     rows_per_collection: int,
     seed: int,
+    pk_values: list[Any] | None = None,
     checkpoint_meta: dict[str, Any] | None = None,
 ) -> tuple[int, int, int, dict[str, Any]]:
     primary = primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
-    min_pk = generate_primary_key_value(primary, start_id) if primary else start_id
-    max_data_pk = start_id + rows_per_collection - 1
-    max_pk = (
-        generate_primary_key_value(primary, max_data_pk) if primary else max_data_pk
-    )
-    range_filter = pk_range_filter(primary_name, min_pk, max_pk)
-    count = query_count(client, collection, filter_expr=range_filter)
+    pk_values = list(pk_values or [])
+    if auto_id_enabled(spec):
+        if len(pk_values) != rows_per_collection:
+            raise AssertionError(
+                f"{collection}: auto-id checkpoint has {len(pk_values)} primary keys "
+                f"for {rows_per_collection} evolved rows"
+            )
+        count = 0
+        for offset in range(0, len(pk_values), 100):
+            count += query_count(
+                client,
+                collection,
+                filter_expr=_pk_values_filter(
+                    primary_name, pk_values[offset : offset + 100]
+                ),
+            )
+        min_pk = min(pk_values)
+        max_pk = max(pk_values)
+        count_filter = "auto-id checkpoint primary-key batches"
+    else:
+        min_pk = generate_primary_key_value(primary, start_id) if primary else start_id
+        max_data_pk = start_id + rows_per_collection - 1
+        max_pk = (
+            generate_primary_key_value(primary, max_data_pk) if primary else max_data_pk
+        )
+        count_filter = pk_range_filter(primary_name, min_pk, max_pk)
+        count = query_count(client, collection, filter_expr=count_filter)
     if count != rows_per_collection:
         raise AssertionError(
             f"{collection}: expected {rows_per_collection} evolved rows in "
-            f"{range_filter}, got {count}"
+            f"{count_filter}, got {count}"
         )
 
     expected_validation_fields = _validation_fields(spec)
@@ -517,9 +668,7 @@ def _read_validate(
     }
     sample_checksums = []
     for data_pk in sample_data_pks:
-        expected_pk = (
-            generate_primary_key_value(primary, data_pk) if primary else data_pk
-        )
+        expected_pk = _expected_primary_value(spec, data_pk, start_id, pk_values)
         rows = client.query(
             collection_name=collection,
             filter=f"{primary_name} == {format_filter_value(expected_pk)}",
@@ -538,7 +687,12 @@ def _read_validate(
             primary_field=primary_name,
         )
         if checkpoint_meta is None:
-            expected_row = _expected_evolution_row(spec, data_pk, seed)
+            expected_row = _expected_evolution_row(
+                spec,
+                data_pk,
+                seed,
+                actual_pk=expected_pk if auto_id_enabled(spec) else None,
+            )
             expected_checksum = stable_checksum(
                 [expected_row],
                 fields=validation_fields,
@@ -578,6 +732,7 @@ def _read_validate(
                 start_id,
                 rows_per_collection,
                 seed,
+                pk_values,
                 preferred_data_pk,
             )
         )
@@ -590,6 +745,7 @@ def _read_validate(
         "expected_count": rows_per_collection,
         "min_pk": min_pk,
         "max_pk": max_pk,
+        "pk_values": pk_values,
         "seed": seed,
         "validation_fields": validation_fields,
         "sample_data_pks": sample_data_pks,
@@ -663,6 +819,8 @@ def run_schema_evolution(
         "drop_field_skipped_total": 0,
         "function_cycles_total": 0,
         "function_cycle_skipped_total": 0,
+        "written_total": 0,
+        "auto_id_inserted_total": 0,
         "upserted_total": 0,
         "nullable_updates_total": 0,
         "queries_total": 0,
@@ -715,7 +873,7 @@ def run_schema_evolution(
                 collection_metrics["function_cycles"] = cycled
                 collection_metrics["function_cycle_skipped"] = skipped
 
-                upserted, nullable_updates = _upsert_evolution_rows(
+                written, nullable_updates, inserted_ids = _write_evolution_rows(
                     client,
                     spec,
                     collection,
@@ -724,64 +882,70 @@ def run_schema_evolution(
                     start_id,
                     seed,
                 )
-                if not auto_id_enabled(spec) and upserted != rows_per_collection:
+                if written != rows_per_collection:
                     raise AssertionError(
-                        f"{collection}: upserted {upserted} rows, expected "
+                        f"{collection}: wrote {written} rows, expected "
                         f"{rows_per_collection}"
                     )
-                collection_metrics["upserted"] = upserted
+                collection_metrics["write_operation"] = (
+                    "insert" if auto_id_enabled(spec) else "upsert"
+                )
+                collection_metrics["written"] = written
+                collection_metrics["inserted_ids"] = len(inserted_ids)
                 collection_metrics["nullable_updates"] = nullable_updates
-                metrics["upserted_total"] += upserted
+                metrics["written_total"] += written
+                if auto_id_enabled(spec):
+                    metrics["auto_id_inserted_total"] += written
+                else:
+                    metrics["upserted_total"] += written
                 metrics["nullable_updates_total"] += nullable_updates
             else:
-                upserted = int(checkpoint_meta.get("expected_count", 0))
+                written = int(checkpoint_meta.get("expected_count", 0))
+                inserted_ids = list(checkpoint_meta.get("pk_values") or [])
 
-            if auto_id_enabled(spec) and upserted == 0:
-                collection_metrics["validation"] = "skipped_auto_id_no_evolved_rows"
-                if phase == "after-upgrade" and checkpoint_output is not None:
-                    checkpoint_output["collections"][collection] = {
-                        "schema_name": spec.name,
-                        "expected_count": 0,
-                        "validation": "skipped_auto_id_no_evolved_rows",
-                    }
-            else:
-                _prepare_collection_for_read(
-                    client,
-                    collection,
-                    flush=phase == "after-upgrade",
-                )
-                effective_start_id = int(
-                    checkpoint_meta.get("start_id", start_id)
-                    if checkpoint_meta is not None
-                    else start_id
-                )
-                effective_rows = int(
-                    checkpoint_meta.get("rows_per_collection", rows_per_collection)
-                    if checkpoint_meta is not None
-                    else rows_per_collection
-                )
-                effective_seed = int(
-                    checkpoint_meta.get("seed", seed)
-                    if checkpoint_meta is not None
-                    else seed
-                )
-                queries, count, searches, observation = _read_validate(
-                    client,
-                    spec,
-                    collection,
-                    effective_start_id,
-                    effective_rows,
-                    effective_seed,
-                    checkpoint_meta,
-                )
-                collection_metrics["query_checks"] = queries
-                collection_metrics["count"] = count
-                collection_metrics["searches"] = searches
-                metrics["queries_total"] += queries
-                metrics["count_checks_total"] += 1
-                metrics["searches_total"] += searches
-                if phase == "after-upgrade" and checkpoint_output is not None:
-                    checkpoint_output["collections"][collection] = observation
+            _prepare_collection_for_read(
+                client,
+                collection,
+                flush=phase == "after-upgrade",
+            )
+            effective_start_id = int(
+                checkpoint_meta.get("start_id", start_id)
+                if checkpoint_meta is not None
+                else start_id
+            )
+            effective_rows = int(
+                checkpoint_meta.get("rows_per_collection", rows_per_collection)
+                if checkpoint_meta is not None
+                else rows_per_collection
+            )
+            effective_seed = int(
+                checkpoint_meta.get("seed", seed)
+                if checkpoint_meta is not None
+                else seed
+            )
+            effective_pk_values = (
+                list(checkpoint_meta.get("pk_values") or [])
+                if checkpoint_meta is not None
+                else inserted_ids
+            )
+            queries, count, searches, observation = _read_validate(
+                client,
+                spec,
+                collection,
+                effective_start_id,
+                effective_rows,
+                effective_seed,
+                effective_pk_values,
+                checkpoint_meta,
+            )
+            collection_metrics["query_checks"] = queries
+            collection_metrics["count"] = count
+            collection_metrics["searches"] = searches
+            metrics["queries_total"] += queries
+            metrics["count_checks_total"] += 1
+            metrics["searches_total"] += searches
+            if phase == "after-upgrade" and checkpoint_output is not None:
+                checkpoint_output["collections"][collection] = observation
         except Exception as exc:
             metrics["failed_total"] += 1
             collection_metrics["error"] = str(exc)
