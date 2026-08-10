@@ -90,6 +90,7 @@ def test_schema_matrix_2_6_covers_expanded_rollback_safe_shapes():
     assert [spec.name for spec in specs] == [
         "scalar_dynamic_partition_key",
         "scalar_autoindex_formats_rollback_safe",
+        "scalar_explicit_index_formats_rollback_safe",
         "vector_autoid_bm25",
         "explicit_partitions_nullable",
         "struct_array_element_rollback_safe",
@@ -218,6 +219,39 @@ def test_schema_matrix_2_6_covers_persisted_scalar_autoindex_families():
     }
     assert numeric_spec.validator_params["min_struct_scalar_index_queries"] == 3
     assert "struct_array_scalar_index_queries" in numeric_spec.validators
+
+
+def test_schema_matrix_2_6_covers_unpartitioned_explicit_scalar_index_formats():
+    specs = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")
+    explicit_spec = next(
+        spec
+        for spec in specs
+        if spec.name == "scalar_explicit_index_formats_rollback_safe"
+    )
+    scalar_index_types = {
+        index.field: index.index_type
+        for index in explicit_spec.indexes
+        if resolve_field(explicit_spec, index.field).dtype != "FLOAT_VECTOR"
+    }
+
+    assert explicit_spec.shards_num == 1
+    assert explicit_spec.num_partitions is None
+    assert explicit_spec.partitions == []
+    assert resolve_field(explicit_spec, "bool_bitmap").nullable is True
+    assert resolve_field(explicit_spec, "json_profile").nullable is True
+    assert scalar_index_types == {
+        "int8_bitmap": "BITMAP",
+        "int16_inverted": "INVERTED",
+        "int32_sort": "STL_SORT",
+        "float_sort": "STL_SORT",
+        "double_inverted": "INVERTED",
+        "bool_bitmap": "BITMAP",
+        "varchar_trie": "TRIE",
+        "varchar_ngram": "NGRAM",
+        "json_profile": "INVERTED",
+        "arr_int64": "INVERTED",
+        "arr_varchar": "INVERTED",
+    }
 
 
 def test_schema_matrix_2_6_keeps_persisted_vector_format_contract():

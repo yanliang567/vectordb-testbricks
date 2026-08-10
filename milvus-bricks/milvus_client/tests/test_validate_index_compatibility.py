@@ -1705,6 +1705,38 @@ def test_rollback_safe_autoindex_matrix_builds_deterministic_scalar_filters():
     }
 
 
+def test_scalar_index_filter_uses_like_for_varchar_ngram():
+    spec = validate_index_compatibility.SchemaSpec(
+        name="ngram",
+        version="2.6",
+        fields=[
+            validate_index_compatibility.FieldSpec(
+                name="id", dtype="INT64", primary=True
+            ),
+            validate_index_compatibility.FieldSpec(
+                name="text", dtype="VARCHAR", max_length=128
+            ),
+        ],
+        indexes=[
+            validate_index_compatibility.IndexSpec(
+                field="text",
+                index_type="NGRAM",
+                params={"min_gram": 2, "max_gram": 4},
+            )
+        ],
+    )
+
+    assert (
+        validate_index_compatibility.scalar_index_filter_for_value(
+            spec,
+            spec.indexes[0],
+            spec.fields[1],
+            "text_7",
+        )
+        == 'text LIKE "%text_7%"'
+    )
+
+
 def test_timestamptz_scalar_index_filter_uses_iso_literal():
     field = FieldSpec(
         name="event_time",

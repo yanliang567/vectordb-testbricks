@@ -416,3 +416,20 @@ git diff --check: passed
   float64 语义，不通过放宽 checksum 掩盖精度差异。
 - 新增 `pk=129, offset=1` 回归测试；使用修复后的本地代码对 R4 保留集群重新计算
   两个 1500-row collection checksum，均与实际查询结果一致。
+
+### Round 8：partition 分裂仍会绕过 index build threshold
+
+- **[P1] `shards_num: 1` 不能保证 partitioned collection 生成持久化索引文件。**
+  R4/R5 日志显示 partition-key schema 的 sealed segment 只有 `94/187` 行，显式
+  四分区 schema 每段只有 `375` 行，DataCoord 均记录
+  `segment does not need index really`。正式 5000-row gate 下，16 个 partition 的
+  单段仍约 312 行，因此该 schema 不能作为 explicit scalar format 的唯一证据。
+- 新增无 partition 的 `scalar_explicit_index_formats_rollback_safe`，独立覆盖
+  BITMAP、INVERTED、STL_SORT、TRIE、NGRAM、JSON path INVERTED、ARRAY INVERTED；
+  原 `scalar_dynamic_partition_key` 和 `explicit_partitions_nullable` 继续验证
+  partition/dynamic/nullable 语义。
+- **[P2] VARCHAR NGRAM 原 probe 使用 equality，不能证明 NGRAM 的 LIKE reader。**
+  已按 index type 生成 `LIKE "%value%"`，同时保留 PK-constrained query 防止无关行
+  命中造成 false-green。
+- manifest contract 强制 explicit persisted-format owner 为 single-shard、无
+  partition schema，防止后续重构再次把格式覆盖放回 sub-threshold topology。

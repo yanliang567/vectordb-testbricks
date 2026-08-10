@@ -975,6 +975,8 @@ def scalar_index_filter_for_value(
         return f"{field.name} is null"
     if field.dtype == "TIMESTAMPTZ":
         return f"{field.name} == {_format_timestamptz_filter_value(value)}"
+    if index.index_type == "NGRAM" and field.dtype in {"VARCHAR", "STRING", "TEXT"}:
+        return f"{field.name} LIKE {format_filter_value('%' + str(value) + '%')}"
     return f"{field.name} == {format_filter_value(value)}"
 
 

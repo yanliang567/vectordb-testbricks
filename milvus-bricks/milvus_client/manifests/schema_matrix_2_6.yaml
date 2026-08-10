@@ -68,6 +68,41 @@ schemas:
       - {field: arr_varchar_auto, index_type: AUTOINDEX}
       - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
 
+  - name: scalar_explicit_index_formats_rollback_safe
+    description: "2.6 unpartitioned primitive, JSON path, and ARRAY explicit persisted-index format coverage"
+    feature_tags: ["compat_basic_vector", "compat_json_array"]
+    compat_mode: rollback_safe
+    shards_num: 1
+    required_capabilities: []
+    validators: ["count", "pk_sample", "search_smoke"]
+    fields:
+      - {name: id, dtype: INT64, primary: true, auto_id: false}
+      - {name: int8_bitmap, dtype: INT8}
+      - {name: int16_inverted, dtype: INT16}
+      - {name: int32_sort, dtype: INT32}
+      - {name: float_sort, dtype: FLOAT}
+      - {name: double_inverted, dtype: DOUBLE}
+      - {name: bool_bitmap, dtype: BOOL, nullable: true}
+      - {name: varchar_trie, dtype: VARCHAR, max_length: 256}
+      - {name: varchar_ngram, dtype: VARCHAR, max_length: 256}
+      - {name: json_profile, dtype: JSON, nullable: true}
+      - {name: arr_int64, dtype: ARRAY, element_type: INT64, max_capacity: 16}
+      - {name: arr_varchar, dtype: ARRAY, element_type: VARCHAR, max_capacity: 16, max_length: 128}
+      - {name: embedding, dtype: FLOAT_VECTOR, dim: 64}
+    indexes:
+      - {field: int8_bitmap, index_type: BITMAP}
+      - {field: int16_inverted, index_type: INVERTED}
+      - {field: int32_sort, index_type: STL_SORT}
+      - {field: float_sort, index_type: STL_SORT}
+      - {field: double_inverted, index_type: INVERTED}
+      - {field: bool_bitmap, index_type: BITMAP}
+      - {field: varchar_trie, index_type: TRIE}
+      - {field: varchar_ngram, index_type: NGRAM, params: {min_gram: 2, max_gram: 4}}
+      - {field: json_profile, index_type: INVERTED, params: {json_cast_type: double, json_path: "json_profile['bucket']"}}
+      - {field: arr_int64, index_type: INVERTED}
+      - {field: arr_varchar, index_type: INVERTED}
+      - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
+
   - name: vector_autoid_bm25
     description: "2.6 auto-id, BM25 function, all vector data types, and vector-index coverage"
     feature_tags: ["compat_basic_vector", "compat_multi_vector"]
