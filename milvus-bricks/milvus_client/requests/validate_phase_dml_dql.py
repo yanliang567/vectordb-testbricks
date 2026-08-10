@@ -58,6 +58,7 @@ PHASE_DQL_FAILED = "PHASE_DQL_FAILED"
 PHASE_NEW_COLLECTION_FAILED = "PHASE_NEW_COLLECTION_FAILED"
 PHASE_UPSERT_NOT_APPLIED = "PHASE_UPSERT_NOT_APPLIED"
 PHASE_CHECKPOINT_RELOAD_FAILED = "PHASE_CHECKPOINT_RELOAD_FAILED"
+PHASE_COLLECTION_RELOAD_FAILED = "PHASE_COLLECTION_RELOAD_FAILED"
 CHECKPOINT_NOT_FOUND = "CHECKPOINT_NOT_FOUND"
 PHASE_CHECKPOINT_NOT_FOUND = "PHASE_CHECKPOINT_NOT_FOUND"
 _EXPECTED_PK_UNSET = object()
@@ -913,6 +914,11 @@ def _run_existing_collection_dml_dql(
         "upsert_samples": {"field": None, "samples": []},
         "searches": 0,
         "scalar_index_queries": 0,
+        "reload_attempted": False,
+        "reload_operations_succeeded": False,
+        "reload_succeeded": False,
+        "reload_vector_searches": 0,
+        "reload_scalar_index_queries": 0,
         "search_probe_data_pk": None,
         "search_probe_pk": None,
         "search_probe_seed": None,
@@ -1002,6 +1008,8 @@ def _run_existing_collection_dml_dql(
             [metrics["deleted"], rows - 1],
             seed,
         )
+
+    validation_failures_before = len(report.failures)
 
     def validate_visibility(current: ValidationReport) -> None:
         if auto_id_enabled(spec):
@@ -1095,6 +1103,30 @@ def _run_existing_collection_dml_dql(
         report,
         existing=True,
     )
+    if len(report.failures) > validation_failures_before:
+        return metrics
+    metrics["reload_attempted"] = True
+    if not _reload_phase_collection(client, target_collection, report):
+        return metrics
+    metrics["reload_operations_succeeded"] = True
+    reload_failures_before = len(report.failures)
+    metrics["reload_vector_searches"] = _validate_existing_phase_checkpoint_collection(
+        client,
+        spec,
+        metrics,
+        report,
+        seed,
+        metric_prefix="phase_reload",
+    )
+    metrics["reload_scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
+        client,
+        spec,
+        metrics,
+        search_probe_seed,
+        report,
+        existing=True,
+    )
+    metrics["reload_succeeded"] = len(report.failures) == reload_failures_before
     return metrics
 
 
@@ -1124,6 +1156,11 @@ def _run_new_collection_dml_dql(
         "max_pk": None,
         "searches": 0,
         "scalar_index_queries": 0,
+        "reload_attempted": False,
+        "reload_operations_succeeded": False,
+        "reload_succeeded": False,
+        "reload_vector_searches": 0,
+        "reload_scalar_index_queries": 0,
         "search_probe_data_pk": None,
         "search_probe_pk": None,
         "search_probe_seed": None,
@@ -1159,6 +1196,7 @@ def _run_new_collection_dml_dql(
         )
         return metrics
 
+    validation_failures_before = len(report.failures)
     if auto_id_enabled(spec):
         validate_collection_count(
             client,
@@ -1222,6 +1260,30 @@ def _run_new_collection_dml_dql(
         report,
         existing=False,
     )
+    if len(report.failures) > validation_failures_before:
+        return metrics
+    metrics["reload_attempted"] = True
+    if not _reload_phase_collection(client, target_collection, report):
+        return metrics
+    metrics["reload_operations_succeeded"] = True
+    reload_failures_before = len(report.failures)
+    metrics["reload_vector_searches"] = _validate_new_phase_checkpoint_collection(
+        client,
+        spec,
+        metrics,
+        report,
+        seed,
+        metric_prefix="phase_reload",
+    )
+    metrics["reload_scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
+        client,
+        spec,
+        metrics,
+        search_probe_seed,
+        report,
+        existing=False,
+    )
+    metrics["reload_succeeded"] = len(report.failures) == reload_failures_before
     return metrics
 
 
@@ -1255,6 +1317,8 @@ def _validate_existing_phase_checkpoint_collection(
     checkpoint: dict[str, Any],
     report: ValidationReport,
     seed: int,
+    *,
+    metric_prefix: str = "phase_checkpoint",
 ) -> int:
     collection = checkpoint["collection"]
     primary_name = checkpoint["primary_field"]
@@ -1270,7 +1334,7 @@ def _validate_existing_phase_checkpoint_collection(
                 checkpoint["remaining_min_pk"],
                 checkpoint["remaining_max_pk"],
             ),
-            metric_suffix="phase_checkpoint_existing_count",
+            metric_suffix=f"{metric_prefix}_existing_count",
         )
     _validate_pk_values_present_strict(
         client,
@@ -1332,6 +1396,8 @@ def _validate_new_phase_checkpoint_collection(
     checkpoint: dict[str, Any],
     report: ValidationReport,
     seed: int,
+    *,
+    metric_prefix: str = "phase_checkpoint",
 ) -> int:
     collection = checkpoint["collection"]
     primary_name = checkpoint["primary_field"]
@@ -1345,7 +1411,7 @@ def _validate_new_phase_checkpoint_collection(
             filter_expr=pk_range_filter(
                 primary_name, checkpoint["min_pk"], checkpoint["max_pk"]
             ),
-            metric_suffix="phase_checkpoint_new_collection_count",
+            metric_suffix=f"{metric_prefix}_new_collection_count",
         )
     else:
         validate_collection_count(
@@ -1353,7 +1419,7 @@ def _validate_new_phase_checkpoint_collection(
             collection,
             int(checkpoint["inserted"]),
             report,
-            metric_suffix="phase_checkpoint_new_collection_count",
+            metric_suffix=f"{metric_prefix}_new_collection_count",
         )
     _validate_pk_values_present_strict(
         client,
@@ -1389,19 +1455,23 @@ def _validate_new_phase_checkpoint_collection(
     return searches
 
 
-def _reload_phase_checkpoint_collection(
+def _reload_collection_strict(
     client: Any,
     collection: str,
     report: ValidationReport,
+    *,
+    failure_type: str,
+    context: str,
 ) -> bool:
     for operation in ("release_collection", "load_collection"):
         method = getattr(client, operation, None)
         if method is None:
             report.fail(
-                PHASE_CHECKPOINT_RELOAD_FAILED,
+                failure_type,
                 "Milvus client does not expose a required collection reload operation",
                 collection=collection,
                 operation=operation,
+                context=context,
             )
             return False
         try:
@@ -1411,23 +1481,53 @@ def _reload_phase_checkpoint_collection(
                 method(collection)
             except Exception as exc:
                 report.fail(
-                    PHASE_CHECKPOINT_RELOAD_FAILED,
-                    "phase checkpoint collection reload failed",
+                    failure_type,
+                    f"{context} collection reload failed",
                     collection=collection,
                     operation=operation,
                     error=str(exc),
+                    context=context,
                 )
                 return False
         except Exception as exc:
             report.fail(
-                PHASE_CHECKPOINT_RELOAD_FAILED,
-                "phase checkpoint collection reload failed",
+                failure_type,
+                f"{context} collection reload failed",
                 collection=collection,
                 operation=operation,
                 error=str(exc),
+                context=context,
             )
             return False
     return True
+
+
+def _reload_phase_collection(
+    client: Any,
+    collection: str,
+    report: ValidationReport,
+) -> bool:
+    return _reload_collection_strict(
+        client,
+        collection,
+        report,
+        failure_type=PHASE_COLLECTION_RELOAD_FAILED,
+        context="phase DML/DQL",
+    )
+
+
+def _reload_phase_checkpoint_collection(
+    client: Any,
+    collection: str,
+    report: ValidationReport,
+) -> bool:
+    return _reload_collection_strict(
+        client,
+        collection,
+        report,
+        failure_type=PHASE_CHECKPOINT_RELOAD_FAILED,
+        context="phase checkpoint",
+    )
 
 
 def _phase_checkpoint_index_meta(
@@ -1609,6 +1709,24 @@ def _validate_phase_checkpoint_before_rollback(
     return metrics
 
 
+def _accumulate_phase_reload_metrics(
+    metrics: dict[str, Any],
+    collection_metrics: dict[str, Any],
+) -> None:
+    if collection_metrics.get("reload_attempted"):
+        metrics["phase_reload_attempted_collections_total"] += 1
+    if collection_metrics.get("reload_succeeded"):
+        metrics["phase_reload_collections_total"] += 1
+    elif collection_metrics.get("reload_attempted"):
+        metrics["phase_reload_failures_total"] += 1
+    metrics["phase_reload_vector_searches_total"] += int(
+        collection_metrics.get("reload_vector_searches", 0)
+    )
+    metrics["phase_reload_scalar_index_queries_total"] += int(
+        collection_metrics.get("reload_scalar_index_queries", 0)
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_common_parser(
         "Validate phase DML/DQL against existing and new collections"
@@ -1648,6 +1766,11 @@ def main(argv: list[str] | None = None) -> int:
             "new_collection_inserted_total": 0,
             "searches_total": 0,
             "scalar_index_queries_total": 0,
+            "phase_reload_attempted_collections_total": 0,
+            "phase_reload_collections_total": 0,
+            "phase_reload_failures_total": 0,
+            "phase_reload_vector_searches_total": 0,
+            "phase_reload_scalar_index_queries_total": 0,
             "existing_collections": [],
             "carried_collections": [],
             "new_collections": [],
@@ -1710,6 +1833,7 @@ def main(argv: list[str] | None = None) -> int:
             metrics["scalar_index_queries_total"] += existing_metrics[
                 "scalar_index_queries"
             ]
+            _accumulate_phase_reload_metrics(metrics, existing_metrics)
             if existing_metrics["upsert_skipped_auto_id"]:
                 metrics["existing_upsert_skipped_auto_id_total"] += 1
 
@@ -1741,6 +1865,7 @@ def main(argv: list[str] | None = None) -> int:
                 metrics["scalar_index_queries_total"] += carried_metrics[
                     "scalar_index_queries"
                 ]
+                _accumulate_phase_reload_metrics(metrics, carried_metrics)
 
         for spec in specs.values():
             new_collection = collection_name(args.new_collection_prefix, spec)
@@ -1760,6 +1885,7 @@ def main(argv: list[str] | None = None) -> int:
             metrics["new_collection_inserted_total"] += new_metrics["inserted"]
             metrics["searches_total"] += new_metrics["searches"]
             metrics["scalar_index_queries_total"] += new_metrics["scalar_index_queries"]
+            _accumulate_phase_reload_metrics(metrics, new_metrics)
 
         if args.phase == "after-upgrade" and report.passed:
             _write_after_upgrade_phase_checkpoint(

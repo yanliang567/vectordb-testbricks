@@ -1687,6 +1687,21 @@ def test_rollback_safe_autoindex_matrix_builds_deterministic_scalar_filters():
         "scalar_autoindex_formats_rollback_safe.json_auto": (
             "json_auto['bucket'] == 3"
         ),
+        "scalar_autoindex_formats_rollback_safe.json_bool": (
+            "json_bool['active'] == False"
+        ),
+        "scalar_autoindex_formats_rollback_safe.json_varchar": (
+            "json_varchar['label'] == \"label_3\""
+        ),
+        "scalar_autoindex_formats_rollback_safe.arr_int64_auto": (
+            "ARRAY_CONTAINS(arr_int64_auto, 3)"
+        ),
+        "scalar_autoindex_formats_rollback_safe.arr_float_auto": (
+            "ARRAY_CONTAINS(arr_float_auto, 3.0)"
+        ),
+        "scalar_autoindex_formats_rollback_safe.arr_bool_auto": (
+            "ARRAY_CONTAINS(arr_bool_auto, False)"
+        ),
         "scalar_autoindex_formats_rollback_safe.arr_varchar_auto": (
             'ARRAY_CONTAINS(arr_varchar_auto, "tag_3")'
         ),

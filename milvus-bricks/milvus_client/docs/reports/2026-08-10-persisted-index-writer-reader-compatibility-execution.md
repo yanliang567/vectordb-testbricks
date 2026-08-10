@@ -8,7 +8,7 @@
 
 - 测试实现位于 [vectordb-testbricks PR #27](https://github.com/yanliang567/vectordb-testbricks/pull/27)。
 - 最终执行 commit：`625df1493fc2f01c2e12f8a104a4e71dc2e90c49`。
-- 单元测试：`451 passed`。
+- 最新 PR 实现单元测试：`454 passed`。
 - Ruff、Argo offline lint、`git diff --check` 均通过。
 - PR CI 通过、状态可合并，无未处理 review comment。
 - 2.6 baseline 的数据完整性、feature validation 和升级前压力测试通过。
@@ -49,7 +49,7 @@ R3b 已证明 6 到 13 行的小 segment 不生成索引文件。后续将 schem
 | Schema | 主要覆盖 |
 |---|---|
 | `scalar_dynamic_partition_key` | primitive scalar、JSON、ARRAY、dynamic field、partition key 语义 |
-| `scalar_autoindex_formats_rollback_safe` | INT64/FLOAT/BOOL/VARCHAR、JSON path、ARRAY AutoIndex |
+| `scalar_autoindex_formats_rollback_safe` | INT64/FLOAT/BOOL/VARCHAR、JSON double/bool/varchar path、ARRAY<INT64/FLOAT/BOOL/VARCHAR> AutoIndex |
 | `scalar_explicit_index_formats_rollback_safe` | 无 partition 的 BITMAP/INVERTED/STL_SORT/TRIE/NGRAM、JSON/ARRAY explicit persisted formats |
 | `vector_autoid_bm25` | AutoID、BM25、FLOAT/FLOAT16/BFLOAT16/INT8/BINARY/SPARSE vectors |
 | `explicit_partitions_nullable` | VARCHAR PK、显式 partitions、nullable scalar |
@@ -83,7 +83,7 @@ R3b 已证明 6 到 13 行的小 segment 不生成索引文件。后续将 schem
 - 向量 self-search：目标 PK、StructArray offset、finite score/distance、metric-specific threshold。
 - 标量 index query：broad filter + PK-constrained filter。
 - NGRAM 使用 `LIKE "%value%"`，不再用 equality 代替。
-- target/rollback 验证前严格 `release_collection -> load_collection`。
+- target/rollback 首轮验证通过后严格 `release_collection -> load_collection`，再重复 count、PK、upsert、vector/scalar query。
 - target phase insert/upsert/delete、新 collection、scalar/vector query 和 checkpoint。
 - per-collection index/query/reload/AutoIndex metrics。
 - FLOAT、ARRAY<FLOAT>、StructArray FLOAT、FLOAT_VECTOR 统一按 float32 生成；DOUBLE 和 JSON number 保持 float64。
@@ -174,13 +174,14 @@ SERVICEABILITY_TIMEOUT: elapsed_sec=65.325
 - `3.0 writer -> 2.6 reader` 的真实 phase collection rollback 验证因此被同一 blocker 阻断。
 - 代码和单元测试已实现 phase collection 的 release/load、search、scalar query、upsert probe 和 checkpoint；真实环境结论必须在 #52359 修复镜像可用后补跑，不能将本轮记为通过。
 - Partition-key 和显式 multi-partition schema 仍用于语义覆盖；持久化格式证据由无 partition owner schema承担，避免低于 index threshold。
+- R6 后的 PR 复审补充了同阶段严格 reload 二次验证，以及 JSON bool/varchar、ARRAY INT64/FLOAT/BOOL AutoIndex。该补强已由单元测试覆盖，但尚未冒充 R6 的真实 K8s 结果；需要在 #52359 修复镜像可用后随完整 workflow 补跑。
 
 ## 9. 最终 Review 与验证
 
 - PR diff 已完成 matrix、validator、lifecycle、report 和 Argo 五轮以上自审。
 - GitHub PR 无未处理 review comments。
 - GitHub CI：passed。
-- `PYTHONPATH=. pytest -q milvus_client/tests`：`451 passed`。
+- `PYTHONPATH=. pytest -q milvus_client/tests`：`454 passed`。
 - changed Python files Ruff check/format：passed。
 - `argo lint --offline milvus-bricks/argo`：passed。
 - `git diff --check`：passed。

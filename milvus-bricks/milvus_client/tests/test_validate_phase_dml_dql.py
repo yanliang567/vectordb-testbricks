@@ -196,6 +196,49 @@ class MissingAutoIdResponseClient(PhaseClient):
         return {}
 
 
+class FailStrictReloadLoadPhaseClient(PhaseClient):
+    def __init__(self):
+        super().__init__()
+        self.strict_reload_started = False
+
+    def release_collection(self, *args, **kwargs):
+        self.strict_reload_started = True
+        super().release_collection(*args, **kwargs)
+
+    def load_collection(self, *args, **kwargs):
+        if self.strict_reload_started:
+            raise RuntimeError("persisted index reload failed")
+        super().load_collection(*args, **kwargs)
+
+
+class CorruptAfterReloadPhaseClient(PhaseClient):
+    def __init__(self, *, corrupt_vector: bool = False, corrupt_scalar: bool = False):
+        super().__init__()
+        self.corrupt_vector = corrupt_vector
+        self.corrupt_scalar = corrupt_scalar
+        self.strict_reload_started = False
+
+    def release_collection(self, *args, **kwargs):
+        self.strict_reload_started = True
+        super().release_collection(*args, **kwargs)
+
+    def query(self, **kwargs):
+        if (
+            self.strict_reload_started
+            and self.corrupt_scalar
+            and "category" in kwargs.get("filter", "")
+        ):
+            self.calls.append(("query", kwargs))
+            return []
+        return super().query(**kwargs)
+
+    def search(self, **kwargs):
+        if self.strict_reload_started and self.corrupt_vector:
+            self.calls.append(("search", kwargs))
+            return [[{"id": 1, "distance": 1.0}]]
+        return super().search(**kwargs)
+
+
 def _dense_spec(auto_id: bool = False, dim: int = 4) -> SchemaSpec:
     return SchemaSpec(
         name="dense",
@@ -396,12 +439,117 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
     assert result["metrics"]["existing_deleted_total"] == 1
     assert result["metrics"]["new_collection_inserted_total"] == 4
     assert result["metrics"]["scalar_index_queries_total"] == 2
+    assert result["metrics"]["phase_reload_attempted_collections_total"] == 2
+    assert result["metrics"]["phase_reload_collections_total"] == 2
+    assert result["metrics"]["phase_reload_failures_total"] == 0
+    assert result["metrics"]["phase_reload_vector_searches_total"] == 2
+    assert result["metrics"]["phase_reload_scalar_index_queries_total"] == 2
     assert result["metrics"]["existing_collections"][0]["scalar_index_queries"] == 1
     assert result["metrics"]["new_collections"][0]["scalar_index_queries"] == 1
+    assert result["metrics"]["existing_collections"][0]["reload_succeeded"]
+    assert result["metrics"]["new_collections"][0]["reload_succeeded"]
     assert "create_collection" in call_names
     assert "upsert" in call_names
     assert "delete" in call_names
     assert "search" in call_names
+
+    search_positions = [
+        index for index, call in enumerate(client.calls) if call[0] == "search"
+    ]
+    strict_release_positions = [
+        index
+        for index, call in enumerate(client.calls)
+        if call[0] == "release_collection"
+    ]
+    assert len(search_positions) == 4
+    assert len(strict_release_positions) == 2
+    assert search_positions[0] < strict_release_positions[0] < search_positions[1]
+    assert search_positions[2] < strict_release_positions[1] < search_positions[3]
+
+
+def test_new_phase_strict_reload_load_failure_fails_closed():
+    client = FailStrictReloadLoadPhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_new_collection_dml_dql(
+        client,
+        _dense_spec(),
+        "qa_after_upgrade_dense",
+        rows=4,
+        batch_size=2,
+        start_id=60_000_000,
+        seed=24,
+        drop_if_exists=False,
+        report=report,
+    )
+
+    assert not report.passed
+    assert metrics["reload_attempted"]
+    assert not metrics["reload_operations_succeeded"]
+    assert not metrics["reload_succeeded"]
+    assert any(
+        failure["type"] == validate_phase_dml_dql.PHASE_COLLECTION_RELOAD_FAILED
+        and failure["operation"] == "load_collection"
+        for failure in report.failures
+    )
+
+
+def test_existing_phase_reload_revalidates_vector_search():
+    client = CorruptAfterReloadPhaseClient(corrupt_vector=True)
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        _dense_spec(),
+        "qa_dense",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    assert not report.passed
+    assert metrics["reload_operations_succeeded"]
+    assert not metrics["reload_succeeded"]
+    assert metrics["reload_vector_searches"] == 1
+    assert any(
+        failure["type"] == validate_phase_dml_dql.PHASE_DQL_FAILED
+        and failure.get("actual_pks") == [1]
+        for failure in report.failures
+    )
+
+
+def test_existing_phase_reload_revalidates_scalar_index_queries():
+    client = CorruptAfterReloadPhaseClient(corrupt_scalar=True)
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        _dense_spec(),
+        "qa_dense",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    assert not report.passed
+    assert metrics["reload_operations_succeeded"]
+    assert not metrics["reload_succeeded"]
+    assert metrics["reload_scalar_index_queries"] == 1
+    assert any(
+        failure["type"] == "INDEX_SCALAR_QUERY_FAILED"
+        and failure.get("field") == "category"
+        for failure in report.failures
+    )
 
 
 def test_existing_phase_search_uses_upserted_vector_values():

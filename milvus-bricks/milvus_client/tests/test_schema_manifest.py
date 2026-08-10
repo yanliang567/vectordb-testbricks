@@ -189,14 +189,31 @@ def test_schema_matrix_2_6_covers_persisted_scalar_autoindex_families():
         "bool_auto": "BOOL",
         "varchar_auto": "VARCHAR",
         "json_auto": "JSON",
+        "json_bool": "JSON",
+        "json_varchar": "JSON",
+        "arr_int64_auto": "ARRAY",
+        "arr_float_auto": "ARRAY",
+        "arr_bool_auto": "ARRAY",
         "arr_varchar_auto": "ARRAY",
     }
-    json_index = next(
-        index for index in scalar_spec.indexes if index.field == "json_auto"
-    )
-    assert json_index.params == {
-        "json_cast_type": "double",
-        "json_path": "json_auto['bucket']",
+    json_indexes = {
+        index.field: index.params
+        for index in scalar_spec.indexes
+        if resolve_field(scalar_spec, index.field).dtype == "JSON"
+    }
+    assert json_indexes == {
+        "json_auto": {
+            "json_cast_type": "double",
+            "json_path": "json_auto['bucket']",
+        },
+        "json_bool": {
+            "json_cast_type": "bool",
+            "json_path": "json_bool['active']",
+        },
+        "json_varchar": {
+            "json_cast_type": "varchar",
+            "json_path": "json_varchar['label']",
+        },
     }
 
     varchar_spec = by_name["struct_array_varchar_autoindex_rollback_safe"]

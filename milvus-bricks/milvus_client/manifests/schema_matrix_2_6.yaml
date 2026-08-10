@@ -57,6 +57,11 @@ schemas:
       - {name: bool_auto, dtype: BOOL}
       - {name: varchar_auto, dtype: VARCHAR, max_length: 256}
       - {name: json_auto, dtype: JSON}
+      - {name: json_bool, dtype: JSON}
+      - {name: json_varchar, dtype: JSON}
+      - {name: arr_int64_auto, dtype: ARRAY, element_type: INT64, max_capacity: 16}
+      - {name: arr_float_auto, dtype: ARRAY, element_type: FLOAT, max_capacity: 16}
+      - {name: arr_bool_auto, dtype: ARRAY, element_type: BOOL, max_capacity: 16}
       - {name: arr_varchar_auto, dtype: ARRAY, element_type: VARCHAR, max_capacity: 16, max_length: 128}
       - {name: embedding, dtype: FLOAT_VECTOR, dim: 64}
     indexes:
@@ -65,6 +70,11 @@ schemas:
       - {field: bool_auto, index_type: AUTOINDEX}
       - {field: varchar_auto, index_type: AUTOINDEX}
       - {field: json_auto, index_type: AUTOINDEX, params: {json_cast_type: double, json_path: "json_auto['bucket']"}}
+      - {field: json_bool, index_type: AUTOINDEX, params: {json_cast_type: bool, json_path: "json_bool['active']"}}
+      - {field: json_varchar, index_type: AUTOINDEX, params: {json_cast_type: varchar, json_path: "json_varchar['label']"}}
+      - {field: arr_int64_auto, index_type: AUTOINDEX}
+      - {field: arr_float_auto, index_type: AUTOINDEX}
+      - {field: arr_bool_auto, index_type: AUTOINDEX}
       - {field: arr_varchar_auto, index_type: AUTOINDEX}
       - {field: embedding, index_type: HNSW, metric_type: COSINE, params: {M: 8, efConstruction: 64}, search_params: {ef: 32}}
 

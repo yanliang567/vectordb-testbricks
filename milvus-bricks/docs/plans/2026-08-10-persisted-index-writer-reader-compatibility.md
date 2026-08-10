@@ -101,6 +101,11 @@ fields:
   - {name: bool_auto, dtype: BOOL}
   - {name: varchar_auto, dtype: VARCHAR, max_length: 256}
   - {name: json_auto, dtype: JSON}
+  - {name: json_bool, dtype: JSON}
+  - {name: json_varchar, dtype: JSON}
+  - {name: arr_int64_auto, dtype: ARRAY, element_type: INT64, max_capacity: 16}
+  - {name: arr_float_auto, dtype: ARRAY, element_type: FLOAT, max_capacity: 16}
+  - {name: arr_bool_auto, dtype: ARRAY, element_type: BOOL, max_capacity: 16}
   - {name: arr_varchar_auto, dtype: ARRAY, element_type: VARCHAR, max_capacity: 16, max_length: 128}
   - {name: embedding, dtype: FLOAT_VECTOR, dim: 64}
 indexes:
@@ -109,12 +114,18 @@ indexes:
   - {field: bool_auto, index_type: AUTOINDEX}
   - {field: varchar_auto, index_type: AUTOINDEX}
   - {field: json_auto, index_type: AUTOINDEX, params: {json_cast_type: double, json_path: "json_auto['bucket']"}}
+  - {field: json_bool, index_type: AUTOINDEX, params: {json_cast_type: bool, json_path: "json_bool['active']"}}
+  - {field: json_varchar, index_type: AUTOINDEX, params: {json_cast_type: varchar, json_path: "json_varchar['label']"}}
+  - {field: arr_int64_auto, index_type: AUTOINDEX}
+  - {field: arr_float_auto, index_type: AUTOINDEX}
+  - {field: arr_bool_auto, index_type: AUTOINDEX}
   - {field: arr_varchar_auto, index_type: AUTOINDEX}
   - {field: embedding, index_type: HNSW, metric_type: COSINE}
 ```
 
 保留现有 `int64_category + AUTOINDEX` 作为历史 control；新 schema 独立覆盖
-integral、floating、bool、string、JSON 和 ARRAY factory 路径。
+integral、floating、bool、string、JSON double/bool/varchar cast 和
+ARRAY<INT64/FLOAT/BOOL/VARCHAR> factory 路径。
 
 ### 任务 2：补齐 StructArray nested scalar AutoIndex
 
@@ -210,7 +221,8 @@ VARCHAR schema 是 #52359 的确定性 reproducer；FLOAT、INT64、BOOL schema
 - 所有六种 vector data types 至少有一个 persisted index。
 - explicit vector format inventory 保持完整。
 - primitive scalar AutoIndex 至少覆盖 INT64、FLOAT、BOOL、VARCHAR。
-- ARRAY 和 JSON path 至少各有一个 AutoIndex。
+- JSON path AutoIndex 必须覆盖 double、bool、varchar cast。
+- ARRAY AutoIndex 必须覆盖 INT64、FLOAT、BOOL、VARCHAR element type。
 - StructArray scalar AutoIndex 至少覆盖 FLOAT、VARCHAR、INT64、BOOL。
 - StructArray scalar schema 必须启用 `struct_array_scalar_index_queries`，且 minimum 等于实际 indexed scalar field 数。
 
@@ -221,9 +233,10 @@ VARCHAR schema 是 #52359 的确定性 reproducer；FLOAT、INT64、BOOL schema
 - 修改：`milvus_client/requests/validate_phase_dml_dql.py`
 - 测试：`milvus_client/tests/test_validate_phase_dml_dql.py`
 
-after-upgrade 创建新 collection 后继续 flush/load 并执行 search。after-rollback
-读取 phase checkpoint 时，在 count/query/search 前对 existing 和 new collections
-执行严格的：
+after-upgrade/after-rollback 的 existing、carried 和 new collection 在首轮
+count/PK/upsert/search/scalar-index query 通过后，立即执行严格的同阶段 reload 并完整
+重复验证。after-rollback 读取 phase checkpoint 时，还要在验证 target-written
+collections 前执行同样的严格 reload：
 
 ```text
 release_collection -> load_collection -> count/query/search
@@ -235,6 +248,11 @@ release_collection -> load_collection -> count/query/search
 phase_checkpoint_reload_collections_total
 phase_checkpoint_reload_failures_total
 phase_checkpoint_scalar_index_queries_total
+phase_reload_attempted_collections_total
+phase_reload_collections_total
+phase_reload_failures_total
+phase_reload_vector_searches_total
+phase_reload_scalar_index_queries_total
 ```
 
 release 或 load 失败必须进入 validation failures，不能 best-effort 忽略。该步骤
@@ -251,8 +269,8 @@ release 或 load 失败必须进入 validation failures，不能 best-effort 忽
 2. Target 3.0 rollout 后执行 index compatibility load/query。
 3. 显式 release collection，再 load collection，再次 query/search。
 4. Target phase 创建同 schema 的新 collection/index，并 flush/load。
-5. Target phase 对新写 collection 执行 vector search 和全部 scalar index filter；
-   对发生 upsert 的 collection 跳过被修改字段，验证其余 scalar indexes。
+5. Target phase 对 existing/new collection 执行 vector search 和全部 scalar index
+   filter，随后严格 release/load 并重复 count、PK、upsert、vector/scalar query。
 6. Rollback 2.6 后显式 release/load baseline 和 target-written collections，并重复
    vector/scalar index query。
 7. 全流程禁止 rebuild index。
@@ -354,7 +372,7 @@ harbor.milvus.io/milvusdb/milvus:2.6-20260807-d85dc945@sha256:2051a754368d70f589
 ### 提交前验证
 
 ```text
-PYTHONPATH=. pytest -q milvus_client/tests: 441 passed
+PYTHONPATH=. pytest -q milvus_client/tests: 454 passed
 ruff check: passed
 ruff format --check: passed
 argo lint --offline argo: no linting errors
@@ -450,3 +468,16 @@ git diff --check: passed
   `wait-upgrade-serviceability` fail-closed，未进入 rollback。
 - 复现证据已补充到
   [Milvus #52359](https://github.com/milvus-io/milvus/issues/52359#issuecomment-5240286296)。
+
+### Round 10：PR 整体复审补强
+
+- **[P1] target phase 首轮验证后没有强制重新加载。** existing、carried、new
+  collection 现在均在首轮 count/PK/upsert/search/scalar query 通过后执行严格
+  `release_collection -> load_collection`，再重复完整验证；reload API 失败、reload 后
+  vector search 损坏和 scalar index query 损坏均有 fail-closed 单测。
+- **[P2] JSON/ARRAY AutoIndex 子类型不足。** JSON path cast 从 double 扩展为
+  double/bool/varchar，ARRAY element type 从 VARCHAR 扩展为
+  INT64/FLOAT/BOOL/VARCHAR，并为每个新增索引增加确定性 filter contract。
+- 当前 review hardening 已通过 `454` 个单元测试；R6 真实环境数据仍对应
+  `625df1493fc2f01c2e12f8a104a4e71dc2e90c49`，新增 subtype 和同阶段 reload 需要在
+  #52359 修复镜像可用后随完整 workflow 一并补跑。
