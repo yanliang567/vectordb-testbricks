@@ -377,8 +377,8 @@ ruff format --check on changed Python files: passed after formatting
 git diff --check: passed
 ```
 
-GitHub Actions for commit `a5d91d69...` passed before the final documentation
-and formatting-only commit. CI is required again on the final PR head.
+GitHub Actions run `31363264831` passed Argo lint, unit tests, Ruff check, and
+Ruff format check for review-fix commit `6114728`.
 
 ## Resource Cleanup
 

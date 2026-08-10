@@ -516,7 +516,7 @@ offline pytest: 383 passed
 Argo offline lint: passed
 Ruff check: passed
 Ruff format check: passed
-GitHub Actions: pending for the new PR head
+GitHub Actions: run `31363264831` 在 review-fix commit `6114728` 上通过
 ```
 
 ## 12. 资源清理
