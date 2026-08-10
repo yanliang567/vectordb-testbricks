@@ -65,6 +65,25 @@ def test_precheck_rejects_mismatched_server_version_family(monkeypatch, tmp_path
     ]
 
 
+def test_precheck_rejects_server_version_below_expected_patch(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        precheck, "create_client", lambda *args: PrecheckClient("v3.0.0")
+    )
+
+    code = precheck.main(_args(tmp_path, "3.0.1"))
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 1
+    assert result["failures"] == [
+        {
+            "type": "SERVER_VERSION_TOO_OLD",
+            "message": "Milvus server version is below the expected phase version",
+            "expected_version": "3.0.1",
+            "actual_version": "v3.0.0",
+        }
+    ]
+
+
 def test_precheck_rejects_unparseable_server_version(monkeypatch, tmp_path):
     monkeypatch.setattr(
         precheck, "create_client", lambda *args: PrecheckClient("unknown")

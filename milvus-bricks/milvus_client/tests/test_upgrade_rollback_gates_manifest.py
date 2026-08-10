@@ -18,6 +18,14 @@ MILVUS_3_0_BASELINE_IMAGE = (
     "harbor.milvus.io/milvusdb/milvus:v3.0.0@"
     "sha256:49371c30af46b1013e4d3e0b980e691d81376d69cdbe1b372725baf1d7255862"
 )
+MILVUS_3_0_VORTEX_CANDIDATE_BASELINE_IMAGE = (
+    "harbor.milvus.io/milvusdb/milvus:3.0-20260807-697431f2@"
+    "sha256:e29d3275d1184ecf5e00995dd8b2c234e6912ea3c899c6b9d6f8807f7d6db5a3"
+)
+MILVUS_3_0_VORTEX_CANDIDATE_TARGET_IMAGE = (
+    "harbor.milvus.io/milvusdb/milvus:3.0-20260807-1439dc7d@"
+    "sha256:ed46e16fcb58bd460722e6fc1c0e6294e86fd4e062431877d0a872dcb510cd64"
+)
 MILVUS_2_6_18_BASELINE_IMAGE = (
     "harbor.milvus.io/milvusdb/milvus:v2.6.18@"
     "sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6"
@@ -26,6 +34,66 @@ MILVUS_2_6_18_BASELINE_IMAGE = (
 
 def _manifest() -> dict:
     return load_gate_manifest(GATES)
+
+
+@pytest.mark.parametrize(
+    ("scenario_id", "expected_eligible"),
+    [
+        (
+            scenario["id"],
+            scenario["classification"] == "gate"
+            and scenario["support_status"]
+            in {"supported", "supported_with_config_constraints"},
+        )
+        for scenario in _manifest()["scenarios"]
+    ],
+)
+def test_all_manifest_scenarios_render_expected_release_gate_eligibility(
+    scenario_id,
+    expected_eligible,
+):
+    manifest = _manifest()
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+
+    params = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+
+    assert params["release-gate-eligible"] == str(expected_eligible).lower()
+
+
+def test_unregistered_scenario_accepts_only_safe_report_metadata():
+    runtime = {
+        "scenario-classification": "unregistered",
+        "scenario-support-status": "unknown",
+        "release-gate-eligible": "false",
+    }
+
+    resolved = validate_registered_scenario_parameters(
+        _manifest(), "custom-unregistered-scenario", runtime
+    )
+
+    assert resolved is None
+
+
+@pytest.mark.parametrize(
+    ("parameter", "value"),
+    [
+        ("scenario-classification", "gate"),
+        ("scenario-support-status", "supported"),
+        ("release-gate-eligible", "true"),
+    ],
+)
+def test_unregistered_scenario_rejects_release_gate_metadata_claims(parameter, value):
+    runtime = {
+        "scenario-classification": "unregistered",
+        "scenario-support-status": "unknown",
+        "release-gate-eligible": "false",
+    }
+    runtime[parameter] = value
+
+    with pytest.raises(ValueError, match=parameter):
+        validate_registered_scenario_parameters(
+            _manifest(), "custom-unregistered-scenario", runtime
+        )
 
 
 def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
@@ -44,14 +112,12 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
-        "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "standalone-3-0-index-v10-v4-upgrade-rollback",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
-        "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
         "cluster-3-0-index-v10-v4-upgrade-rollback",
     } <= set(scenarios)
@@ -59,14 +125,12 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
-        "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "standalone-3-0-index-v10-v4-upgrade-rollback",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
-        "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
         "cluster-3-0-index-v10-v4-upgrade-rollback",
     ]:
@@ -215,7 +279,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 7
+    assert len(cluster_scenarios) == 6
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-rollback-2-6-latest"]["deploy_profile"]
@@ -229,12 +293,6 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
     )
     assert (
         by_id["cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline"][
-            "deploy_profile"
-        ]
-        == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
-    )
-    assert (
-        by_id["cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline"][
             "deploy_profile"
         ]
         == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
@@ -397,6 +455,9 @@ def test_registered_scenario_runtime_allows_operational_overrides():
         ("target-target-vec-index-version", "10"),
         ("index-compatibility-validation-enabled", "false"),
         ("schema-evolution-existing-enabled", "false"),
+        ("scenario-classification", "candidate"),
+        ("scenario-support-status", "pre_release_candidate"),
+        ("release-gate-eligible", "false"),
     ],
 )
 def test_registered_scenario_runtime_rejects_protected_parameter_drift(
@@ -632,6 +693,8 @@ def test_manifest_references_are_centralized():
         "milvus-2-6-latest",
         "milvus-3-0-baseline",
         "milvus-3-0-latest",
+        "milvus-3-0-vortex-candidate-baseline",
+        "milvus-3-0-vortex-candidate-target",
     }
     assert manifest["image_aliases"]["milvus-3-0-baseline"] == {
         "image": MILVUS_3_0_BASELINE_IMAGE,
@@ -641,6 +704,20 @@ def test_manifest_references_are_centralized():
         "image": MILVUS_2_6_18_BASELINE_IMAGE,
         "version": "2.6.18",
     }
+    assert manifest["image_aliases"]["milvus-3-0-vortex-candidate-baseline"] == {
+        "image": MILVUS_3_0_VORTEX_CANDIDATE_BASELINE_IMAGE,
+        "version": "3.0.0",
+        "source_commit": "697431f2c36c146e5033c71de6b91133aedc8f4c",
+        "milvus_storage_commit": "63c29c674bf8c75a84c49cca2c8ab088e771e57e",
+        "vortex_compatibility": "vortex-0.75+",
+    }
+    assert manifest["image_aliases"]["milvus-3-0-vortex-candidate-target"] == {
+        "image": MILVUS_3_0_VORTEX_CANDIDATE_TARGET_IMAGE,
+        "version": "3.0.0",
+        "source_commit": "1439dc7de8b198a01c2afa0ae20c0c473e0e1abc",
+        "milvus_storage_commit": "63c29c674bf8c75a84c49cca2c8ab088e771e57e",
+        "vortex_compatibility": "vortex-0.75+",
+    }
     for scenario in manifest["scenarios"]:
         for phase in ["base", "target", "rollback"]:
             assert "image_ref" in scenario[phase]
@@ -648,19 +725,19 @@ def test_manifest_references_are_centralized():
             assert "version" not in scenario[phase]
 
 
-def test_3_0_loon_vortex_gate_scenarios_keep_storage_features_enabled_after_upgrade():
+def test_3_0_loon_vortex_candidate_scenarios_keep_storage_features_enabled_after_upgrade():
     manifest = _manifest()
     scenarios = [
         resolve_gate_scenario(manifest, scenario_id)
         for scenario_id in [
-            "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
-            "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+            "standalone-3-0-vortex-candidate-upgrade-rollback",
+            "cluster-3-0-vortex-candidate-upgrade-rollback",
         ]
     ]
 
     for scenario in scenarios:
-        assert scenario["classification"] == "gate"
-        assert scenario["support_status"] == "supported"
+        assert scenario["classification"] == "candidate"
+        assert scenario["support_status"] == "pre_release_candidate"
         assert scenario.get("allow_unsafe_negative_coverage") is not True
         assert scenario["schema_matrix"] == (
             "milvus_client/manifests/schema_matrix_2_6.yaml"
@@ -672,6 +749,10 @@ def test_3_0_loon_vortex_gate_scenarios_keep_storage_features_enabled_after_upgr
         assert scenario["rollback"]["loon_ffi_enabled"] is True
         assert scenario["rollback"]["vortex_enabled"] is True
         assert scenario["rollback"]["image"] == scenario["base"]["image"]
+        assert scenario["base"]["image"] == (MILVUS_3_0_VORTEX_CANDIDATE_BASELINE_IMAGE)
+        assert scenario["target"]["image"] == MILVUS_3_0_VORTEX_CANDIDATE_TARGET_IMAGE
+        assert scenario["target"]["vortex_compatibility"] == "vortex-0.75+"
+        assert scenario["rollback"]["vortex_compatibility"] == "vortex-0.75+"
         assert scenario["forward_workload_enabled"] is True
         assert scenario["rollback_forward_validation_enabled"] is True
         assert scenario["forward_schema_matrix"] == (
@@ -679,6 +760,113 @@ def test_3_0_loon_vortex_gate_scenarios_keep_storage_features_enabled_after_upgr
         )
         assert scenario["validation_policy"]["pressure_fail_on_error"] is True
         assert scenario["validation_policy"]["gate_allow_warning"] is False
+
+
+def test_supported_gate_rejects_vortex_on_v3_0_0():
+    scenario = resolve_gate_scenario(
+        _manifest(),
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+    )
+    scenario["target"]["loon_ffi_enabled"] = True
+    scenario["target"]["vortex_enabled"] = True
+
+    with pytest.raises(ValueError, match="target Vortex requires Milvus >= 3.0.1"):
+        validate_resolved_gate_scenario(scenario)
+
+
+def test_supported_gate_rejects_rollback_below_v3_0_1_after_vortex_writes():
+    scenario = resolve_gate_scenario(
+        _manifest(),
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+    )
+    scenario["target"].update(
+        {
+            "image": "harbor.milvus.io/milvusdb/milvus:v3.0.1@sha256:" + "a" * 64,
+            "version": "3.0.1",
+            "loon_ffi_enabled": True,
+            "vortex_enabled": True,
+        }
+    )
+    scenario["rollback"]["vortex_enabled"] = False
+
+    with pytest.raises(
+        ValueError,
+        match="rollback must support Vortex data written before rollback",
+    ):
+        validate_resolved_gate_scenario(scenario)
+
+
+def test_supported_gate_accepts_v3_0_1_vortex_upgrade_rollback():
+    scenario = resolve_gate_scenario(
+        _manifest(),
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+    )
+    for phase, digest_char in (("target", "a"), ("rollback", "b")):
+        scenario[phase].update(
+            {
+                "image": "harbor.milvus.io/milvusdb/milvus:v3.0.1@sha256:"
+                + digest_char * 64,
+                "version": "3.0.1",
+                "loon_ffi_enabled": True,
+                "vortex_enabled": True,
+            }
+        )
+
+    validate_resolved_gate_scenario(scenario)
+
+
+def test_vortex_candidate_rejects_runtime_image_override():
+    with pytest.raises(ValueError, match="reviewed candidate image is locked"):
+        resolve_gate_scenario(
+            _manifest(),
+            "standalone-3-0-vortex-candidate-upgrade-rollback",
+            phase_overrides={
+                "target": {
+                    "image": "harbor.milvus.io/milvusdb/milvus:3.0-20260810-deadbeef@sha256:"
+                    + "c" * 64,
+                    "version": "3.0.0",
+                }
+            },
+        )
+
+
+def test_registered_vortex_candidate_parameters_require_locked_images():
+    manifest = _manifest()
+    scenario_id = "standalone-3-0-vortex-candidate-upgrade-rollback"
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+    runtime = render_argo_parameters(scenario, manifest)
+    runtime["workflow-template"] = "milvus-standalone-3-0-upgrade-rollback"
+
+    resolved = validate_registered_scenario_parameters(manifest, scenario_id, runtime)
+
+    assert resolved is not None
+    assert resolved["target"]["image"] == MILVUS_3_0_VORTEX_CANDIDATE_TARGET_IMAGE
+
+    runtime["target-milvus-image"] = (
+        "harbor.milvus.io/milvusdb/milvus:3.0-20260810-deadbeef@sha256:" + "c" * 64
+    )
+    with pytest.raises(ValueError, match="reviewed candidate image is locked"):
+        validate_registered_scenario_parameters(manifest, scenario_id, runtime)
+
+
+def test_vortex_candidate_rejects_missing_reviewed_compatibility_metadata():
+    scenario = resolve_gate_scenario(
+        _manifest(), "standalone-3-0-vortex-candidate-upgrade-rollback"
+    )
+    scenario["rollback"].pop("vortex_compatibility")
+
+    with pytest.raises(ValueError, match="reviewed Vortex compatibility metadata"):
+        validate_resolved_gate_scenario(scenario)
+
+
+def test_vortex_candidate_rejects_source_commit_that_does_not_match_image_tag():
+    scenario = resolve_gate_scenario(
+        _manifest(), "standalone-3-0-vortex-candidate-upgrade-rollback"
+    )
+    scenario["target"]["source_commit"] = "a" * 40
+
+    with pytest.raises(ValueError, match="reviewed Vortex compatibility metadata"):
+        validate_resolved_gate_scenario(scenario)
 
 
 @pytest.mark.parametrize(
@@ -736,9 +924,9 @@ def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle(
 @pytest.mark.parametrize(
     "scenario_id",
     [
-        "standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "standalone-3-0-vortex-candidate-upgrade-rollback",
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
-        "cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline",
+        "cluster-3-0-vortex-candidate-upgrade-rollback",
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
     ],
 )

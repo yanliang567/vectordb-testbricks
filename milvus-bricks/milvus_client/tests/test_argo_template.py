@@ -685,6 +685,106 @@ def test_upgrade_rollback_prechecks_validate_actual_server_version():
             assert f"--expected-server-version {expected_version}" in parameters["args"]
 
 
+def _run_resolve_inputs_guard(template_name, **overrides):
+    template = yaml.safe_load((ROOT / "argo" / template_name).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    command = templates["resolve-inputs"]["container"]["args"][0]
+    code = re.findall(
+        r"python3 - <<'PY'\n(.*?)\n\s*PY",
+        command,
+        flags=re.DOTALL,
+    )[0]
+    values = {
+        "collection-prefix": "qa",
+        "forward-collection-prefix": "qa_forward",
+        "schema-matrix": "milvus_client/manifests/schema_matrix_2_6.yaml",
+        "base-version": "3.0.0",
+        "target-version": "3.0.0",
+        "rollback-version": "3.0.0",
+        "rollback-enabled": "true",
+        "allow-unsafe-negative-coverage": "false",
+        "scenario-id": "unregistered-vortex-scenario",
+        "base-loon-ffi-enabled": "false",
+        "base-vortex-enabled": "false",
+        "target-loon-ffi-enabled": "true",
+        "target-vortex-enabled": "true",
+        "rollback-loon-ffi-enabled": "true",
+        "rollback-vortex-enabled": "true",
+    }
+    values.update(overrides)
+    for name, value in values.items():
+        code = code.replace(f"{{{{workflow.parameters.{name}}}}}", value)
+    assert "{{workflow.parameters." not in code
+    return subprocess.run(
+        [sys.executable, "-c", code],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
+def test_upgrade_templates_reject_v3_0_0_vortex_runtime_parameters(template_name):
+    result = _run_resolve_inputs_guard(template_name)
+
+    assert result.returncode == 2
+    assert "invalid target Vortex version '3.0.0'" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("template_name", "scenario_id"),
+    [
+        (
+            "standalone-3-0-upgrade-rollback.yaml",
+            "standalone-3-0-vortex-candidate-upgrade-rollback",
+        ),
+        (
+            "cluster-upgrade-rollback.yaml",
+            "cluster-3-0-vortex-candidate-upgrade-rollback",
+        ),
+    ],
+)
+def test_upgrade_templates_allow_only_registered_vortex_candidates(
+    template_name, scenario_id
+):
+    result = _run_resolve_inputs_guard(
+        template_name,
+        **{"scenario-id": scenario_id},
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
+def test_upgrade_templates_reject_old_rollback_reader_after_vortex_writes(
+    template_name,
+):
+    result = _run_resolve_inputs_guard(
+        template_name,
+        **{
+            "target-version": "3.0.1",
+            "rollback-vortex-enabled": "false",
+        },
+    )
+
+    assert result.returncode == 2
+    assert "invalid Vortex rollback reader" in result.stderr
+
+
 def test_upgrade_templates_delegate_forward_rollback_contract_to_schema_brick():
     for template_name in [
         "standalone-2-6-upgrade-rollback.yaml",
@@ -846,6 +946,9 @@ def test_upgrade_templates_validate_registered_scenario_before_deploy(template_n
     assert "validate_registered_scenario_parameters" in command
     assert '"workflow-template": "milvus-' in command
     for protected_parameter in (
+        "scenario-classification",
+        "scenario-support-status",
+        "release-gate-eligible",
         "schema-matrix",
         "forward-schema-matrix",
         "target-target-vec-index-version",
@@ -859,6 +962,99 @@ def test_upgrade_templates_validate_registered_scenario_before_deploy(template_n
             f'"{protected_parameter}": '
             f'"{{{{workflow.parameters.{protected_parameter}}}}}"' in command
         )
+
+
+@pytest.mark.parametrize(
+    (
+        "template_name",
+        "expected_classification",
+        "expected_support",
+        "expected_eligible",
+    ),
+    [
+        (
+            "standalone-2-6-upgrade-rollback.yaml",
+            "gate",
+            "supported_with_config_constraints",
+            "true",
+        ),
+        (
+            "standalone-3-0-upgrade-rollback.yaml",
+            "unregistered",
+            "unknown",
+            "false",
+        ),
+        (
+            "cluster-upgrade-rollback.yaml",
+            "gate",
+            "supported",
+            "true",
+        ),
+    ],
+)
+def test_upgrade_templates_report_release_gate_eligibility(
+    template_name,
+    expected_classification,
+    expected_support,
+    expected_eligible,
+):
+    template = yaml.safe_load((ROOT / "argo" / template_name).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    parameter_values = {
+        parameter["name"]: parameter["value"]
+        for parameter in template["spec"]["arguments"]["parameters"]
+    }
+
+    assert parameter_values["scenario-classification"] == expected_classification
+    assert parameter_values["scenario-support-status"] == expected_support
+    assert parameter_values["release-gate-eligible"] == expected_eligible
+
+    resolve_command = templates["resolve-inputs"]["container"]["args"][0]
+    assert (
+        '"scenario_classification": '
+        '"{{workflow.parameters.scenario-classification}}"' in resolve_command
+    )
+    assert (
+        '"scenario_support_status": '
+        '"{{workflow.parameters.scenario-support-status}}"' in resolve_command
+    )
+    assert (
+        '"release_gate_eligible": '
+        "{{workflow.parameters.release-gate-eligible}}" in resolve_command
+    )
+
+    final_command = templates["generate-final-report"]["container"]["args"][0]
+    assert (
+        '--scenario-classification "{{workflow.parameters.scenario-classification}}"'
+        in final_command
+    )
+    assert (
+        '--scenario-support-status "{{workflow.parameters.scenario-support-status}}"'
+        in final_command
+    )
+    assert (
+        '--release-gate-eligible "{{workflow.parameters.release-gate-eligible}}"'
+        in final_command
+    )
+    assert '"flow_summary_fallback": true' in final_command
+    assert '"release_gate_eligible": {{workflow.parameters.release-gate-eligible}}' in (
+        final_command
+    )
+
+    cleanup_command = templates["maybe-cleanup"]["container"]["args"][0]
+    assert (
+        '"release_gate_eligible": '
+        'json.loads("""{{workflow.parameters.release-gate-eligible}}""")'
+        in cleanup_command
+    )
+    assert (
+        '"scenario_classification": '
+        '"{{workflow.parameters.scenario-classification}}"' in cleanup_command
+    )
+    assert (
+        "- release gate eligible: "
+        "`{{workflow.parameters.release-gate-eligible}}`" in cleanup_command
+    )
 
 
 def _run_storage_assertion_heredoc(

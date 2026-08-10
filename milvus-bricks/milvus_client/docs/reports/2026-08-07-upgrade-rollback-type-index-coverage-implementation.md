@@ -99,7 +99,8 @@ metadata into a passing gate.
 
 ### Gate Scenarios and Workflows
 
-The gate manifest now contains 13 promoted scenarios and one negative scenario. Added promoted scenarios:
+The gate manifest now contains 11 promoted gate scenarios, two pre-release
+candidate scenarios, and one negative scenario. Added promoted scenarios:
 
 - `standalone-3-0-index-v10-v4-upgrade-rollback`
 - `cluster-3-0-index-v10-v4-upgrade-rollback`
@@ -264,11 +265,12 @@ Whole-repository Ruff was not used as a completion gate because legacy scripts c
 
 ### 2026-08-10 Final Review Verification
 
-The final review hardening, including release/reload validation and schema
-evolution rollback checkpoints, completed with:
+The final review hardening, including release/reload validation, schema
+evolution rollback checkpoints, and explicit pre-release candidate eligibility
+metadata, completed with:
 
 ```text
-PYTHONPATH=. pytest -q milvus_client/tests: 384 passed
+PYTHONPATH=. pytest -q milvus_client/tests: 433 passed
 argo lint --offline argo: passed
 ruff check on changed Python files: passed
 ruff format --check on changed Python files: passed
@@ -302,18 +304,22 @@ Confirmed passing behavior:
   nested scalar index probes executed successfully outside the product defects
   listed below.
 
-Confirmed Milvus blockers:
+Confirmed Milvus blockers and support boundaries:
 
 - StructArray FLOAT16 DISKANN returns a negative MAX_SIM_COSINE exact
   self-score.
 - SINDI growing-index construction can crash QueryNode after selecting an
   unsupported effective index version.
 - v3.0.0 cannot decode `vortex.variant` files written by the newer 3.0 target.
+  Product follow-up in [#52340](https://github.com/milvus-io/milvus/issues/52340)
+  established that v3.0.0 should not enable Vortex; supported rollback coverage
+  starts at v3.0.1, with reviewed Vortex 0.75 branch builds used only as
+  pre-release candidates.
 - Continuous cluster DML across the Woodpecker rollout/rollback can lose reader
   temporary state and permanently stall selected channel tSafe values.
 
-Each blocker has a reproduction and issue draft in this report directory. The
-test gates remain strict and expose these failures rather than converting them
-to warnings.
+Each item has a reproduction and issue draft in this report directory. Active
+blockers remain strict failures; the v3.0.0 Vortex result is preserved as an
+unsupported-path boundary rather than converted to a warning.
 
-The final 2026-08-10 offline unit test set completed with `384 passed`.
+The final 2026-08-10 offline unit test set completed with `433 passed`.

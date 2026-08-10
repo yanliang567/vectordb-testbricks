@@ -86,7 +86,8 @@ strict configuration constraint: do not enable storage v3 or vortex after
 upgrading to 3.0. Enabling storage v3 or setting `dataNode.storage.format` to
 `vortex` can make rollback to 2.6 unsafe and may trigger panic during rollback.
 Keep these runs on the legacy storage format; use the 3.0 baseline rollback
-lane for LoonFFI/vortex hard gates.
+lane only for non-Vortex gates. Vortex rollback release coverage starts at
+v3.0.1; reviewed 3.0 branch candidate images provide pre-release evidence.
 
 By default this template does not create `schema_matrix_3_0.yaml` data. New 3.0
 schema/data is upgrade-only when rolling back to 2.6 and is not expected to
@@ -142,11 +143,24 @@ controlled by the separate `*-vortex-enabled` parameters and is not implicitly
 enabled by LoonFFI. The workflow snapshots Milvus CR config after base deploy,
 target upgrade, optional post-upgrade config toggle, and rollback.
 
+Milvus issue [#52340](https://github.com/milvus-io/milvus/issues/52340)
+established that v3.0.0 is not a supported Vortex baseline. Promoted scenarios
+therefore reject every Vortex writer below v3.0.1 and also reject a rollback
+reader below v3.0.1 whenever base or target data may have been written as
+Vortex. Pre-release `candidate` scenarios may use older reported server
+versions only when all phase images are immutable, locked to reviewed manifest
+aliases, and declare the inspected Vortex 0.75 source/storage commits. The
+runtime precheck additionally requires the real server version to be at least
+the declared phase version, so a future v3.0.1 gate cannot run v3.0.0 while
+claiming a v3.0.1 override.
+
 The `allow-unsafe-negative-coverage` parameter exists only to run the
 unsupported negative scenario that intentionally enables LoonFFI/vortex before a
 2.6 rollback. Promoted gate scenarios keep it `false`; manifest validation
 rejects enabling it on `classification: gate`, and the Workflow runtime also
 requires an approved negative `scenario-id` before honoring the bypass.
+Candidate Vortex scenarios use a separate allowlist and do not enable the unsafe
+negative bypass.
 
 The standalone templates run pressure during fixed observe windows before and
 after both upgrade and rollback. These observe windows default to 300 seconds so
@@ -555,4 +569,5 @@ capability catalog treats `NullableVector` as a 3.0+ forward-only capability.
 | 3.0 baseline -> latest 3.0 -> 3.0 baseline | `milvus-standalone-3-0-upgrade-rollback` | 3.0 schema/data, serviceability, and pressure | Strict 3.0 branch rollback gate. |
 | cluster 2.6.18 -> latest 3.0 -> latest 2.6 | `milvus-cluster-upgrade-rollback` | 2.6 schema/data, serviceability, pressure, and cluster topology | Positive cluster gate. Rollback target must contain #50792; storage v3 and vortex stay disabled after upgrade. |
 | cluster 3.0 baseline -> latest 3.0 -> 3.0 baseline | `milvus-cluster-upgrade-rollback` | 3.0 schema/data, serviceability, pressure, and cluster topology | Strict 3.0 branch rollback gate under distributed components. |
+| reviewed 3.0 Vortex candidate -> newer candidate -> reviewed candidate | standalone and cluster workflows | Strict pre-release Storage V3 data/index/serviceability validation | Candidate evidence only. Both images contain Vortex 0.75; promote only after replacing the baseline with a pinned v3.0.1 release digest and rerunning. |
 | 2.6.18 -> latest 3.0 LoonFFI/vortex -> latest 2.6 | `milvus-standalone-2-6-upgrade-rollback` | Negative/observe-only | Not a promoted gate. This documents the unsafe rollback boundary and must not be treated as supported. |

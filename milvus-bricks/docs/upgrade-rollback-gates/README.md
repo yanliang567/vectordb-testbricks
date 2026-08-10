@@ -7,7 +7,8 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 The manifest currently registers 14 scenarios:
 
-- 13 promoted gate scenarios
+- 11 promoted gate scenarios
+- 2 pre-release candidate scenarios
 - 1 negative coverage scenario
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
@@ -20,17 +21,19 @@ The manifest currently registers 14 scenarios:
 | `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
 | `cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
 | `cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` on Woodpecker 2CU | Proxy, QueryNode, DataNode, and StreamingNode must each keep at least two replicas. |
-| `standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
-| `cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline + LoonFFI/Vortex` | Target and rollback both keep LoonFFI/storage v3 and Vortex enabled. |
+| `standalone-3-0-vortex-candidate-upgrade-rollback` | standalone | candidate | `earlier reviewed 3.0 candidate -> newer reviewed candidate + LoonFFI/Vortex -> earlier candidate + LoonFFI/Vortex` | Pre-release evidence for the v3.0.1 contract; not a release gate. |
+| `cluster-3-0-vortex-candidate-upgrade-rollback` | cluster | candidate | `earlier reviewed 3.0 candidate -> newer reviewed candidate + LoonFFI/Vortex -> earlier candidate + LoonFFI/Vortex` | Distributed pre-release evidence; not a release gate. |
 | `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
 | `standalone-3-0-index-v10-v4-upgrade-rollback` | standalone | gate | `3.0 baseline + target 10/4 -> 3.0 latest + target 10/4 -> 3.0 baseline + target 10/4` | Runtime target config is checked and SINDI/Block-Max plus JSON scalar index families are executed. |
 | `cluster-3-0-index-v10-v4-upgrade-rollback` | cluster | gate | `3.0 baseline + target 10/4 -> 3.0 latest + target 10/4 -> 3.0 baseline + target 10/4` | Distributed equivalent of the target-version and algorithm-coverage gate. |
 | `standalone-3-0-loon-vortex-to-2-6-negative` | standalone | negative | `2.6.18 -> 3.0 latest + LoonFFI/Vortex -> 2.6 latest` | Unsupported negative coverage only; not a promoted gate. |
 
-For the 3.0 LoonFFI/Vortex gates, the rollback phase uses the 3.0 baseline
-image but keeps LoonFFI/storage v3 and Vortex enabled. This validates image
-rollback compatibility after the upgraded version has written data and indexes
-with the 3.0 storage features enabled.
+Milvus v3.0.0 is not a supported Vortex reader/writer baseline. The candidate
+scenarios use two immutable 3.0 branch images that both contain
+`milvus-storage 63c29c6` and Vortex 0.75. They provide pre-release evidence for
+the v3.0.1 contract but are excluded from the promoted release-gate count. Once
+v3.0.1 is released, replace the candidate baseline with the v3.0.1 manifest-list
+digest and promote the scenarios only after real standalone and cluster reruns.
 
 The standalone and cluster target-only feature gates use the 2.6 baseline
 matrix for the rollback contract and the 3.0 matrix for forward collections
@@ -45,7 +48,7 @@ Shredding. The rollback phase keeps the setting enabled and requires the
 forward data, dynamic JSON fields, JSON path indexes, and filters to remain
 usable.
 
-The LoonFFI/Vortex gates create forward collections from
+The LoonFFI/Vortex candidate scenarios create forward collections from
 `schema_matrix_3_0_storage_v3.yaml`. They validate TEXT payloads below, at, and
 above 64 KiB plus a 1 MiB value, then rerun payload hash, lexical filter, BM25,
 index, and feature-semantic checks after rollback.
@@ -102,8 +105,13 @@ harbor.milvus.io/milvusdb/milvus:v3.0.0@sha256:49371c30af46b1013e4d3e0b980e691d8
 The tag remains in the reference for readability; the digest fixes the actual
 image content even though Harbor does not mark the tag immutable. Do not use a
 retention-limited `3.0-YYYYMMDD-<sha>` branch build as the long-lived baseline
-alias; use those concrete build tags as explicit target or one-off phase
-overrides instead.
+alias. The reviewed candidate aliases are a temporary exception: they are
+pinned by digest, record source/storage commits, and reject runtime overrides.
+At the time of this change Harbor had no v3.0.1 release or previous-day
+multi-arch 3.0 image, so the candidate path uses the previous available
+`3.0-20260807-697431f2` build as base/rollback and
+`3.0-20260807-1439dc7d` as target. Both resolve to `milvus-storage 63c29c6`
+with Vortex 0.75.
 
 If you add a new branch family such as `3.1` or `4.0`, add an image alias,
 add or reuse a schema matrix, register the new scenario IDs, then update the
@@ -113,13 +121,12 @@ manifest and renderer tests.
 
 Run these commands from `milvus-bricks/`.
 
-Standalone 3.0 LoonFFI/Vortex gate:
+Standalone 3.0 LoonFFI/Vortex candidate:
 
 ```bash
 PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
-  --scenario-id standalone-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline \
-  --format argo-args \
-  --allow-placeholder
+  --scenario-id standalone-3-0-vortex-candidate-upgrade-rollback \
+  --format argo-args
 ```
 
 Standalone 2.6 -> 3.0 target-only feature gate:
@@ -149,13 +156,12 @@ PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
   --allow-placeholder
 ```
 
-Cluster 3.0 LoonFFI/Vortex gate:
+Cluster 3.0 LoonFFI/Vortex candidate:
 
 ```bash
 PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
-  --scenario-id cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline \
-  --format argo-args \
-  --allow-placeholder
+  --scenario-id cluster-3-0-vortex-candidate-upgrade-rollback \
+  --format argo-args
 ```
 
 Cluster Woodpecker 2CU HA gate:
@@ -178,7 +184,7 @@ Generate the arguments first:
 
 ```bash
 PYTHONPATH=. python3 -m milvus_client.requests.render_upgrade_rollback_params \
-  --scenario-id cluster-3-0-baseline-to-3-0-latest-loon-vortex-rollback-3-0-baseline \
+  --scenario-id cluster-3-0-vortex-candidate-upgrade-rollback \
   --repo-revision <full-commit-sha> \
   --format argo-args
 ```
@@ -201,6 +207,11 @@ step executes the same reviewed test implementation.
 - LoonFFI/storage v3 is represented by Milvus config key
   `common.storage.useLoonFFI`.
 - Vortex is represented by Milvus config key `dataNode.storage.format=vortex`.
+- Promoted Vortex gates require Milvus v3.0.1 or later for every Vortex writer
+  and for any rollback reader that may encounter Vortex data.
+- Pre-release candidate aliases are immutable and locked in the manifest.
+  Runtime image/version overrides are rejected; refresh the reviewed alias and
+  storage/source commit metadata through a code change instead.
 - `allow_unsafe_negative_coverage` is allowed only for explicitly registered
   negative scenarios.
 - The WorkflowTemplate runtime guard still rejects unsafe 2.6 rollback storage

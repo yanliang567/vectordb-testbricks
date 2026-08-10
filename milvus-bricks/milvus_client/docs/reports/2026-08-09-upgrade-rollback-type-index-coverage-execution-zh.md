@@ -23,7 +23,8 @@ fail-closed hardening；这些变更未重新执行历史 Kubernetes workflow。
 - index engine version `10/4` 的 sealed index 构建及回滚复用通过。
 - standalone JSON Shredding 全 DML 升级/回滚通过。
 - cluster JSON Shredding 的数据和索引格式兼容性通过。
-- 4 类 Milvus 产品问题已稳定复现并提交正式 Issue。
+- 3 类 Milvus 产品 blocker 已稳定复现；另有 1 条 v3.0.0 Vortex 不支持边界
+  已通过 Issue 确认。
 - 对应 feature gate 保持严格失败，没有通过 warning、skip 或重建索引掩盖问题。
 
 ## 2. 已提交的 Milvus Issues
@@ -32,7 +33,7 @@ fail-closed hardening；这些变更未重新执行历史 Kubernetes workflow。
 |---|---|---|
 | StructArray FLOAT16 DISKANN 返回负的 MAX_SIM_COSINE 自相似分数 | [milvus-io/milvus#52338](https://github.com/milvus-io/milvus/issues/52338) | Open, `kind/bug`, `needs-triage` |
 | SINDI growing sparse index 在有效版本 8 上触发 QueryNode SIGSEGV | [milvus-io/milvus#52339](https://github.com/milvus-io/milvus/issues/52339) | Open, `kind/bug`, `needs-triage` |
-| 新版 3.0 写入的 `vortex.variant` 无法被 v3.0.0 回滚版本读取 | [milvus-io/milvus#52340](https://github.com/milvus-io/milvus/issues/52340) | Open, `kind/bug`, `needs-triage` |
+| 新版 3.0 写入的 `vortex.variant` 无法被 v3.0.0 回滚版本读取 | [milvus-io/milvus#52340](https://github.com/milvus-io/milvus/issues/52340) | 产品边界已确认：v3.0.0 不应开启 Vortex，支持从 v3.0.1 开始 |
 | Woodpecker reader state 丢失导致 rollback 后 channel tSafe 永久卡住 | [milvus-io/milvus#52341](https://github.com/milvus-io/milvus/issues/52341) | Open, `kind/bug`, `needs-triage` |
 
 ## 3. 测试环境
@@ -69,8 +70,8 @@ workflow 不单独作为功能场景统计。
 | JSON Shredding cluster full DML | `pr25-cl30-json-r3-77cdt` | 100 行/schema | Fail | rollback 后 channel tSafe 卡住约 14 分钟。 |
 | JSON Shredding cluster read-only control | `pr25-cl30-json-ro-r1-r56q6` | 100 行/schema | Pass | 同配置和 phase DML/DQL 下格式兼容性通过。 |
 | JSON Shredding cluster full DML 复现 | `pr25-cl30-json-r3-vw87h` | 100 行/schema | Fail | 复现 16 分钟以上 tSafe stall，并固定 Woodpecker reader 日志。 |
-| Loon/Vortex standalone | `pr25-st30-loon-r4-jsw7x` | 100 行/schema | Fail | v3.0.0 缺少 `vortex.variant` decoder。 |
-| Loon/Vortex cluster | `pr25-cl30-loon-r1-jfkzb` | 100 行/schema | Fail | Woodpecker 集群复现同一 persisted-format 问题。 |
+| Loon/Vortex standalone | `pr25-st30-loon-r4-jsw7x` | 100 行/schema | Fail | 历史 v3.0.0 不支持路径；保留为 #52340 证据，不计入 release gate。 |
+| Loon/Vortex cluster | `pr25-cl30-loon-r1-jfkzb` | 100 行/schema | Fail | Woodpecker 集群复现同一 v3.0.0 不支持边界。 |
 
 控制和隔离场景：
 
@@ -427,7 +428,11 @@ Registry missing encoding with id vortex.variant
 ```
 
 判断：新版 3.0 writer 写入了 v3.0.0 reader 未注册的 encoding。Standalone
-和 Cluster 均复现，属于持久化格式向后兼容问题。
+和 Cluster 均复现。2026-08-10 产品结论明确 v3.0.0 不应开启 Vortex，正式
+支持边界从 v3.0.1 开始。因此该历史失败不再作为 supported release path
+blocker；测试 manifest 保留 v3.0.0 非 Vortex gate，并对低于 v3.0.1 的
+Vortex writer/rollback reader fail-closed。v3.0.1 发布前仅使用锁定 image
+和源码/storage commit 的 Vortex 0.75 candidate 场景收集预发布证据。
 
 ### 9.4 Woodpecker Reader State / tSafe Stall
 
@@ -507,17 +512,19 @@ Review 结论：
 
 剩余风险：
 
-- 4 个 Milvus Issue 未修复前，相应 feature gate 不能作为 release-green。
+- 3 个仍然有效的 Milvus blocker 未修复前，相应 feature gate 不能作为
+  release-green。#52340 已转化为 v3.0.0 配置边界，Vortex release-green
+  需要 v3.0.1+ pinned baseline 的真实回归结果。
 - GPU index 不在本轮 CPU upgrade gate 范围内。
 
 ## 11. 自动化验证
 
 ```text
-offline pytest: 384 passed
+offline pytest: 408 passed
 Argo offline lint: passed
 Ruff check: passed
 Ruff format check: passed
-GitHub Actions: run `31364878538` 在 review-fix commit `d76c4e7` 上通过
+GitHub Actions: run `31369968096` 在 Vortex contract commit `719ce29` 上通过
 ```
 
 ## 12. 资源清理
@@ -547,7 +554,8 @@ GitHub Actions: run `31364878538` 在 review-fix commit `d76c4e7` 上通过
 | SINDI growing-index write pressure | Blocked by [#52339](https://github.com/milvus-io/milvus/issues/52339) |
 | StructArray FLOAT/VARCHAR scalar index | Pass at target validation |
 | StructArray FLOAT16 DISKANN score | Blocked by [#52338](https://github.com/milvus-io/milvus/issues/52338) |
-| Loon/Vortex rollback | Blocked by [#52340](https://github.com/milvus-io/milvus/issues/52340) |
+| Loon/Vortex rollback | v3.0.0 路径按产品契约不支持；已注册锁定的 branch-build candidate，正式 gate 等待 v3.0.1+ 回归 |
 
-PR #25 可以作为测试基础设施变更继续 review/merge。4 个被阻塞的 Milvus
-能力在对应 Issue 修复并完成回归之前，不应被标记为 release-green。
+PR #25 已作为测试基础设施变更合入。3 个仍被阻塞的 Milvus 能力在对应
+Issue 修复并完成回归之前，不应被标记为 release-green。Vortex 需要在
+v3.0.1+ release baseline 上完成 standalone/cluster 回归后再提升为正式 gate。

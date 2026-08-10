@@ -55,6 +55,12 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "main",
         "--scenario-id",
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+        "--scenario-classification",
+        "gate",
+        "--scenario-support-status",
+        "supported",
+        "--release-gate-eligible",
+        "true",
         "--deploy-profile",
         "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml",
         "--deploy-topology",
@@ -300,6 +306,41 @@ def _write_successful_phase_dml_dql_validation(
             tmp_path / "results" / "validate_schema_features_after_rollback.json",
             {"status": "passed"},
         )
+
+
+def test_generate_workflow_report_marks_candidate_pass_as_not_release_eligible(
+    tmp_path,
+):
+    _write_successful_validation(tmp_path)
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {"total": 1, "passed": 1, "failed": 0, "fail_on_error": True},
+    )
+    _write_json(tmp_path / "reports" / "env_snapshot.json", {})
+    _write_json(tmp_path / "reports" / "flow_summary.json", {})
+    _write_json(tmp_path / "reports" / "deploy_topology.json", {})
+    (tmp_path / "k8s").mkdir()
+
+    args = _base_args(tmp_path, pressure_fail_on_error="true")
+    args[args.index("--scenario-classification") + 1] = "candidate"
+    args[args.index("--scenario-support-status") + 1] = "pre_release_candidate"
+    args[args.index("--release-gate-eligible") + 1] = "false"
+
+    rc = generate_workflow_report.main(args)
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    markdown = (tmp_path / "reports" / "final_report.md").read_text()
+    assert rc == 0
+    assert report["status"] == "passed"
+    assert report["scenario_classification"] == "candidate"
+    assert report["scenario_support_status"] == "pre_release_candidate"
+    assert report["release_gate_eligible"] is False
+    assert report["parameters"]["scenario_classification"] == "candidate"
+    assert report["parameters"]["scenario_support_status"] == "pre_release_candidate"
+    assert report["parameters"]["release_gate_eligible"] is False
+    assert "scenario classification: `candidate`" in markdown
+    assert "scenario support status: `pre_release_candidate`" in markdown
+    assert "release gate eligible: `False`" in markdown
 
 
 def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_strict(

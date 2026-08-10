@@ -157,9 +157,10 @@ after rollback, and performs a final compat validation.
 
 See `docs/upgrade-rollback.md` for design details and
 `../docs/upgrade-rollback-gates/README.md` for the gate execution guide. The
-code-managed gate manifest currently contains 6 promoted gate scenarios and 1
-negative coverage scenario, including standalone and cluster coverage for
-`3.0 baseline -> 3.0 latest + LoonFFI/Vortex -> 3.0 baseline`.
+code-managed gate manifest currently contains 11 promoted gate scenarios, 2
+pre-release Vortex candidate scenarios, and 1 negative coverage scenario.
+Milvus v3.0.0 remains the non-Vortex baseline; Vortex rollback release gates
+start at v3.0.1, while reviewed 3.0 branch candidates provide interim evidence.
 
 ## 4am 2.6 Standalone Upgrade/Rollback
 

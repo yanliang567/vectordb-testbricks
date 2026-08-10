@@ -31,13 +31,19 @@ Confirmed Milvus blockers:
 - StructArray `FLOAT16_VECTOR + DISKANN + MAX_SIM_COSINE` returns a negative
   exact self-similarity score
 - SINDI growing sparse index failure can crash QueryNode
-- newer Vortex `vortex.variant` files cannot be read by the pinned v3.0.0
-  rollback image
 - cluster Woodpecker reader state can be lost across rollout/rollback under
   continuous DML, permanently stalling selected channel tSafe values
 
-The blockers remain strict failures. They were not converted to warnings or
-excluded from the corresponding feature contract.
+Confirmed product support boundary:
+
+- Milvus v3.0.0 is not recommended or supported as a Vortex baseline. Vortex
+  rollback support starts at v3.0.1; issue
+  [#52340](https://github.com/milvus-io/milvus/issues/52340) retains the
+  historical decoder evidence.
+
+The three active blockers remain strict failures. The historical v3.0.0
+Vortex failures are preserved but excluded from the supported release-gate
+denominator rather than converted to warnings.
 
 ## Pull Request and Environment
 
@@ -69,8 +75,8 @@ Milvus images:
 | JSON Shredding cluster full DML reproduction | `pr25-cl30-json-r3-vw87h` | 100 rows/schema | Failed | Reproduced a 16+ minute tSafe stall with matching Woodpecker reader-state errors. |
 | StructArray FLOAT16 DISKANN | `pr25-st30-forward5000-r1-tl6pm` | 5000 rows | Failed | Exact self-query returned approximately `-1.0` for MAX_SIM_COSINE. |
 | SINDI growing index | `pr25-cl30-idx104-r1-gptfx` | write pressure | Failed | QueryNode crashed after an unsupported growing index version path. |
-| Loon/Vortex standalone | `pr25-st30-loon-r4-jsw7x` | 100 rows/schema | Failed | v3.0.0 rollback cannot decode `vortex.variant`. |
-| Loon/Vortex cluster | `pr25-cl30-loon-r1-jfkzb` | 100 rows/schema | Failed | Same persisted-format incompatibility reproduced with Woodpecker. |
+| Loon/Vortex standalone | `pr25-st30-loon-r4-jsw7x` | 100 rows/schema | Failed | Historical unsupported v3.0.0 Vortex rollback; retained as #52340 evidence, not a release gate. |
+| Loon/Vortex cluster | `pr25-cl30-loon-r1-jfkzb` | 100 rows/schema | Failed | Same unsupported v3.0.0 boundary reproduced with Woodpecker. |
 
 ## Passing Evidence
 
@@ -287,6 +293,12 @@ The newer 3.0 target writes `vortex.variant`; v3.0.0 lacks the corresponding
 decoder. Standalone and cluster rollback both leave collections without shard
 leaders while the deployment still appears healthy.
 
+Product disposition recorded on 2026-08-10: v3.0.0 should not enable Vortex;
+the supported rollback boundary starts at v3.0.1. The test manifest now keeps
+v3.0.0 only for non-Vortex gates, rejects unsupported Vortex phase versions,
+and uses image-locked Vortex 0.75 branch builds as pre-release candidate
+coverage until a v3.0.1 release digest is available.
+
 Issue draft:
 [2026-08-09-milvus-vortex-variant-rollback-incompatibility-issue-draft.md](2026-08-09-milvus-vortex-variant-rollback-incompatibility-issue-draft.md)
 
@@ -349,7 +361,8 @@ Real execution exposed and drove the following PR improvements:
 - made TEXT MATCH configuration explicit through `enable_match`
 - isolated JSON Shredding and Loon/Vortex specialty gates onto a stable
   rollback-safe 2.6-compatible base matrix
-- kept Vortex, DISKANN score, SINDI crash, and Woodpecker tSafe failures strict
+- kept DISKANN score, SINDI crash, and Woodpecker tSafe failures strict; the
+  v3.0.0 Vortex result is now recorded as an unsupported product boundary
 
 Final review also found two test files that did not match the configured Ruff
 formatter. They were mechanically formatted; no runtime behavior changed.
@@ -366,7 +379,7 @@ test-framework-only changes.
 Offline unit tests:
 
 ```text
-384 passed
+408 passed
 ```
 
 Static validation:
@@ -378,8 +391,8 @@ ruff format --check on changed Python files: passed after formatting
 git diff --check: passed
 ```
 
-GitHub Actions run `31364878538` passed Argo lint, unit tests, Ruff check, and
-Ruff format check for review-fix commit `d76c4e7`.
+GitHub Actions run `31369968096` passed Argo lint, unit tests, Ruff check, and
+Ruff format check for Vortex-contract commit `719ce29`.
 
 ## Resource Cleanup
 
@@ -407,8 +420,10 @@ There were no running `pr25-*` Argo workflows at report completion.
 | SINDI growing-index write pressure | Blocked by QueryNode crash |
 | StructArray FLOAT/VARCHAR nested scalar indexes | Implemented and target-side probes passed |
 | StructArray FLOAT16 DISKANN score contract | Blocked by negative MAX_SIM_COSINE score |
-| Loon/Vortex rollback | Blocked by persisted-format decoder incompatibility |
+| Loon/Vortex rollback | v3.0.0 path unsupported by product contract; v3.0.1 release gate pending, reviewed branch-build candidate coverage registered |
 
 PR #25 is ready for review as a test-infrastructure change. The confirmed
 Milvus defects should be resolved or explicitly accepted by product owners
 before the affected feature scenarios are treated as release-green gates.
+Vortex is handled separately: v3.0.0 is excluded by contract, and release-green
+status requires a successful rerun with a pinned v3.0.1-or-later baseline.

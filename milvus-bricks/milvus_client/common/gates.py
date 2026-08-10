@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from milvus_client.common.schema import (
 from milvus_client.common.version import (
     image_is_immutable,
     image_version_family,
+    version_at_least,
     version_family,
 )
 
@@ -29,6 +31,25 @@ REGISTERED_SCENARIO_MUTABLE_PARAMETERS = {
     "collection-prefix",
     "forward-collection-prefix",
 }
+STRICT_LIFECYCLE_CLASSIFICATIONS = {"gate", "candidate"}
+RELEASE_GATE_SUPPORT_STATUSES = {
+    "supported",
+    "supported_with_config_constraints",
+}
+UNREGISTERED_SCENARIO_METADATA = {
+    "scenario-classification": "unregistered",
+    "scenario-support-status": "unknown",
+    "release-gate-eligible": "false",
+}
+VORTEX_MIN_SUPPORTED_VERSION = "3.0.1"
+VORTEX_CANDIDATE_SUPPORT_STATUS = "pre_release_candidate"
+VORTEX_CANDIDATE_COMPATIBILITY = "vortex-0.75+"
+CANDIDATE_ALIAS_METADATA_FIELDS = {
+    "source_commit",
+    "milvus_storage_commit",
+    "vortex_compatibility",
+}
+FULL_GIT_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
 def load_gate_manifest(path: str | Path = DEFAULT_GATE_MANIFEST) -> dict[str, Any]:
@@ -87,7 +108,21 @@ def resolve_gate_scenario(
             )
         for field in ("image", "version"):
             if override.get(field):
-                if field == "image" and resolved.get("classification") == "gate":
+                if (
+                    resolved.get("classification") == "candidate"
+                    and resolved[phase].get("vortex_compatibility")
+                    and str(override[field]) != str(resolved[phase][field])
+                ):
+                    raise ValueError(
+                        f"{scenario_id}: {phase} reviewed candidate image is locked; "
+                        "update the manifest alias through code review instead of "
+                        f"overriding {field}"
+                    )
+                if (
+                    field == "image"
+                    and resolved.get("classification")
+                    in STRICT_LIFECYCLE_CLASSIFICATIONS
+                ):
                     override_image = str(override[field])
                     if not image_is_immutable(override_image):
                         raise ValueError(
@@ -132,6 +167,12 @@ def render_argo_parameters(
         "repo-url": str(defaults.get("repo_url", "")),
         "repo-revision": str(defaults.get("repo_revision", "main")),
         "scenario-id": str(scenario["id"]),
+        "scenario-classification": str(scenario["classification"]),
+        "scenario-support-status": str(scenario["support_status"]),
+        "release-gate-eligible": _bool_str(
+            scenario.get("classification") == "gate"
+            and scenario.get("support_status") in RELEASE_GATE_SUPPORT_STATUSES
+        ),
         "deploy-profile": str(scenario["deploy_profile"]),
         "base-milvus-image": str(scenario["base"]["image"]),
         "base-version": str(scenario["base"]["version"]),
@@ -300,6 +341,23 @@ def validate_registered_scenario_parameters(
     runtime_parameters: dict[str, Any],
 ) -> dict[str, Any] | None:
     if not any(item.get("id") == scenario_id for item in manifest.get("scenarios", [])):
+        drift = {
+            name: {
+                "expected": expected_value,
+                "actual": str(runtime_parameters.get(name, "<missing>")),
+            }
+            for name, expected_value in UNREGISTERED_SCENARIO_METADATA.items()
+            if str(runtime_parameters.get(name, "<missing>")) != expected_value
+        }
+        if drift:
+            details = ", ".join(
+                f"{name}: expected {values['expected']!r}, got {values['actual']!r}"
+                for name, values in sorted(drift.items())
+            )
+            raise ValueError(
+                f"{scenario_id}: unregistered scenario report metadata must remain "
+                f"fail-closed: {details}"
+            )
         return None
 
     missing_phase_parameters = [
@@ -412,6 +470,28 @@ def validate_gate_manifest(
                 f"{source}: scenario {scenario_id} may enable allow_unsafe_negative_coverage only "
                 "when classification is negative"
             )
+        classification = str(scenario.get("classification"))
+        if classification not in {"gate", "candidate", "negative"}:
+            raise ValueError(
+                f"{source}: scenario {scenario_id} has unsupported classification "
+                f"{classification!r}"
+            )
+        if (
+            classification == "candidate"
+            and scenario.get("support_status") != VORTEX_CANDIDATE_SUPPORT_STATUS
+        ):
+            raise ValueError(
+                f"{source}: candidate scenario {scenario_id} must use support_status "
+                f"{VORTEX_CANDIDATE_SUPPORT_STATUS!r}"
+            )
+        if (
+            classification == "gate"
+            and scenario.get("support_status") not in RELEASE_GATE_SUPPORT_STATUSES
+        ):
+            raise ValueError(
+                f"{source}: gate scenario {scenario_id} must use a release-eligible "
+                f"support_status from {sorted(RELEASE_GATE_SUPPORT_STATUSES)!r}"
+            )
         for section, logical_name in (
             ("workflow_templates", "workflow_template"),
             ("deploy_profiles", "deploy_profile"),
@@ -425,7 +505,7 @@ def validate_gate_manifest(
 def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
     _validate_scenario_execution_mode(scenario)
     _validate_phase_image_versions(scenario)
-    if scenario.get("classification") != "gate":
+    if scenario.get("classification") not in STRICT_LIFECYCLE_CLASSIFICATIONS:
         return
     base_version = str(scenario["base"]["version"])
     target_version = str(scenario["target"]["version"])
@@ -456,6 +536,7 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
         and rollback_version.startswith("2.6")
     )
     if not is_2_6_to_3_0_to_2_6:
+        _validate_vortex_compatibility_contract(scenario)
         return
 
     forbidden = set(scenario.get("forbidden_after_upgrade") or [])
@@ -498,7 +579,8 @@ def validate_no_gate_placeholders(
             f"{scenario['id']}: runnable scenario contains placeholder images: "
             f"{', '.join(placeholders)}; pass --allow-placeholder only for dry-run/review output"
         )
-    if scenario.get("classification") == "gate":
+    if scenario.get("classification") in STRICT_LIFECYCLE_CLASSIFICATIONS:
+        lifecycle_kind = str(scenario.get("classification"))
         mutable_images = [
             f"{phase}.image={scenario[phase]['image']}"
             for phase in ("base", "target", "rollback")
@@ -506,7 +588,7 @@ def validate_no_gate_placeholders(
         ]
         if mutable_images:
             raise ValueError(
-                f"{scenario['id']}: runnable gate contains mutable images: "
+                f"{scenario['id']}: runnable {lifecycle_kind} contains mutable images: "
                 f"{', '.join(mutable_images)}; use concrete build tags or sha256 digests"
             )
 
@@ -525,6 +607,9 @@ def _resolve_phase(
         alias = aliases[image_ref]
         payload["image"] = alias["image"]
         payload["version"] = alias["version"]
+        for field in CANDIDATE_ALIAS_METADATA_FIELDS:
+            if field in alias:
+                payload[field] = alias[field]
     if not payload.get("image") or not payload.get("version"):
         raise ValueError(
             f"{scenario.get('id')}: {phase} requires image_ref or image+version"
@@ -616,6 +701,61 @@ def _validate_phase_image_versions(scenario: dict[str, Any]) -> None:
                 f"does not match declared version family {declared_family}; "
                 f"image={phase_payload['image']} version={phase_payload['version']}"
             )
+
+
+def _has_reviewed_vortex_candidate_metadata(
+    scenario: dict[str, Any], phase: str
+) -> bool:
+    payload = scenario[phase]
+    source_commit = str(payload.get("source_commit") or "")
+    storage_commit = str(payload.get("milvus_storage_commit") or "")
+    image_tag = str(payload.get("image") or "").split("@", 1)[0].rsplit(":", 1)[-1]
+    return (
+        scenario.get("classification") == "candidate"
+        and scenario.get("support_status") == VORTEX_CANDIDATE_SUPPORT_STATUS
+        and payload.get("vortex_compatibility") == VORTEX_CANDIDATE_COMPATIBILITY
+        and FULL_GIT_SHA.fullmatch(source_commit) is not None
+        and FULL_GIT_SHA.fullmatch(storage_commit) is not None
+        and image_tag.endswith(f"-{source_commit[:8]}")
+        and image_is_immutable(str(payload.get("image") or ""))
+    )
+
+
+def _phase_supports_vortex(scenario: dict[str, Any], phase: str) -> bool:
+    return version_at_least(
+        str(scenario[phase]["version"]), VORTEX_MIN_SUPPORTED_VERSION
+    ) or _has_reviewed_vortex_candidate_metadata(scenario, phase)
+
+
+def _validate_vortex_compatibility_contract(scenario: dict[str, Any]) -> None:
+    for phase in ("base", "target", "rollback"):
+        if not scenario[phase].get("vortex_enabled", False):
+            continue
+        if _phase_supports_vortex(scenario, phase):
+            continue
+        if scenario.get("classification") == "candidate":
+            raise ValueError(
+                f"{scenario['id']}: {phase} Vortex requires reviewed Vortex "
+                "compatibility metadata for the locked pre-release candidate image"
+            )
+        raise ValueError(
+            f"{scenario['id']}: {phase} Vortex requires Milvus >= "
+            f"{VORTEX_MIN_SUPPORTED_VERSION}; got {scenario[phase]['version']}"
+        )
+
+    vortex_data_may_exist = any(
+        scenario[phase].get("vortex_enabled", False) for phase in ("base", "target")
+    )
+    if (
+        scenario.get("rollback_enabled", True)
+        and vortex_data_may_exist
+        and not _phase_supports_vortex(scenario, "rollback")
+    ):
+        raise ValueError(
+            f"{scenario['id']}: rollback must support Vortex data written before "
+            f"rollback; Milvus >= {VORTEX_MIN_SUPPORTED_VERSION} or a reviewed "
+            "pre-release candidate image is required"
+        )
 
 
 def _bool_str(value: Any) -> str:

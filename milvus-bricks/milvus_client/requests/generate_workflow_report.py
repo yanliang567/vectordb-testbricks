@@ -212,6 +212,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     )
     pressure_failed = int(pressure.get("failed", 0) or 0)
     pressure_fail_on_error = parse_bool(args.pressure_fail_on_error)
+    release_gate_eligible = parse_bool(args.release_gate_eligible)
 
     status = "passed"
     if (
@@ -229,6 +230,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "status": status,
+        "scenario_classification": args.scenario_classification,
+        "scenario_support_status": args.scenario_support_status,
+        "release_gate_eligible": release_gate_eligible,
         "workflow": {
             "name": args.workflow_name,
             "uid": args.workflow_uid,
@@ -247,6 +251,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         },
         "parameters": {
             "scenario_id": args.scenario_id,
+            "scenario_classification": args.scenario_classification,
+            "scenario_support_status": args.scenario_support_status,
+            "release_gate_eligible": release_gate_eligible,
             "repo_url": args.repo_url,
             "repo_revision": args.repo_revision,
             "deploy_profile": args.deploy_profile,
@@ -417,6 +424,9 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- workflow: `{workflow['name']}`",
         f"- status: `{report['status']}`",
         f"- scenario: `{params.get('scenario_id')}`",
+        f"- scenario classification: `{report.get('scenario_classification')}`",
+        f"- scenario support status: `{report.get('scenario_support_status')}`",
+        f"- release gate eligible: `{report.get('release_gate_eligible')}`",
         f"- deploy profile: `{params.get('deploy_profile')}`",
         f"- collection prefix: `{params['collection_prefix']}`",
         f"- forward collection prefix: `{params['forward_collection_prefix']}`",
@@ -475,6 +485,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo-url", required=True)
     parser.add_argument("--repo-revision", required=True)
     parser.add_argument("--scenario-id", default="")
+    parser.add_argument("--scenario-classification", required=True)
+    parser.add_argument("--scenario-support-status", required=True)
+    parser.add_argument("--release-gate-eligible", required=True)
     parser.add_argument("--deploy-profile", default="")
     parser.add_argument("--deploy-topology", default="")
     parser.add_argument("--schema-matrix", required=True)
