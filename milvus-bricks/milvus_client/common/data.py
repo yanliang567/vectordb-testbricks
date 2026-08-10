@@ -18,6 +18,10 @@ from milvus_client.common.schema import (
 )
 
 
+def canonical_float32(value: float) -> float:
+    return unpack("!f", pack("!f", value))[0]
+
+
 def stable_float_vector(seed: int, pk: int, dim: int) -> list[float]:
     rng = Random(seed + pk)
     values = [rng.random() for _ in range(dim)]
@@ -26,7 +30,7 @@ def stable_float_vector(seed: int, pk: int, dim: int) -> list[float]:
         normalized = values
     else:
         normalized = [value / norm for value in values]
-    return [unpack("!f", pack("!f", value))[0] for value in normalized]
+    return [canonical_float32(value) for value in normalized]
 
 
 def stable_int8_vector(seed: int, pk: int, dim: int) -> list[int]:
@@ -171,7 +175,9 @@ def update_projection_field(spec: SchemaSpec) -> str | None:
 def _deterministic_update_value(field: FieldSpec, pk: int, current: Any) -> Any:
     if field.dtype in {"INT64", "INT32", "INT16", "INT8"}:
         return pk % 97 + 1
-    if field.dtype in {"FLOAT", "DOUBLE"}:
+    if field.dtype == "FLOAT":
+        return canonical_float32(float(pk % 997) + 0.25)
+    if field.dtype == "DOUBLE":
         return float(pk % 997) + 0.25
     if field.dtype == "BOOL":
         return not bool(current)
@@ -183,7 +189,9 @@ def _deterministic_update_value(field: FieldSpec, pk: int, current: Any) -> Any:
     if field.dtype == "ARRAY":
         if field.element_type in {"INT64", "INT32", "INT16", "INT8"}:
             return [pk % 97, (pk + 1) % 97]
-        if field.element_type in {"FLOAT", "DOUBLE"}:
+        if field.element_type == "FLOAT":
+            return [canonical_float32(float(pk % 97) + 0.25)]
+        if field.element_type == "DOUBLE":
             return [float(pk % 97) + 0.25]
         if field.element_type == "BOOL":
             return [True, False]
@@ -263,7 +271,9 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
         return pk
     if field.dtype in {"INT32", "INT16", "INT8"}:
         return pk % 127
-    if field.dtype in {"FLOAT", "DOUBLE"}:
+    if field.dtype == "FLOAT":
+        return canonical_float32(float(pk % 1000) / 10.0)
+    if field.dtype == "DOUBLE":
         return float(pk % 1000) / 10.0
     if field.dtype == "BOOL":
         return pk % 2 == 0
@@ -313,7 +323,12 @@ def generate_field_value(field: FieldSpec, pk: int, seed: int) -> Any:
     if field.dtype == "ARRAY":
         if field.element_type in {"INT64", "INT32", "INT16", "INT8"}:
             return [pk % 8, (pk + 1) % 8]
-        if field.element_type in {"FLOAT", "DOUBLE"}:
+        if field.element_type == "FLOAT":
+            return [
+                canonical_float32(float(pk % 8)),
+                canonical_float32(float((pk + 1) % 8)),
+            ]
+        if field.element_type == "DOUBLE":
             return [float(pk % 8), float((pk + 1) % 8)]
         if field.element_type == "BOOL":
             return [pk % 2 == 0, (pk + 1) % 2 == 0]
@@ -346,7 +361,9 @@ def generate_struct_field_value(
         return None
     if field.dtype in VECTOR_TYPES:
         return stable_vector_value(field, nested_pk, seed)
-    if field.dtype in {"FLOAT", "DOUBLE"}:
+    if field.dtype == "FLOAT":
+        return canonical_float32(float((pk % 1000) * 10 + offset) / 10.0)
+    if field.dtype == "DOUBLE":
         return float((pk % 1000) * 10 + offset) / 10.0
     if field.dtype in {"INT64", "INT32", "INT16", "INT8"}:
         return pk * 10 + offset

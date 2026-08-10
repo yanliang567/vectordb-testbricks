@@ -403,3 +403,16 @@ git diff --check: passed
   构造普通向量或 StructArray element query；auto-id（不 upsert）和 new collection
   仍使用原始 deterministic query。新增 vector-only 回归测试验证 seed=909 更新后的
   query 与存储值一致。
+
+### Round 7：StructArray FLOAT scalar 存储精度
+
+- **[P1] 只规范 FLOAT_VECTOR 仍会使 StructArray FLOAT checksum 在较大数据量下
+  假失败。** R4 的 1500-row baseline 首次覆盖到 `pk=129, offset=1`；生成值
+  `129.1` 写入 Milvus FLOAT 后变为 float32 `129.100006...`，五位小数 checksum
+  从 `129.1` 变为 `129.10001`。`struct_array_element_rollback_safe` 和
+  `struct_array_numeric_autoindex_rollback_safe` 因此在升级前失败。
+- 已增加统一 `canonical_float32()`，覆盖顶层 FLOAT、ARRAY<FLOAT>、StructArray
+  FLOAT、FLOAT_VECTOR 和 phase deterministic update。DOUBLE 和 JSON number 仍保留
+  float64 语义，不通过放宽 checksum 掩盖精度差异。
+- 新增 `pk=129, offset=1` 回归测试；使用修复后的本地代码对 R4 保留集群重新计算
+  两个 1500-row collection checksum，均与实际查询结果一致。

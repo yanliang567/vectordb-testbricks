@@ -1677,7 +1677,9 @@ def test_rollback_safe_autoindex_matrix_builds_deterministic_scalar_filters():
     assert autoindex_filters == {
         "scalar_dynamic_partition_key.int64_category": "int64_category == 3",
         "scalar_autoindex_formats_rollback_safe.int64_auto": "int64_auto == 3",
-        "scalar_autoindex_formats_rollback_safe.float_auto": "float_auto == 0.3",
+        "scalar_autoindex_formats_rollback_safe.float_auto": (
+            "float_auto == 0.30000001192092896"
+        ),
         "scalar_autoindex_formats_rollback_safe.bool_auto": "bool_auto == False",
         "scalar_autoindex_formats_rollback_safe.varchar_auto": (
             'varchar_auto == "varchar_auto_3"'

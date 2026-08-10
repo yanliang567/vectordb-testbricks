@@ -2,6 +2,7 @@ from pathlib import Path
 from struct import pack, unpack
 
 from milvus_client.common.data import (
+    canonical_float32,
     checksum_fields_for_spec,
     generate_rows,
     stable_checksum,
@@ -120,6 +121,38 @@ def test_struct_array_vector_checksum_survives_float32_storage_round_trip():
     assert stable_checksum(
         inserted_rows, fields=fields, primary_field="id"
     ) == stable_checksum(queried_rows, fields=fields, primary_field="id")
+
+
+def test_struct_array_scalar_float_uses_storage_precision_before_checksum():
+    spec = next(
+        spec
+        for spec in load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")
+        if spec.name == "struct_array_numeric_autoindex_rollback_safe"
+    )
+
+    row = generate_rows(spec, start_id=129, count=1, seed=0)[0]
+    score = row["items"][1]["score"]
+
+    assert score == canonical_float32(129.1)
+    assert score != 129.1
+    assert stable_checksum(
+        [row], fields=["id", "items"], primary_field="id"
+    ) == stable_checksum(
+        [
+            {
+                **row,
+                "items": [
+                    {
+                        **item,
+                        "score": canonical_float32(item["score"]),
+                    }
+                    for item in row["items"]
+                ],
+            }
+        ],
+        fields=["id", "items"],
+        primary_field="id",
+    )
 
 
 def test_checksum_fields_exclude_vectors():
