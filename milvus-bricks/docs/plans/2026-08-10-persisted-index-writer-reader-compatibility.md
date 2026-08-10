@@ -301,10 +301,12 @@ rollback image:
 harbor.milvus.io/milvusdb/milvus:2.6-20260807-d85dc945@sha256:2051a754368d70f589a281fa301a12128d058e531bd6e5d82583e588bccd961e
 ```
 
-### 9.2 第一阶段：最小规模复现
+### 9.2 第一阶段：超过 index build threshold 的最小复现
 
 - 使用 PR full commit SHA。
-- standalone、100 rows/schema、无观察等待。
+- standalone、single shard、至少 1500 rows/schema、无观察等待。
+- target-created phase collection 同样至少 1500 rows，避免 reverse path 只有
+  metadata 而没有 target writer 生成的索引文件。
 - 保留完整 index compatibility 和 release/load validation。
 - 预期 workflow 在 after-upgrade load 阶段失败。
 - 固定 result JSON、QueryNode/standalone log、index metadata checkpoint 和 pod events。
@@ -433,3 +435,18 @@ git diff --check: passed
   命中造成 false-green。
 - manifest contract 强制 explicit persisted-format owner 为 single-shard、无
   partition schema，防止后续重构再次把格式覆盖放回 sub-threshold topology。
+
+### Round 9：真实环境最终复现
+
+- R5 使用 commit `d2b680f9cb6f29656fb10940de40374cb5f52dac` 稳定复现
+  Milvus #52359。VARCHAR nested HYBRID 读取失败为 `Meta key not found: version`；
+  FLOAT/INT64 companion collection 失败为 `Meta key not found: index_length`。
+- R6 使用最终实现 commit `625df1493fc2f01c2e12f8a104a4e71dc2e90c49`。新增
+  explicit-format collection 在 2.6 真实上传 bitmap、inverted、stlsort、marisa、
+  ngram 和 HNSW 文件；不是 SDK metadata-only 状态。
+- 在 3.0 target 上排除两个已确认 blocker collection 后，使用与 workflow 一致的
+  PyMilvus 3.0.1 对其余 9 个 schema 严格 release/load，完成 31 次 vector search
+  和 35 次 scalar index query，全部通过。两个 blocker 使正式 workflow 在
+  `wait-upgrade-serviceability` fail-closed，未进入 rollback。
+- 复现证据已补充到
+  [Milvus #52359](https://github.com/milvus-io/milvus/issues/52359#issuecomment-5240286296)。
