@@ -430,6 +430,41 @@ def test_existing_phase_search_uses_upserted_vector_values():
     assert search_call["data"] == [expected]
 
 
+def test_existing_phase_search_uses_deterministically_updated_vector():
+    spec = SchemaSpec(
+        name="vector_only",
+        version="2.6",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=4),
+        ],
+        indexes=[IndexSpec(field="embedding", index_type="HNSW", metric_type="COSINE")],
+    )
+    client = StoredVectorSearchPhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        spec,
+        "qa_vector_only",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    search_call = next(payload for name, payload in client.calls if name == "search")
+    expected = generate_rows(spec, 50_000_003, 1, seed=108)[0]
+    validate_phase_dml_dql.apply_deterministic_update(spec, expected, 50_000_003)
+    assert report.passed
+    assert metrics["search_probe_seed"] == 108
+    assert search_call["data"] == [expected["embedding"]]
+
+
 def test_phase_dml_dql_minhash_search_uses_function_input_text():
     client = PhaseClient()
     report = ValidationReport()

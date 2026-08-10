@@ -169,6 +169,7 @@ def test_schema_matrix_2_6_covers_expanded_rollback_safe_shapes():
         "SPARSE_FLOAT_VECTOR",
     }
     assert any(spec.struct_arrays for spec in specs)
+    assert all(spec.shards_num == 1 for spec in specs)
 
 
 def test_schema_matrix_2_6_covers_persisted_scalar_autoindex_families():
@@ -274,6 +275,17 @@ def test_schema_matrix_2_6_keeps_persisted_vector_format_contract():
         for spec in specs
         for index in spec.indexes
     )
+
+
+def test_create_collection_kwargs_preserve_explicit_shard_count():
+    spec = SchemaSpec(
+        name="single_shard",
+        version="2.6",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        shards_num=1,
+    )
+
+    assert create_collection_kwargs(spec) == {"shards_num": 1}
 
 
 def test_schema_matrix_3_0_covers_forward_schema_evolution_shapes():

@@ -446,6 +446,7 @@ def _phase_search_query(
     vector_field: FieldSpec,
     data_pk: int,
     seed: int,
+    apply_update: bool = False,
 ) -> tuple[Any, int | None] | None:
     function_outputs = function_output_fields(spec)
     if vector_field.name in function_outputs:
@@ -454,8 +455,16 @@ def _phase_search_query(
             return None
         return query, None
     struct_array = struct_array_for_field(spec, field_name)
+    updated_row = None
+    if apply_update:
+        updated_row = generate_rows(spec, start_id=data_pk, count=1, seed=seed)[0]
+        apply_deterministic_update(spec, updated_row, data_pk)
     if struct_array is not None:
-        value = generate_struct_array_value(struct_array, data_pk, seed)
+        value = (
+            updated_row.get(struct_array.name)
+            if updated_row is not None
+            else generate_struct_array_value(struct_array, data_pk, seed)
+        )
         if value is None:
             return None
         for offset, element in enumerate(value):
@@ -465,7 +474,11 @@ def _phase_search_query(
                     metric_type_for_field(spec, field_name), vector, offset
                 )
         return None
-    query = generate_field_value(vector_field, data_pk, seed)
+    query = (
+        updated_row.get(vector_field.name)
+        if updated_row is not None
+        else generate_field_value(vector_field, data_pk, seed)
+    )
     if query is None:
         return None
     return query, None
@@ -476,13 +489,21 @@ def _select_phase_search_probe_pk(
     start_id: int,
     rows: int,
     seed: int,
+    apply_update: bool = False,
 ) -> int:
     if rows <= 0:
         return start_id
     fields = indexed_vector_fields(spec)
     for data_pk in range(start_id + rows - 1, start_id - 1, -1):
         if all(
-            _phase_search_query(spec, field_name, vector_field, data_pk, seed)
+            _phase_search_query(
+                spec,
+                field_name,
+                vector_field,
+                data_pk,
+                seed,
+                apply_update=apply_update,
+            )
             is not None
             for field_name, vector_field in fields
         ):
@@ -616,6 +637,7 @@ def _run_searches(
     pk: int,
     report: ValidationReport,
     expected_pk: Any = _EXPECTED_PK_UNSET,
+    apply_update: bool = False,
 ) -> int:
     searches = 0
     primary = _primary_field(spec)
@@ -626,7 +648,14 @@ def _run_searches(
         )
     for field_name, vector_field in indexed_vector_fields(spec):
         metric_type = metric_type_for_field(spec, field_name)
-        query_probe = _phase_search_query(spec, field_name, vector_field, pk, seed)
+        query_probe = _phase_search_query(
+            spec,
+            field_name,
+            vector_field,
+            pk,
+            seed,
+            apply_update=apply_update,
+        )
         if query_probe is None:
             report.fail(
                 PHASE_DQL_FAILED,
@@ -1035,7 +1064,11 @@ def _run_existing_collection_dml_dql(
         return metrics
     search_probe_seed = seed if auto_id_enabled(spec) else seed + 101
     search_probe_data_pk = _select_phase_search_probe_pk(
-        spec, start_id, rows, search_probe_seed
+        spec,
+        start_id,
+        rows,
+        search_probe_seed,
+        apply_update=not auto_id_enabled(spec),
     )
     if auto_id_enabled(spec):
         search_probe_pk = inserted_ids[search_probe_data_pk - start_id]
@@ -1052,6 +1085,7 @@ def _run_existing_collection_dml_dql(
         search_probe_data_pk,
         report,
         expected_pk=search_probe_pk,
+        apply_update=not auto_id_enabled(spec),
     )
     metrics["scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
         client,
@@ -1287,6 +1321,7 @@ def _validate_existing_phase_checkpoint_collection(
             search_probe_data_pk,
             report,
             expected_pk=search_probe_pk,
+            apply_update=not auto_id_enabled(spec),
         )
     return searches
 

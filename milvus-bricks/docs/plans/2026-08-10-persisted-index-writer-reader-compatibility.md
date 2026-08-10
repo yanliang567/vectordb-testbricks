@@ -379,3 +379,27 @@ git diff --check: passed
   scalar filter；2.6 记录 `skipped_unsupported_total`，但仍验证 top-level scalar
   indexes、StructArray scalar round-trip、index metadata 和严格 release/load。
   server version 不可解析时 fail-closed，不能把未知环境当作 2.6 跳过。
+
+### Round 5：必须实际生成 persisted index file
+
+- **[P1] 默认 16 shards 使 100 行乃至 5000 行数据被拆成低于 1024-row index
+  threshold 的小 segments。** R3b 的 DataCoord 日志明确记录
+  `indexType=HYBRID`、`rowCountBelowThreshold=true` 和
+  `segment does not need index really`；SDK 仍报告 index `Finished`，因此仅检查
+  metadata 会假绿。
+- `schema_matrix_2_6.yaml` 的所有 rollback-safe schemas 现显式设置
+  `shards_num: 1`。正式 5000-row gate 以及本轮 >1024-row diagnostic 都会为每个
+  collection 生成实际 persisted index file，覆盖 vector/scalar/compound reader。
+- R3b 保留为 sub-threshold control；R4 使用 1500 rows/schema，验收日志必须出现
+  真正 build/upload/load，而不能出现 `rowCountBelowThreshold=true` 后直接完成。
+
+### Round 6：phase upsert 后的 vector oracle
+
+- **[P1] 全向量 schema 的 update projection 会修改向量，但 search probe 仍使用
+  未更新 query。** R3b 对 `legacy_index_rollback_safe.flat_vector` 和
+  `nullable_vectors_all.nullable_float` 返回了正确目标 PK，但 self-distance/score
+  对应旧 query，导致 framework false-negative。
+- existing/upsert path 现从应用 `apply_deterministic_update()` 后的完整 expected row
+  构造普通向量或 StructArray element query；auto-id（不 upsert）和 new collection
+  仍使用原始 deterministic query。新增 vector-only 回归测试验证 seed=909 更新后的
+  query 与存储值一致。

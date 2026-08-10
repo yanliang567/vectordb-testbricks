@@ -4,6 +4,7 @@ schemas:
     description: "2.6 scalar, array, dynamic field, partition-key, and scalar-index coverage"
     feature_tags: ["compat_basic_vector", "compat_json_array"]
     compat_mode: rollback_safe
+    shards_num: 1
     required_capabilities: []
     validators: ["count", "pk_sample", "search_smoke"]
     enable_dynamic_field: true
@@ -46,6 +47,7 @@ schemas:
     description: "2.6 primitive, JSON path, and ARRAY AutoIndex persisted-format coverage"
     feature_tags: ["compat_basic_vector", "compat_json_array"]
     compat_mode: rollback_safe
+    shards_num: 1
     required_capabilities: []
     validators: ["count", "pk_sample", "search_smoke"]
     fields:
@@ -70,6 +72,7 @@ schemas:
     description: "2.6 auto-id, BM25 function, all vector data types, and vector-index coverage"
     feature_tags: ["compat_basic_vector", "compat_multi_vector"]
     compat_mode: rollback_safe
+    shards_num: 1
     required_capabilities: []
     validators: ["count", "pk_sample", "search_smoke"]
     fields:
@@ -108,6 +111,7 @@ schemas:
     description: "2.6 explicit multi-partition, varchar primary key, and nullable scalar coverage"
     feature_tags: ["compat_basic_vector", "compat_json_array"]
     compat_mode: rollback_safe
+    shards_num: 1
     required_capabilities: []
     validators: ["count", "pk_sample", "search_smoke"]
     partitions: ["p0", "p1", "p2", "p3"]
@@ -131,6 +135,7 @@ schemas:
     description: "2.6 StructArray scalar round-trip and element-level vector search coverage"
     feature_tags: ["struct_array"]
     compat_mode: rollback_safe
+    shards_num: 1
     required_capabilities: ["StructArray"]
     validators:
       - count
@@ -157,6 +162,7 @@ schemas:
     description: "2.6 StructArray VARCHAR AutoIndex persisted-format reproducer for Milvus #52359"
     feature_tags: ["struct_array"]
     compat_mode: rollback_safe
+    shards_num: 1
     required_capabilities: ["StructArray"]
     validators:
       - count
@@ -181,6 +187,7 @@ schemas:
     description: "2.6 StructArray FLOAT, INT64, and BOOL AutoIndex persisted-format coverage"
     feature_tags: ["struct_array"]
     compat_mode: rollback_safe
+    shards_num: 1
     required_capabilities: ["StructArray"]
     validators:
       - count
@@ -209,6 +216,7 @@ schemas:
     description: "All six nullable vector data types available in Milvus 2.6.18"
     feature_tags: ["nullable_vector"]
     compat_mode: rollback_safe
+    shards_num: 1
     required_capabilities: ["NullableVector"]
     validators: ["count", "pk_sample", "nullable_vector_semantics"]
     fields:
@@ -231,6 +239,7 @@ schemas:
     description: "Geometry RTREE metadata and spatial predicate rollback coverage"
     feature_tags: ["geometry"]
     compat_mode: rollback_safe
+    shards_num: 1
     required_capabilities: ["Geometry"]
     validators: ["count", "pk_sample", "geometry_filter"]
     fields:
@@ -245,6 +254,7 @@ schemas:
     description: "Explicit legacy dense, binary, sparse, and scalar index families"
     feature_tags: ["compat_multi_vector"]
     compat_mode: rollback_safe
+    shards_num: 1
     validators: ["count", "pk_sample", "search_smoke"]
     fields:
       - {name: id, dtype: INT64, primary: true, auto_id: false}
