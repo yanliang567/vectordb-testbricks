@@ -517,7 +517,7 @@ offline pytest: 384 passed
 Argo offline lint: passed
 Ruff check: passed
 Ruff format check: passed
-GitHub Actions: run `31363264831` 在 review-fix commit `6114728` 上通过
+GitHub Actions: run `31364878538` 在 review-fix commit `d76c4e7` 上通过
 ```
 
 ## 12. 资源清理
