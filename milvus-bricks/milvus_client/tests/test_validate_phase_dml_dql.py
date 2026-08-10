@@ -2,6 +2,8 @@ import json
 import math
 import re
 
+import pytest
+
 from milvus_client.common.data import generate_rows
 from milvus_client.common.schema import (
     FieldSpec,
@@ -363,6 +365,29 @@ def _checkpoint(tmp_path):
     return path
 
 
+def _minimal_phase_checkpoint_payload(
+    *,
+    version=2,
+    phase="after-upgrade",
+):
+    return {
+        "version": version,
+        "phase": phase,
+        "existing_collections": {
+            "qa_dense": {
+                "collection": "qa_dense",
+                "schema_name": "dense",
+            }
+        },
+        "new_collections": {
+            "qa_after_upgrade_dense": {
+                "collection": "qa_after_upgrade_dense",
+                "schema_name": "dense",
+            }
+        },
+    }
+
+
 def _args(tmp_path, checkpoint):
     return [
         "--uri",
@@ -434,6 +459,10 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
     assert result["status"] == "passed"
     assert result["metrics"]["existing_collections_total"] == 1
     assert result["metrics"]["new_collections_total"] == 1
+    assert (
+        result["metrics"]["reload_timeout_sec"]
+        == validate_phase_dml_dql.DEFAULT_RELOAD_TIMEOUT_SEC
+    )
     assert result["metrics"]["existing_inserted_total"] == 4
     assert result["metrics"]["existing_upserted_total"] == 4
     assert result["metrics"]["existing_deleted_total"] == 1
@@ -912,6 +941,8 @@ def test_phase_checkpoint_reloads_existing_and_target_written_collections(
     checkpoint.write_text(
         json.dumps(
             {
+                "version": 2,
+                "phase": "after-upgrade",
                 "existing_collections": {
                     "qa_dense": {
                         "collection": "qa_dense",
@@ -961,21 +992,126 @@ def test_phase_checkpoint_reloads_existing_and_target_written_collections(
     assert reload_calls == [
         (
             "release_collection",
-            {"args": (), "collection_name": "qa_dense"},
+            {
+                "args": (),
+                "collection_name": "qa_dense",
+                "timeout": validate_phase_dml_dql.DEFAULT_RELOAD_TIMEOUT_SEC,
+            },
         ),
         (
             "load_collection",
-            {"args": (), "collection_name": "qa_dense"},
+            {
+                "args": (),
+                "collection_name": "qa_dense",
+                "timeout": validate_phase_dml_dql.DEFAULT_RELOAD_TIMEOUT_SEC,
+            },
         ),
         (
             "release_collection",
-            {"args": (), "collection_name": "qa_after_upgrade_dense"},
+            {
+                "args": (),
+                "collection_name": "qa_after_upgrade_dense",
+                "timeout": validate_phase_dml_dql.DEFAULT_RELOAD_TIMEOUT_SEC,
+            },
         ),
         (
             "load_collection",
-            {"args": (), "collection_name": "qa_after_upgrade_dense"},
+            {
+                "args": (),
+                "collection_name": "qa_after_upgrade_dense",
+                "timeout": validate_phase_dml_dql.DEFAULT_RELOAD_TIMEOUT_SEC,
+            },
         ),
     ]
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_field"),
+    [
+        ({}, "actual_version"),
+        (_minimal_phase_checkpoint_payload(version=1), "actual_version"),
+        (_minimal_phase_checkpoint_payload(phase="after-rollback"), "actual_phase"),
+    ],
+    ids=["empty", "wrong-version", "wrong-phase"],
+)
+def test_phase_checkpoint_contract_rejects_invalid_metadata_before_reload(
+    tmp_path,
+    payload,
+    expected_field,
+):
+    checkpoint = tmp_path / "phase.json"
+    checkpoint.write_text(json.dumps(payload))
+    client = PhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._validate_phase_checkpoint_before_rollback(
+        client,
+        {"dense": _dense_spec()},
+        checkpoint,
+        seed=7,
+        report=report,
+    )
+
+    assert not report.passed
+    assert not metrics["phase_checkpoint_validated"]
+    assert metrics["phase_checkpoint_reload_collections_total"] == 0
+    assert not any(
+        call[0] in {"release_collection", "load_collection"} for call in client.calls
+    )
+    assert any(
+        failure["type"] == validate_phase_dml_dql.PHASE_CHECKPOINT_INVALID
+        and expected_field in failure
+        for failure in report.failures
+    )
+
+
+def test_phase_checkpoint_contract_rejects_malformed_json_before_reload(tmp_path):
+    checkpoint = tmp_path / "phase.json"
+    checkpoint.write_text("{")
+    client = PhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._validate_phase_checkpoint_before_rollback(
+        client,
+        {"dense": _dense_spec()},
+        checkpoint,
+        seed=7,
+        report=report,
+    )
+
+    assert not report.passed
+    assert not metrics["phase_checkpoint_validated"]
+    assert not client.calls
+    assert report.failures[0]["type"] == validate_phase_dml_dql.PHASE_CHECKPOINT_INVALID
+
+
+def test_phase_checkpoint_contract_requires_every_schema_in_both_groups(tmp_path):
+    checkpoint = tmp_path / "phase.json"
+    checkpoint.write_text(json.dumps(_minimal_phase_checkpoint_payload()))
+    client = PhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._validate_phase_checkpoint_before_rollback(
+        client,
+        {"dense": _dense_spec(), "missing": _dense_spec()},
+        checkpoint,
+        seed=7,
+        report=report,
+    )
+
+    assert not report.passed
+    assert not metrics["phase_checkpoint_validated"]
+    assert metrics["phase_checkpoint_reload_collections_total"] == 0
+    schema_failures = [
+        failure
+        for failure in report.failures
+        if failure["type"] == validate_phase_dml_dql.PHASE_CHECKPOINT_INVALID
+        and failure.get("missing_schemas") == ["missing"]
+    ]
+    assert {failure["group"] for failure in schema_failures} == {
+        "existing_collections",
+        "new_collections",
+    }
 
 
 def test_phase_checkpoint_reload_failure_fails_closed(monkeypatch, tmp_path):
@@ -983,6 +1119,8 @@ def test_phase_checkpoint_reload_failure_fails_closed(monkeypatch, tmp_path):
     checkpoint.write_text(
         json.dumps(
             {
+                "version": 2,
+                "phase": "after-upgrade",
                 "existing_collections": {
                     "qa_dense": {
                         "collection": "qa_dense",
@@ -1047,6 +1185,8 @@ def test_phase_checkpoint_queries_scalar_indexes_after_reload(monkeypatch, tmp_p
     checkpoint.write_text(
         json.dumps(
             {
+                "version": 2,
+                "phase": "after-upgrade",
                 "existing_collections": {
                     "qa_dense": {
                         "collection": "qa_dense",

@@ -8,7 +8,7 @@
 
 - 测试实现位于 [vectordb-testbricks PR #27](https://github.com/yanliang567/vectordb-testbricks/pull/27)。
 - 最终执行 commit：`625df1493fc2f01c2e12f8a104a4e71dc2e90c49`。
-- 最新 PR 实现单元测试：`454 passed`。
+- 最新 PR 实现单元测试：`459 passed`。
 - Ruff、Argo offline lint、`git diff --check` 均通过。
 - PR CI 通过、状态可合并，无未处理 review comment。
 - 2.6 baseline 的数据完整性、feature validation 和升级前压力测试通过。
@@ -175,13 +175,14 @@ SERVICEABILITY_TIMEOUT: elapsed_sec=65.325
 - 代码和单元测试已实现 phase collection 的 release/load、search、scalar query、upsert probe 和 checkpoint；真实环境结论必须在 #52359 修复镜像可用后补跑，不能将本轮记为通过。
 - Partition-key 和显式 multi-partition schema 仍用于语义覆盖；持久化格式证据由无 partition owner schema承担，避免低于 index threshold。
 - R6 后的 PR 复审补充了同阶段严格 reload 二次验证，以及 JSON bool/varchar、ARRAY INT64/FLOAT/BOOL AutoIndex。该补强已由单元测试覆盖，但尚未冒充 R6 的真实 K8s 结果；需要在 #52359 修复镜像可用后随完整 workflow 补跑。
+- phase checkpoint 现在强制验证版本、生成阶段和 existing/new schema 完整性；严格 release/load 使用默认 120 秒的显式 PyMilvus timeout，避免空 checkpoint false-green 或 load progress 永久等待。
 
 ## 9. 最终 Review 与验证
 
 - PR diff 已完成 matrix、validator、lifecycle、report 和 Argo 五轮以上自审。
 - GitHub PR 无未处理 review comments。
 - GitHub CI：passed。
-- `PYTHONPATH=. pytest -q milvus_client/tests`：`454 passed`。
+- `PYTHONPATH=. pytest -q milvus_client/tests`：`459 passed`。
 - changed Python files Ruff check/format：passed。
 - `argo lint --offline milvus-bricks/argo`：passed。
 - `git diff --check`：passed。

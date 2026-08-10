@@ -59,8 +59,10 @@ PHASE_NEW_COLLECTION_FAILED = "PHASE_NEW_COLLECTION_FAILED"
 PHASE_UPSERT_NOT_APPLIED = "PHASE_UPSERT_NOT_APPLIED"
 PHASE_CHECKPOINT_RELOAD_FAILED = "PHASE_CHECKPOINT_RELOAD_FAILED"
 PHASE_COLLECTION_RELOAD_FAILED = "PHASE_COLLECTION_RELOAD_FAILED"
+PHASE_CHECKPOINT_INVALID = "PHASE_CHECKPOINT_INVALID"
 CHECKPOINT_NOT_FOUND = "CHECKPOINT_NOT_FOUND"
 PHASE_CHECKPOINT_NOT_FOUND = "PHASE_CHECKPOINT_NOT_FOUND"
+DEFAULT_RELOAD_TIMEOUT_SEC = 120.0
 _EXPECTED_PK_UNSET = object()
 
 
@@ -80,6 +82,9 @@ def add_args(parser):
     parser.add_argument("--validate-phase-checkpoint", type=parse_bool, default=False)
     parser.add_argument("--visibility-timeout-sec", type=int, default=120)
     parser.add_argument("--visibility-interval-sec", type=float, default=2.0)
+    parser.add_argument(
+        "--reload-timeout-sec", type=float, default=DEFAULT_RELOAD_TIMEOUT_SEC
+    )
     parser.add_argument(
         "--drop-new-collections-if-exist", type=parse_bool, default=True
     )
@@ -893,6 +898,8 @@ def _run_existing_collection_dml_dql(
     visibility_timeout_sec: int,
     visibility_interval_sec: float,
     report: ValidationReport,
+    *,
+    reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
@@ -1106,7 +1113,12 @@ def _run_existing_collection_dml_dql(
     if len(report.failures) > validation_failures_before:
         return metrics
     metrics["reload_attempted"] = True
-    if not _reload_phase_collection(client, target_collection, report):
+    if not _reload_phase_collection(
+        client,
+        target_collection,
+        report,
+        timeout_sec=reload_timeout_sec,
+    ):
         return metrics
     metrics["reload_operations_succeeded"] = True
     reload_failures_before = len(report.failures)
@@ -1140,6 +1152,8 @@ def _run_new_collection_dml_dql(
     seed: int,
     drop_if_exists: bool,
     report: ValidationReport,
+    *,
+    reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
@@ -1263,7 +1277,12 @@ def _run_new_collection_dml_dql(
     if len(report.failures) > validation_failures_before:
         return metrics
     metrics["reload_attempted"] = True
-    if not _reload_phase_collection(client, target_collection, report):
+    if not _reload_phase_collection(
+        client,
+        target_collection,
+        report,
+        timeout_sec=reload_timeout_sec,
+    ):
         return metrics
     metrics["reload_operations_succeeded"] = True
     reload_failures_before = len(report.failures)
@@ -1462,7 +1481,18 @@ def _reload_collection_strict(
     *,
     failure_type: str,
     context: str,
+    timeout_sec: float,
 ) -> bool:
+    if timeout_sec <= 0:
+        report.fail(
+            failure_type,
+            "collection reload timeout must be positive",
+            collection=collection,
+            operation="configuration",
+            timeout_sec=timeout_sec,
+            context=context,
+        )
+        return False
     for operation in ("release_collection", "load_collection"):
         method = getattr(client, operation, None)
         if method is None:
@@ -1475,10 +1505,10 @@ def _reload_collection_strict(
             )
             return False
         try:
-            method(collection_name=collection)
+            method(collection_name=collection, timeout=timeout_sec)
         except TypeError:
             try:
-                method(collection)
+                method(collection, timeout=timeout_sec)
             except Exception as exc:
                 report.fail(
                     failure_type,
@@ -1487,6 +1517,7 @@ def _reload_collection_strict(
                     operation=operation,
                     error=str(exc),
                     context=context,
+                    timeout_sec=timeout_sec,
                 )
                 return False
         except Exception as exc:
@@ -1497,6 +1528,7 @@ def _reload_collection_strict(
                 operation=operation,
                 error=str(exc),
                 context=context,
+                timeout_sec=timeout_sec,
             )
             return False
     return True
@@ -1506,6 +1538,8 @@ def _reload_phase_collection(
     client: Any,
     collection: str,
     report: ValidationReport,
+    *,
+    timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
 ) -> bool:
     return _reload_collection_strict(
         client,
@@ -1513,6 +1547,7 @@ def _reload_phase_collection(
         report,
         failure_type=PHASE_COLLECTION_RELOAD_FAILED,
         context="phase DML/DQL",
+        timeout_sec=timeout_sec,
     )
 
 
@@ -1520,6 +1555,8 @@ def _reload_phase_checkpoint_collection(
     client: Any,
     collection: str,
     report: ValidationReport,
+    *,
+    timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
 ) -> bool:
     return _reload_collection_strict(
         client,
@@ -1527,6 +1564,7 @@ def _reload_phase_checkpoint_collection(
         report,
         failure_type=PHASE_CHECKPOINT_RELOAD_FAILED,
         context="phase checkpoint",
+        timeout_sec=timeout_sec,
     )
 
 
@@ -1613,12 +1651,112 @@ def _phase_upsert_scalar_probe_overrides(
     return overrides
 
 
+def _validate_phase_checkpoint_contract(
+    checkpoint: Any,
+    specs: dict[str, SchemaSpec],
+    report: ValidationReport,
+) -> bool:
+    failures_before = len(report.failures)
+    if not isinstance(checkpoint, dict):
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint root must be an object",
+            actual_type=type(checkpoint).__name__,
+        )
+        return False
+    if type(checkpoint.get("version")) is not int or checkpoint.get("version") != 2:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint version is unsupported",
+            expected_version=2,
+            actual_version=checkpoint.get("version"),
+        )
+    if checkpoint.get("phase") != "after-upgrade":
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint was not produced after upgrade",
+            expected_phase="after-upgrade",
+            actual_phase=checkpoint.get("phase"),
+        )
+
+    expected_schemas = set(specs)
+    for group_name in ("existing_collections", "new_collections"):
+        group = checkpoint.get(group_name)
+        if not isinstance(group, dict):
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "phase checkpoint collection group must be an object",
+                group=group_name,
+                actual_type=type(group).__name__,
+            )
+            continue
+
+        schema_names: list[str] = []
+        for collection_key, collection_checkpoint in group.items():
+            if not isinstance(collection_checkpoint, dict):
+                report.fail(
+                    PHASE_CHECKPOINT_INVALID,
+                    "phase checkpoint collection entry must be an object",
+                    group=group_name,
+                    collection_key=collection_key,
+                    actual_type=type(collection_checkpoint).__name__,
+                )
+                continue
+            collection = collection_checkpoint.get("collection")
+            schema_name = collection_checkpoint.get("schema_name")
+            if not isinstance(collection, str) or not collection:
+                report.fail(
+                    PHASE_CHECKPOINT_INVALID,
+                    "phase checkpoint collection entry lacks a collection name",
+                    group=group_name,
+                    collection_key=collection_key,
+                )
+            elif collection != collection_key:
+                report.fail(
+                    PHASE_CHECKPOINT_INVALID,
+                    "phase checkpoint collection key does not match its payload",
+                    group=group_name,
+                    collection_key=collection_key,
+                    collection=collection,
+                )
+            if not isinstance(schema_name, str) or not schema_name:
+                report.fail(
+                    PHASE_CHECKPOINT_INVALID,
+                    "phase checkpoint collection entry lacks a schema name",
+                    group=group_name,
+                    collection_key=collection_key,
+                )
+                continue
+            schema_names.append(schema_name)
+
+        observed_schemas = set(schema_names)
+        duplicate_schemas = sorted(
+            schema_name
+            for schema_name in observed_schemas
+            if schema_names.count(schema_name) > 1
+        )
+        missing_schemas = sorted(expected_schemas - observed_schemas)
+        unexpected_schemas = sorted(observed_schemas - expected_schemas)
+        if missing_schemas or unexpected_schemas or duplicate_schemas:
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "phase checkpoint schema coverage is incomplete or ambiguous",
+                group=group_name,
+                missing_schemas=missing_schemas,
+                unexpected_schemas=unexpected_schemas,
+                duplicate_schemas=duplicate_schemas,
+            )
+    return len(report.failures) == failures_before
+
+
 def _validate_phase_checkpoint_before_rollback(
     client: Any,
     specs: dict[str, SchemaSpec],
     path: Path,
     seed: int,
     report: ValidationReport,
+    *,
+    reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
 ) -> dict[str, Any]:
     metrics = {
         "phase_checkpoint_validated": False,
@@ -1636,7 +1774,18 @@ def _validate_phase_checkpoint_before_rollback(
             path=str(path),
         )
         return metrics
-    checkpoint = json.loads(path.read_text())
+    try:
+        checkpoint = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint cannot be read as JSON",
+            path=str(path),
+            error=str(exc),
+        )
+        return metrics
+    if not _validate_phase_checkpoint_contract(checkpoint, specs, report):
+        return metrics
     for collection_checkpoint in checkpoint.get("existing_collections", {}).values():
         spec = specs.get(collection_checkpoint["schema_name"])
         if spec is None:
@@ -1649,7 +1798,10 @@ def _validate_phase_checkpoint_before_rollback(
             continue
         metrics["phase_checkpoint_existing_collections_total"] += 1
         if not _reload_phase_checkpoint_collection(
-            client, collection_checkpoint["collection"], report
+            client,
+            collection_checkpoint["collection"],
+            report,
+            timeout_sec=reload_timeout_sec,
         ):
             metrics["phase_checkpoint_reload_failures_total"] += 1
             continue
@@ -1683,7 +1835,10 @@ def _validate_phase_checkpoint_before_rollback(
             continue
         metrics["phase_checkpoint_new_collections_total"] += 1
         if not _reload_phase_checkpoint_collection(
-            client, collection_checkpoint["collection"], report
+            client,
+            collection_checkpoint["collection"],
+            report,
+            timeout_sec=reload_timeout_sec,
         ):
             metrics["phase_checkpoint_reload_failures_total"] += 1
             continue
@@ -1753,6 +1908,7 @@ def main(argv: list[str] | None = None) -> int:
         report = ValidationReport()
         metrics: dict[str, Any] = {
             "phase": args.phase,
+            "reload_timeout_sec": args.reload_timeout_sec,
             "existing_collections_total": 0,
             "new_collections_total": 0,
             "existing_inserted_total": 0,
@@ -1792,6 +1948,7 @@ def main(argv: list[str] | None = None) -> int:
                     _phase_checkpoint_path(args),
                     args.seed,
                     report,
+                    reload_timeout_sec=args.reload_timeout_sec,
                 )
             )
             if not report.passed:
@@ -1824,6 +1981,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.visibility_timeout_sec,
                 args.visibility_interval_sec,
                 report,
+                reload_timeout_sec=args.reload_timeout_sec,
             )
             metrics["existing_collections"].append(existing_metrics)
             metrics["existing_inserted_total"] += existing_metrics["inserted"]
@@ -1856,6 +2014,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.visibility_timeout_sec,
                     args.visibility_interval_sec,
                     report,
+                    reload_timeout_sec=args.reload_timeout_sec,
                 )
                 metrics["carried_collections"].append(carried_metrics)
                 metrics["carried_inserted_total"] += carried_metrics["inserted"]
@@ -1880,6 +2039,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.seed + 17,
                 args.drop_new_collections_if_exist,
                 report,
+                reload_timeout_sec=args.reload_timeout_sec,
             )
             metrics["new_collections"].append(new_metrics)
             metrics["new_collection_inserted_total"] += new_metrics["inserted"]

@@ -372,7 +372,7 @@ harbor.milvus.io/milvusdb/milvus:2.6-20260807-d85dc945@sha256:2051a754368d70f589
 ### 提交前验证
 
 ```text
-PYTHONPATH=. pytest -q milvus_client/tests: 454 passed
+PYTHONPATH=. pytest -q milvus_client/tests: 459 passed
 ruff check: passed
 ruff format --check: passed
 argo lint --offline argo: no linting errors
@@ -478,6 +478,16 @@ git diff --check: passed
 - **[P2] JSON/ARRAY AutoIndex 子类型不足。** JSON path cast 从 double 扩展为
   double/bool/varchar，ARRAY element type 从 VARCHAR 扩展为
   INT64/FLOAT/BOOL/VARCHAR，并为每个新增索引增加确定性 filter contract。
-- 当前 review hardening 已通过 `454` 个单元测试；R6 真实环境数据仍对应
+- 当前 review hardening 已通过 `459` 个单元测试；R6 真实环境数据仍对应
   `625df1493fc2f01c2e12f8a104a4e71dc2e90c49`，新增 subtype 和同阶段 reload 需要在
   #52359 修复镜像可用后随完整 workflow 一并补跑。
+
+### Round 11：checkpoint contract 与 reload deadline
+
+- **[P1] 空或不完整的 phase checkpoint 可跳过 target-written rollback validation。**
+  rollback 前现在强制校验 `version == 2`、`phase == after-upgrade`、collection map
+  结构、collection key/payload 一致性，以及 existing/new 两组各自对 schema matrix
+  的完整且唯一覆盖。任一异常在执行 reload 前 fail-closed。
+- **[P2] strict release/load 没有 RPC timeout。** 新增
+  `--reload-timeout-sec`，默认 `120` 秒；keyword 与 positional collection 调用均保留
+  timeout，非正数配置直接失败。最终 result 同时记录 `reload_timeout_sec`。
