@@ -710,12 +710,13 @@ def validate_text_match_phrase_match(
                     actual_count=actual_count,
                 )
                 continue
+            expected_sample_count = min(100, expected_count)
             try:
                 rows = client.query(
                     collection_name=collection,
                     filter=filter_expr,
                     output_fields=[primary.name, field.name],
-                    limit=min(100, expected_count),
+                    limit=expected_sample_count,
                 )
             except Exception as exc:
                 report.fail(
@@ -725,6 +726,20 @@ def validate_text_match_phrase_match(
                     field=field.name,
                     filter=filter_expr,
                     error=str(exc),
+                )
+                continue
+            report.metrics[f"{collection}.{field.name}.{filter_expr}.sample_count"] = (
+                len(rows)
+            )
+            if len(rows) != expected_sample_count:
+                report.fail(
+                    "TEXT_FILTER_FAILED",
+                    "TEXT_MATCH or PHRASE_MATCH sample query returned an incomplete result set",
+                    collection=collection,
+                    field=field.name,
+                    filter=filter_expr,
+                    expected_sample_count=expected_sample_count,
+                    actual_sample_count=len(rows),
                 )
                 continue
             actual_pks = [row.get(primary.name) for row in rows]

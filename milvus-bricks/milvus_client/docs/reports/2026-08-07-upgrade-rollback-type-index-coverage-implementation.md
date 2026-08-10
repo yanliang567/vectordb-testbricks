@@ -142,7 +142,8 @@ PR review added the following fail-closed protections:
 - AutoID schema evolution inserts real rows, requires one unique returned PK
   per row, and validates the actual PK mapping through rollback query/search.
 - TEXT_MATCH and PHRASE_MATCH compare `count(*)` with deterministic complete
-  postings ground truth before sampling returned row content.
+  postings ground truth, then require the sample query to return its complete
+  requested limit before validating PK and text content.
 - Entity TTL probes use a reserved PK namespace outside continuous pressure
   insert/upsert/delete ranges.
 - Registered scenarios reject WorkflowTemplate, schema matrix, index target,
@@ -267,7 +268,7 @@ The final review hardening, including release/reload validation and schema
 evolution rollback checkpoints, completed with:
 
 ```text
-PYTHONPATH=. pytest -q milvus_client/tests: 383 passed
+PYTHONPATH=. pytest -q milvus_client/tests: 384 passed
 argo lint --offline argo: passed
 ruff check on changed Python files: passed
 ruff format --check on changed Python files: passed
@@ -315,4 +316,4 @@ Each blocker has a reproduction and issue draft in this report directory. The
 test gates remain strict and expose these failures rather than converting them
 to warnings.
 
-The final 2026-08-10 offline unit test set completed with `383 passed`.
+The final 2026-08-10 offline unit test set completed with `384 passed`.

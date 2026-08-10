@@ -438,6 +438,41 @@ def test_text_feature_validator_rejects_incomplete_postings_count():
     )
 
 
+def test_text_feature_validator_rejects_incomplete_sample_query():
+    class Client:
+        def query(self, **kwargs):
+            filter_expr = kwargs["filter"]
+            if kwargs["output_fields"] == ["count(*)"]:
+                if "definitely_absent" in filter_expr:
+                    return [{"count(*)": 0}]
+                return [{"count(*)": 3 if "PHRASE_MATCH" in filter_expr else 4}]
+            return [{"id": 7, "text": generate_field_value(spec.fields[1], 7, 7)}]
+
+        def search(self, **kwargs):
+            return [[{"id": 7, "distance": 1.0}]]
+
+    spec = _text_lob_spec()
+    report = ValidationReport()
+
+    validate_text_match_phrase_match(
+        Client(),
+        "qa_text",
+        spec,
+        {"min_pk": 0, "max_pk": 9},
+        7,
+        report,
+    )
+
+    assert not report.passed
+    sample_failures = [
+        failure
+        for failure in report.failures
+        if failure["type"] == "TEXT_FILTER_FAILED" and "actual_sample_count" in failure
+    ]
+    assert {failure["expected_sample_count"] for failure in sample_failures} == {3, 4}
+    assert all(failure["actual_sample_count"] == 1 for failure in sample_failures)
+
+
 def test_text_feature_validator_accepts_complete_count_and_valid_samples():
     class Client:
         def query(self, **kwargs):

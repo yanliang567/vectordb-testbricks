@@ -337,7 +337,8 @@ Real execution exposed and drove the following PR improvements:
 - made AutoID schema evolution insert real rows, fail on missing or duplicate
   returned IDs, and validate actual generated PKs after rollback
 - required TEXT_MATCH and PHRASE_MATCH complete `count(*)` equality before
-  sampled content checks, so a single correct posting cannot satisfy the gate
+  sampled content checks, and required the sample query to return its complete
+  requested limit, so a single correct posting cannot satisfy the gate
 - moved Entity TTL probe rows to a reserved PK namespace outside continuous
   pressure DML ranges
 - rejected registered scenario WorkflowTemplate, schema/index/validator,
@@ -365,7 +366,7 @@ test-framework-only changes.
 Offline unit tests:
 
 ```text
-383 passed
+384 passed
 ```
 
 Static validation:

@@ -488,7 +488,8 @@ Review 结论：
   rollback 阶段按 checkpoint 的实际 PK 完成 count/query/search 复验；缺失或
   重复 ID 会直接失败。
 - TEXT_MATCH/PHRASE_MATCH 先以确定性 ground truth 校验完整 `count(*)`，再
-  抽样验证返回内容，单个正确 posting 不再能让 gate 通过。
+  要求 sample query 返回完整 limit 数量并抽样验证内容，单个正确 posting
+  不再能让 gate 通过。
 - Entity TTL 临时行使用独立保留 PK namespace，与 continuous pressure 的
   insert/upsert/delete 区间隔离。
 - 已注册 scenario 在部署前重新校验 WorkflowTemplate、schema matrix、index
@@ -512,7 +513,7 @@ Review 结论：
 ## 11. 自动化验证
 
 ```text
-offline pytest: 383 passed
+offline pytest: 384 passed
 Argo offline lint: passed
 Ruff check: passed
 Ruff format check: passed

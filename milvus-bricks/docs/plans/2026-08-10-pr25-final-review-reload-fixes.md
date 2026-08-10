@@ -14,9 +14,9 @@ manifest at runtime and protected parameters are compared before deployment.
 
 **Status:** Implemented on PR #25. The final review scope also includes schema
 evolution vector/null-state oracles, real AutoID evolution rows, complete TEXT
-postings counts, and a reserved Entity TTL PK namespace. Final local unit tests:
-`383 passed`; static and Argo validation results are recorded in the execution
-reports.
+postings counts, complete TEXT sample query limits, and a reserved Entity TTL PK
+namespace. Final local unit tests: `384 passed`; static and Argo validation
+results are recorded in the execution reports.
 
 ---
 
