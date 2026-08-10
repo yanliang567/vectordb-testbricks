@@ -20,11 +20,11 @@ spec:
       - name: scenario-id
         value: cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline
       - name: scenario-classification
-        value: unregistered
+        value: gate
       - name: scenario-support-status
-        value: unknown
+        value: supported
       - name: release-gate-eligible
-        value: "false"
+        value: "true"
       - name: deploy-profile
         value: milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml
       - name: client-image

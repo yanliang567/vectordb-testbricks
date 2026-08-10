@@ -965,14 +965,39 @@ def test_upgrade_templates_validate_registered_scenario_before_deploy(template_n
 
 
 @pytest.mark.parametrize(
-    "template_name",
+    (
+        "template_name",
+        "expected_classification",
+        "expected_support",
+        "expected_eligible",
+    ),
     [
-        "standalone-2-6-upgrade-rollback.yaml",
-        "standalone-3-0-upgrade-rollback.yaml",
-        "cluster-upgrade-rollback.yaml",
+        (
+            "standalone-2-6-upgrade-rollback.yaml",
+            "gate",
+            "supported_with_config_constraints",
+            "true",
+        ),
+        (
+            "standalone-3-0-upgrade-rollback.yaml",
+            "unregistered",
+            "unknown",
+            "false",
+        ),
+        (
+            "cluster-upgrade-rollback.yaml",
+            "gate",
+            "supported",
+            "true",
+        ),
     ],
 )
-def test_upgrade_templates_report_release_gate_eligibility(template_name):
+def test_upgrade_templates_report_release_gate_eligibility(
+    template_name,
+    expected_classification,
+    expected_support,
+    expected_eligible,
+):
     template = yaml.safe_load((ROOT / "argo" / template_name).read_text())
     templates = {item["name"]: item for item in template["spec"]["templates"]}
     parameter_values = {
@@ -980,9 +1005,9 @@ def test_upgrade_templates_report_release_gate_eligibility(template_name):
         for parameter in template["spec"]["arguments"]["parameters"]
     }
 
-    assert parameter_values["scenario-classification"] == "unregistered"
-    assert parameter_values["scenario-support-status"] == "unknown"
-    assert parameter_values["release-gate-eligible"] == "false"
+    assert parameter_values["scenario-classification"] == expected_classification
+    assert parameter_values["scenario-support-status"] == expected_support
+    assert parameter_values["release-gate-eligible"] == expected_eligible
 
     resolve_command = templates["resolve-inputs"]["container"]["args"][0]
     assert (

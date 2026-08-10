@@ -270,7 +270,7 @@ evolution rollback checkpoints, and explicit pre-release candidate eligibility
 metadata, completed with:
 
 ```text
-PYTHONPATH=. pytest -q milvus_client/tests: 415 passed
+PYTHONPATH=. pytest -q milvus_client/tests: 433 passed
 argo lint --offline argo: passed
 ruff check on changed Python files: passed
 ruff format --check on changed Python files: passed
@@ -322,4 +322,4 @@ Each item has a reproduction and issue draft in this report directory. Active
 blockers remain strict failures; the v3.0.0 Vortex result is preserved as an
 unsupported-path boundary rather than converted to a warning.
 
-The final 2026-08-10 offline unit test set completed with `415 passed`.
+The final 2026-08-10 offline unit test set completed with `433 passed`.

@@ -36,6 +36,66 @@ def _manifest() -> dict:
     return load_gate_manifest(GATES)
 
 
+@pytest.mark.parametrize(
+    ("scenario_id", "expected_eligible"),
+    [
+        (
+            scenario["id"],
+            scenario["classification"] == "gate"
+            and scenario["support_status"]
+            in {"supported", "supported_with_config_constraints"},
+        )
+        for scenario in _manifest()["scenarios"]
+    ],
+)
+def test_all_manifest_scenarios_render_expected_release_gate_eligibility(
+    scenario_id,
+    expected_eligible,
+):
+    manifest = _manifest()
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+
+    params = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+
+    assert params["release-gate-eligible"] == str(expected_eligible).lower()
+
+
+def test_unregistered_scenario_accepts_only_safe_report_metadata():
+    runtime = {
+        "scenario-classification": "unregistered",
+        "scenario-support-status": "unknown",
+        "release-gate-eligible": "false",
+    }
+
+    resolved = validate_registered_scenario_parameters(
+        _manifest(), "custom-unregistered-scenario", runtime
+    )
+
+    assert resolved is None
+
+
+@pytest.mark.parametrize(
+    ("parameter", "value"),
+    [
+        ("scenario-classification", "gate"),
+        ("scenario-support-status", "supported"),
+        ("release-gate-eligible", "true"),
+    ],
+)
+def test_unregistered_scenario_rejects_release_gate_metadata_claims(parameter, value):
+    runtime = {
+        "scenario-classification": "unregistered",
+        "scenario-support-status": "unknown",
+        "release-gate-eligible": "false",
+    }
+    runtime[parameter] = value
+
+    with pytest.raises(ValueError, match=parameter):
+        validate_registered_scenario_parameters(
+            _manifest(), "custom-unregistered-scenario", runtime
+        )
+
+
 def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
     manifest = _manifest()
     assert manifest["defaults"]["index_compatibility_validation_enabled"] is True

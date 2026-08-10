@@ -32,6 +32,15 @@ REGISTERED_SCENARIO_MUTABLE_PARAMETERS = {
     "forward-collection-prefix",
 }
 STRICT_LIFECYCLE_CLASSIFICATIONS = {"gate", "candidate"}
+RELEASE_GATE_SUPPORT_STATUSES = {
+    "supported",
+    "supported_with_config_constraints",
+}
+UNREGISTERED_SCENARIO_METADATA = {
+    "scenario-classification": "unregistered",
+    "scenario-support-status": "unknown",
+    "release-gate-eligible": "false",
+}
 VORTEX_MIN_SUPPORTED_VERSION = "3.0.1"
 VORTEX_CANDIDATE_SUPPORT_STATUS = "pre_release_candidate"
 VORTEX_CANDIDATE_COMPATIBILITY = "vortex-0.75+"
@@ -162,7 +171,7 @@ def render_argo_parameters(
         "scenario-support-status": str(scenario["support_status"]),
         "release-gate-eligible": _bool_str(
             scenario.get("classification") == "gate"
-            and scenario.get("support_status") == "supported"
+            and scenario.get("support_status") in RELEASE_GATE_SUPPORT_STATUSES
         ),
         "deploy-profile": str(scenario["deploy_profile"]),
         "base-milvus-image": str(scenario["base"]["image"]),
@@ -332,6 +341,23 @@ def validate_registered_scenario_parameters(
     runtime_parameters: dict[str, Any],
 ) -> dict[str, Any] | None:
     if not any(item.get("id") == scenario_id for item in manifest.get("scenarios", [])):
+        drift = {
+            name: {
+                "expected": expected_value,
+                "actual": str(runtime_parameters.get(name, "<missing>")),
+            }
+            for name, expected_value in UNREGISTERED_SCENARIO_METADATA.items()
+            if str(runtime_parameters.get(name, "<missing>")) != expected_value
+        }
+        if drift:
+            details = ", ".join(
+                f"{name}: expected {values['expected']!r}, got {values['actual']!r}"
+                for name, values in sorted(drift.items())
+            )
+            raise ValueError(
+                f"{scenario_id}: unregistered scenario report metadata must remain "
+                f"fail-closed: {details}"
+            )
         return None
 
     missing_phase_parameters = [
@@ -457,6 +483,14 @@ def validate_gate_manifest(
             raise ValueError(
                 f"{source}: candidate scenario {scenario_id} must use support_status "
                 f"{VORTEX_CANDIDATE_SUPPORT_STATUS!r}"
+            )
+        if (
+            classification == "gate"
+            and scenario.get("support_status") not in RELEASE_GATE_SUPPORT_STATUSES
+        ):
+            raise ValueError(
+                f"{source}: gate scenario {scenario_id} must use a release-eligible "
+                f"support_status from {sorted(RELEASE_GATE_SUPPORT_STATUSES)!r}"
             )
         for section, logical_name in (
             ("workflow_templates", "workflow_template"),
