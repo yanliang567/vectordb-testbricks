@@ -368,3 +368,14 @@ git diff --check: passed
   的 checksum 精度。
 - 已增加 seed=0、100 rows 的 StructArray vector float32 round-trip 回归测试；该
   输入与 workflow `pr27-idxfmt-r1-4hphd` 的失败 hash 完全一致。
+
+### Round 4：2.6 StructArray filter 语言边界
+
+- **[P1] v2.6.18 不支持 `MATCH_ANY` parser 语法。** R2 在 base feature validation
+  解析 `$[score]`/`$[category]` 时失败；v2.6.18 源码中也没有 `MATCH_ANY` 或
+  `element_filter` parser 实现。StructArray scalar sub-field index 可创建，但 2.6
+  reader 只能验证 metadata/load，不能执行该 filter。
+- validator 已改为按真实 server version 分层：Milvus 3.0+ 严格执行 nested
+  scalar filter；2.6 记录 `skipped_unsupported_total`，但仍验证 top-level scalar
+  indexes、StructArray scalar round-trip、index metadata 和严格 release/load。
+  server version 不可解析时 fail-closed，不能把未知环境当作 2.6 跳过。

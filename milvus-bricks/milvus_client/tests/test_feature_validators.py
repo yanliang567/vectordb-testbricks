@@ -2,6 +2,7 @@ from milvus_client.common.feature_validators import (
     _normalize,
     _struct_scalar_filter,
     known_validator_names,
+    run_feature_validator,
     unknown_validators,
     validate_index_engine_version,
     validate_entity_ttl,
@@ -77,6 +78,104 @@ def test_struct_scalar_filter_covers_float_and_varchar_indexes():
             spec, spec.indexes[1], spec.struct_arrays[0].fields[1], 7, 3
         )
         == 'MATCH_ANY(attributes, $[category_inverted] == "category_7")'
+    )
+
+
+def test_struct_scalar_index_query_is_version_gated():
+    class Client:
+        calls = []
+
+        def query(self, **kwargs):
+            self.calls.append(kwargs)
+            return [{"id": 0}]
+
+    spec = SchemaSpec(
+        name="struct",
+        version="2.6",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        struct_arrays=[
+            StructArraySpec(
+                name="items",
+                max_capacity=4,
+                fields=[FieldSpec(name="category", dtype="VARCHAR")],
+            )
+        ],
+        indexes=[IndexSpec(field="items[category]", index_type="AUTOINDEX")],
+        validator_params={"min_struct_scalar_index_queries": 1},
+    )
+    meta = {"min_pk": 0, "max_pk": 0, "data_min_pk": 0, "data_max_pk": 0}
+    client = Client()
+    base_report = ValidationReport()
+
+    run_feature_validator(
+        "struct_array_scalar_index_queries",
+        client,
+        "qa_struct",
+        spec,
+        meta,
+        0,
+        base_report,
+        server_version="v2.6.18",
+    )
+
+    assert base_report.passed
+    assert client.calls == []
+    assert (
+        base_report.metrics[
+            "qa_struct.struct_array_scalar_index_queries.skipped_unsupported_total"
+        ]
+        == 1
+    )
+
+    target_report = ValidationReport()
+    run_feature_validator(
+        "struct_array_scalar_index_queries",
+        client,
+        "qa_struct",
+        spec,
+        meta,
+        0,
+        target_report,
+        server_version="v3.0.0",
+    )
+    assert target_report.passed
+    assert (
+        target_report.metrics["qa_struct.struct_array_scalar_index_queries.total"] == 1
+    )
+    assert len(client.calls) == 1
+
+
+def test_struct_scalar_index_query_fails_closed_for_unknown_runtime_version():
+    spec = SchemaSpec(
+        name="struct",
+        version="2.6",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        struct_arrays=[
+            StructArraySpec(
+                name="items",
+                max_capacity=4,
+                fields=[FieldSpec(name="category", dtype="VARCHAR")],
+            )
+        ],
+        indexes=[IndexSpec(field="items[category]", index_type="AUTOINDEX")],
+    )
+    report = ValidationReport()
+
+    run_feature_validator(
+        "struct_array_scalar_index_queries",
+        object(),
+        "qa_struct",
+        spec,
+        {"min_pk": 0, "max_pk": 0},
+        0,
+        report,
+        server_version="unknown",
+    )
+
+    assert not report.passed
+    assert (
+        report.failures[0]["type"]
+        == "STRUCT_ARRAY_SCALAR_INDEX_RUNTIME_VERSION_UNKNOWN"
     )
 
 

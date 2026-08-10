@@ -1601,6 +1601,61 @@ def test_struct_scalar_index_filters_use_match_any():
     )
 
 
+def test_nested_scalar_index_queries_skip_on_2_6_runtime():
+    class Client:
+        def get_server_version(self):
+            return "v2.6.18"
+
+        def query(self, **kwargs):
+            raise AssertionError("2.6 must not execute MATCH_ANY")
+
+    report = ValidationReport()
+    queries = validate_index_compatibility.validate_scalar_index_queries(
+        Client(),
+        "qa_struct",
+        _struct_index_spec(),
+        {"min_pk": 3, "max_pk": 3, "data_min_pk": 3, "data_max_pk": 3},
+        7,
+        report,
+    )
+
+    assert report.passed
+    assert queries == 0
+    assert (
+        report.metrics[
+            "qa_struct.struct_array_scalar_index_queries.skipped_unsupported_total"
+        ]
+        == 2
+    )
+
+
+def test_nested_scalar_index_queries_execute_on_3_0_runtime():
+    class Client:
+        calls = []
+
+        def get_server_version(self):
+            return "v3.0.0"
+
+        def query(self, **kwargs):
+            self.calls.append(kwargs)
+            return [{"id": 3}]
+
+    client = Client()
+    report = ValidationReport()
+    queries = validate_index_compatibility.validate_scalar_index_queries(
+        client,
+        "qa_struct",
+        _struct_index_spec(),
+        {"min_pk": 3, "max_pk": 3, "data_min_pk": 3, "data_max_pk": 3},
+        7,
+        report,
+    )
+
+    assert report.passed
+    assert queries == 2
+    assert len(client.calls) == 4
+
+
 def test_rollback_safe_autoindex_matrix_builds_deterministic_scalar_filters():
     matrix = (
         Path(__file__).resolve().parents[1] / "manifests" / "schema_matrix_2_6.yaml"

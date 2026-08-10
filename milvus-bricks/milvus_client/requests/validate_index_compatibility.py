@@ -8,7 +8,7 @@ import math
 import sys
 
 from milvus_client.common.args import build_common_parser, parse_bool
-from milvus_client.common.client import create_client
+from milvus_client.common.client import create_client, get_server_version
 from milvus_client.common.data import (
     generate_field_value,
     generate_primary_key_value,
@@ -40,6 +40,7 @@ from milvus_client.common.workload import (
     metric_type_for_field,
     search_params_for_field,
 )
+from milvus_client.common.version import version_at_least
 
 
 INDEX_SEARCH_FAILED = "INDEX_SEARCH_FAILED"
@@ -1019,13 +1020,45 @@ def validate_scalar_index_queries(
     seed: int,
     report: ValidationReport,
     probe_overrides: dict[str, tuple[int, Any, str]] | None = None,
+    server_version: str | None = None,
 ) -> int:
     primary = _primary_field(spec)
     primary_name = meta.get("primary_field") or (
         primary.name if primary is not None else "id"
     )
     queries = 0
-    for index, field in indexed_scalar_indexes(spec):
+    scalar_indexes = indexed_scalar_indexes(spec)
+    nested_scalar_indexes = [
+        (index, field)
+        for index, field in scalar_indexes
+        if struct_array_for_field(spec, index.field) is not None
+    ]
+    nested_query_supported = True
+    if nested_scalar_indexes:
+        actual_server_version = server_version or get_server_version(client)
+        try:
+            nested_query_supported = version_at_least(actual_server_version, "3.0.0")
+        except ValueError:
+            report.fail(
+                INDEX_SCALAR_QUERY_FAILED,
+                "cannot determine whether the runtime supports StructArray scalar filters",
+                collection=collection,
+                server_version=actual_server_version,
+            )
+            nested_query_supported = False
+        report.metrics[f"{collection}.struct_array_scalar_index_queries.supported"] = (
+            nested_query_supported
+        )
+        if not nested_query_supported:
+            report.metrics[
+                f"{collection}.struct_array_scalar_index_queries.skipped_unsupported_total"
+            ] = len(nested_scalar_indexes)
+    for index, field in scalar_indexes:
+        if (
+            struct_array_for_field(spec, index.field) is not None
+            and not nested_query_supported
+        ):
+            continue
         probe = (probe_overrides or {}).get(index.field) or _scalar_index_probe(
             spec, meta, index, field, seed
         )
