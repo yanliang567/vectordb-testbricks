@@ -372,7 +372,7 @@ harbor.milvus.io/milvusdb/milvus:2.6-20260807-d85dc945@sha256:2051a754368d70f589
 ### 提交前验证
 
 ```text
-PYTHONPATH=. pytest -q milvus_client/tests: 459 passed
+PYTHONPATH=. pytest -q milvus_client/tests: 463 passed
 ruff check: passed
 ruff format --check: passed
 argo lint --offline argo: no linting errors
@@ -478,7 +478,7 @@ git diff --check: passed
 - **[P2] JSON/ARRAY AutoIndex 子类型不足。** JSON path cast 从 double 扩展为
   double/bool/varchar，ARRAY element type 从 VARCHAR 扩展为
   INT64/FLOAT/BOOL/VARCHAR，并为每个新增索引增加确定性 filter contract。
-- 当前 review hardening 已通过 `459` 个单元测试；R6 真实环境数据仍对应
+- 当前 review hardening 已通过 `463` 个单元测试；R6 真实环境数据仍对应
   `625df1493fc2f01c2e12f8a104a4e71dc2e90c49`，新增 subtype 和同阶段 reload 需要在
   #52359 修复镜像可用后随完整 workflow 一并补跑。
 
@@ -491,3 +491,16 @@ git diff --check: passed
 - **[P2] strict release/load 没有 RPC timeout。** 新增
   `--reload-timeout-sec`，默认 `120` 秒；keyword 与 positional collection 调用均保留
   timeout，非正数配置直接失败。最终 result 同时记录 `reload_timeout_sec`。
+
+### Round 12：checkpoint workflow identity 与非零载荷
+
+- **[P1] schema 覆盖自洽仍可伪造零数据 checkpoint。** rollback validation 现在将
+  existing collection 精确绑定到 seed checkpoint 的 collection/schema 映射，将
+  target-written collection 精确绑定到 carried prefix 推导出的名称；两组名称必须
+  互斥。
+- checkpoint 顶层 `existing_dml_rows`、`existing_delete_rows`、
+  `new_collection_rows` 必须与当前 workflow 参数一致，且写入行数必须为正、删除后
+  必须仍有可搜索数据。
+- 每个 entry 的 primary field、start ID、rows、inserted、deleted、remaining count、
+  search probe 范围/PK/seed 和 vector search 数量均需与 schema 及顶层运行参数一致。
+  同名 collection 复用、错误 seed/prefix 名称和 `rows: 0` 均在 reload 前 fail-closed。
