@@ -8,7 +8,7 @@ from time import monotonic, sleep
 from typing import Any
 
 from milvus_client.common.args import build_common_parser, parse_bool
-from milvus_client.common.client import create_client
+from milvus_client.common.client import create_client, get_server_version
 from milvus_client.common.data import (
     apply_deterministic_update,
     generate_field_value,
@@ -46,6 +46,7 @@ from milvus_client.common.workload import (
     metric_type_for_field,
     search_params_for_field,
 )
+from milvus_client.common.version import server_version_for_feature_detection
 from milvus_client.requests.validate_index_compatibility import (
     indexed_scalar_indexes,
     scalar_index_filter_for_value,
@@ -900,6 +901,7 @@ def _run_existing_collection_dml_dql(
     report: ValidationReport,
     *,
     reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
+    server_version: str | None = None,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
@@ -1109,6 +1111,7 @@ def _run_existing_collection_dml_dql(
         search_probe_seed,
         report,
         existing=True,
+        server_version=server_version,
     )
     if len(report.failures) > validation_failures_before:
         return metrics
@@ -1137,6 +1140,7 @@ def _run_existing_collection_dml_dql(
         search_probe_seed,
         report,
         existing=True,
+        server_version=server_version,
     )
     metrics["reload_succeeded"] = len(report.failures) == reload_failures_before
     return metrics
@@ -1154,6 +1158,7 @@ def _run_new_collection_dml_dql(
     report: ValidationReport,
     *,
     reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
+    server_version: str | None = None,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
@@ -1273,6 +1278,7 @@ def _run_new_collection_dml_dql(
         search_probe_seed,
         report,
         existing=False,
+        server_version=server_version,
     )
     if len(report.failures) > validation_failures_before:
         return metrics
@@ -1301,6 +1307,7 @@ def _run_new_collection_dml_dql(
         search_probe_seed,
         report,
         existing=False,
+        server_version=server_version,
     )
     metrics["reload_succeeded"] = len(report.failures) == reload_failures_before
     return metrics
@@ -1608,6 +1615,7 @@ def _validate_phase_checkpoint_scalar_indexes(
     report: ValidationReport,
     *,
     existing: bool,
+    server_version: str | None = None,
 ) -> int:
     meta = _phase_checkpoint_index_meta(spec, checkpoint, existing=existing)
     if meta is None:
@@ -1620,6 +1628,7 @@ def _validate_phase_checkpoint_scalar_indexes(
         seed,
         report,
         probe_overrides=_phase_upsert_scalar_probe_overrides(spec, checkpoint),
+        server_version=server_version,
     )
 
 
@@ -2127,6 +2136,7 @@ def _validate_phase_checkpoint_before_rollback(
     expected_existing_delete_rows: int,
     expected_new_collection_rows: int,
     reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
+    server_version: str | None = None,
 ) -> dict[str, Any]:
     metrics = {
         "phase_checkpoint_validated": False,
@@ -2198,6 +2208,7 @@ def _validate_phase_checkpoint_before_rollback(
             seed,
             report,
             existing=True,
+            server_version=server_version,
         )
         metrics["phase_checkpoint_scalar_index_queries_total"] += scalar_queries
         metrics[
@@ -2235,6 +2246,7 @@ def _validate_phase_checkpoint_before_rollback(
             seed + 17,
             report,
             existing=False,
+            server_version=server_version,
         )
         metrics["phase_checkpoint_scalar_index_queries_total"] += scalar_queries
         metrics[
@@ -2285,6 +2297,17 @@ def main(argv: list[str] | None = None) -> int:
         checkpoint = json.loads(checkpoint_file.read_text())
         specs = _spec_by_schema(args.schema_matrix)
         client = create_client(args.uri, args.token, args.db_name)
+        actual_server_version = get_server_version(client)
+        server_version = server_version_for_feature_detection(
+            actual_server_version,
+            args.server_version_hint,
+            expected_image=args.expected_server_image,
+            release_gate_eligible=args.release_gate_eligible,
+        )
+        result.capabilities = {
+            "server_version": actual_server_version,
+            "effective_server_version": server_version,
+        }
         report = ValidationReport()
         metrics: dict[str, Any] = {
             "phase": args.phase,
@@ -2339,6 +2362,7 @@ def main(argv: list[str] | None = None) -> int:
                     expected_existing_delete_rows=args.existing_delete_rows,
                     expected_new_collection_rows=args.new_collection_rows,
                     reload_timeout_sec=args.reload_timeout_sec,
+                    server_version=server_version,
                 )
             )
             if not report.passed:
@@ -2372,6 +2396,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.visibility_interval_sec,
                 report,
                 reload_timeout_sec=args.reload_timeout_sec,
+                server_version=server_version,
             )
             metrics["existing_collections"].append(existing_metrics)
             metrics["existing_inserted_total"] += existing_metrics["inserted"]
@@ -2405,6 +2430,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.visibility_interval_sec,
                     report,
                     reload_timeout_sec=args.reload_timeout_sec,
+                    server_version=server_version,
                 )
                 metrics["carried_collections"].append(carried_metrics)
                 metrics["carried_inserted_total"] += carried_metrics["inserted"]
@@ -2430,6 +2456,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.drop_new_collections_if_exist,
                 report,
                 reload_timeout_sec=args.reload_timeout_sec,
+                server_version=server_version,
             )
             metrics["new_collections"].append(new_metrics)
             metrics["new_collection_inserted_total"] += new_metrics["inserted"]

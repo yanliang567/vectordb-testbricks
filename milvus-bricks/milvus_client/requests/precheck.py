@@ -5,7 +5,11 @@ import sys
 from milvus_client.common.args import build_common_parser
 from milvus_client.common.client import create_client, get_server_version
 from milvus_client.common.result import FAILED, PASSED, result_from_args
-from milvus_client.common.version import version_at_least, version_family
+from milvus_client.common.version import (
+    matching_pinned_image_build_tag,
+    version_at_least,
+    version_family,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -19,6 +23,7 @@ def main(argv: list[str] | None = None) -> int:
         server_version = get_server_version(client)
         result.capabilities = {
             "server_version": server_version,
+            "effective_server_version": server_version,
             "sdk_version": "unknown",
             "supported": [],
             "unsupported": [],
@@ -26,14 +31,38 @@ def main(argv: list[str] | None = None) -> int:
         try:
             actual_family = version_family(server_version)
         except ValueError as exc:
-            result.mark_failed(
-                "SERVER_VERSION_UNAVAILABLE",
-                "Milvus API did not return a parseable server version",
-                actual_version=server_version,
-                error=str(exc),
+            matched_build_tag = matching_pinned_image_build_tag(
+                args.expected_server_image, server_version
             )
+            if (
+                args.release_gate_eligible
+                or not args.expected_server_version
+                or matched_build_tag is None
+            ):
+                result.mark_failed(
+                    "SERVER_VERSION_UNAVAILABLE",
+                    "Milvus API did not return a parseable server version",
+                    actual_version=server_version,
+                    expected_image=args.expected_server_image,
+                    release_gate_eligible=args.release_gate_eligible,
+                    error=str(exc),
+                )
+                result.write(args.output_json)
+                return 1
+            expected_family = version_family(args.expected_server_version)
+            result.capabilities["effective_server_version"] = (
+                args.expected_server_version
+            )
+            result.metrics = {
+                "collections_total": len(collections),
+                "server_version_family": expected_family,
+                "expected_server_version_family": expected_family,
+                "server_version_validation_mode": "immutable_image_build_identity",
+                "matched_server_build_tag": matched_build_tag,
+            }
+            result.status = PASSED
             result.write(args.output_json)
-            return 1
+            return 0
         result.metrics = {
             "collections_total": len(collections),
             "server_version_family": actual_family,

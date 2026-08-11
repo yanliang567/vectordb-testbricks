@@ -673,16 +673,78 @@ def test_upgrade_rollback_prechecks_validate_actual_server_version():
         tasks = {task["name"]: task for task in dag["dag"]["tasks"]}
 
         expected = {
-            "precheck-base": "{{workflow.parameters.base-version}}",
-            "precheck-after-upgrade": "{{workflow.parameters.target-version}}",
-            "precheck-after-rollback": "{{workflow.parameters.rollback-version}}",
+            "precheck-base": ("base-version", "base-milvus-image"),
+            "precheck-after-upgrade": ("target-version", "target-milvus-image"),
+            "precheck-after-rollback": (
+                "rollback-version",
+                "rollback-milvus-image",
+            ),
         }
-        for task_name, expected_version in expected.items():
+        for task_name, (version_parameter, image_parameter) in expected.items():
             parameters = {
                 parameter["name"]: parameter["value"]
                 for parameter in tasks[task_name]["arguments"]["parameters"]
             }
-            assert f"--expected-server-version {expected_version}" in parameters["args"]
+            args = parameters["args"]
+            assert (
+                "--expected-server-version "
+                f"{{{{workflow.parameters.{version_parameter}}}}}" in args
+            )
+            assert (
+                "--expected-server-image "
+                f"{{{{workflow.parameters.{image_parameter}}}}}" in args
+            )
+            assert (
+                "--release-gate-eligible "
+                "{{workflow.parameters.release-gate-eligible}}" in args
+            )
+
+
+def test_upgrade_rollback_version_sensitive_bricks_receive_phase_identity():
+    expected = {
+        "create-compat-schema": "base-version",
+        "validate-schema-features-base": "base-version",
+        "validate-index-compatibility-after-upgrade": "target-version",
+        "validate-schema-features-after-upgrade": "target-version",
+        "validate-phase-dml-dql-after-upgrade": "target-version",
+        "create-forward-schema": "target-version",
+        "validate-forward-indexes-after-upgrade": "target-version",
+        "validate-forward-schema-features-after-upgrade": "target-version",
+        "validate-index-compatibility-after-rollback": "rollback-version",
+        "validate-schema-features-after-rollback": "rollback-version",
+        "validate-phase-dml-dql-after-rollback": "rollback-version",
+        "validate-forward-indexes-after-rollback": "rollback-version",
+        "validate-forward-schema-features-after-rollback": "rollback-version",
+    }
+    for template_path in [
+        ROOT / "argo" / "standalone-2-6-upgrade-rollback.yaml",
+        ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml",
+        ROOT / "argo" / "cluster-upgrade-rollback.yaml",
+    ]:
+        template = yaml.safe_load(template_path.read_text())
+        templates = {item["name"]: item for item in template["spec"]["templates"]}
+        dag = next(item for item in templates.values() if "dag" in item)
+        tasks = {task["name"]: task for task in dag["dag"]["tasks"]}
+
+        for task_name, version_parameter in expected.items():
+            parameters = {
+                parameter["name"]: parameter["value"]
+                for parameter in tasks[task_name]["arguments"]["parameters"]
+            }
+            assert (
+                "--server-version-hint "
+                f"{{{{workflow.parameters.{version_parameter}}}}}" in parameters["args"]
+            )
+            phase = version_parameter.removesuffix("-version")
+            assert (
+                "--expected-server-image "
+                f"{{{{workflow.parameters.{phase}-milvus-image}}}}"
+                in parameters["args"]
+            )
+            assert (
+                "--release-gate-eligible "
+                "{{workflow.parameters.release-gate-eligible}}" in parameters["args"]
+            )
 
 
 def _run_resolve_inputs_guard(template_name, **overrides):

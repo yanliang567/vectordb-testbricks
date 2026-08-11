@@ -14,7 +14,7 @@ class PrecheckClient:
         return self.version
 
 
-def _args(tmp_path, expected_version: str) -> list[str]:
+def _args(tmp_path, expected_version: str, *extra: str) -> list[str]:
     return [
         "--uri",
         "http://milvus:19530",
@@ -26,6 +26,7 @@ def _args(tmp_path, expected_version: str) -> list[str]:
         str(tmp_path / "result.json"),
         "--expected-server-version",
         expected_version,
+        *extra,
     ]
 
 
@@ -90,6 +91,107 @@ def test_precheck_rejects_unparseable_server_version(monkeypatch, tmp_path):
     )
 
     code = precheck.main(_args(tmp_path, "3.0.1"))
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 1
+    assert result["failures"][0]["type"] == "SERVER_VERSION_UNAVAILABLE"
+
+
+def test_precheck_accepts_digest_pinned_candidate_build_identity(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        precheck,
+        "create_client",
+        lambda *args: PrecheckClient("master-20260810-eaec01bc71"),
+    )
+
+    code = precheck.main(
+        _args(
+            tmp_path,
+            "3.0.0",
+            "--expected-server-image",
+            "harbor.milvus.io/milvusdb/milvus:master-20260810-eaec01bc@sha256:"
+            + "9" * 64,
+            "--release-gate-eligible",
+            "false",
+        )
+    )
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+    assert result["capabilities"]["server_version"] == ("master-20260810-eaec01bc71")
+    assert result["capabilities"]["effective_server_version"] == "3.0.0"
+    assert result["metrics"]["server_version_family"] == "3.0"
+    assert result["metrics"]["server_version_validation_mode"] == (
+        "immutable_image_build_identity"
+    )
+
+
+def test_precheck_rejects_opaque_build_for_release_gate(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        precheck,
+        "create_client",
+        lambda *args: PrecheckClient("master-20260810-eaec01bc71"),
+    )
+
+    code = precheck.main(
+        _args(
+            tmp_path,
+            "3.0.0",
+            "--expected-server-image",
+            "harbor.milvus.io/milvusdb/milvus:master-20260810-eaec01bc@sha256:"
+            + "9" * 64,
+            "--release-gate-eligible",
+            "true",
+        )
+    )
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 1
+    assert result["failures"][0]["type"] == "SERVER_VERSION_UNAVAILABLE"
+
+
+def test_precheck_rejects_unpinned_opaque_build(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        precheck,
+        "create_client",
+        lambda *args: PrecheckClient("master-20260810-eaec01bc71"),
+    )
+
+    code = precheck.main(
+        _args(
+            tmp_path,
+            "3.0.0",
+            "--expected-server-image",
+            "harbor.milvus.io/milvusdb/milvus:master-20260810-eaec01bc",
+            "--release-gate-eligible",
+            "false",
+        )
+    )
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 1
+    assert result["failures"][0]["type"] == "SERVER_VERSION_UNAVAILABLE"
+
+
+def test_precheck_rejects_mismatched_opaque_build_identity(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        precheck,
+        "create_client",
+        lambda *args: PrecheckClient("master-20260810-deadbeef"),
+    )
+
+    code = precheck.main(
+        _args(
+            tmp_path,
+            "3.0.0",
+            "--expected-server-image",
+            "harbor.milvus.io/milvusdb/milvus:master-20260810-eaec01bc@sha256:"
+            + "9" * 64,
+            "--release-gate-eligible",
+            "false",
+        )
+    )
 
     result = json.loads((tmp_path / "result.json").read_text())
     assert code == 1
