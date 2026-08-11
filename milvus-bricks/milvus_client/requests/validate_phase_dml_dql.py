@@ -1661,6 +1661,7 @@ def _validate_phase_checkpoint_entry_payload(
     expected_start_id: int,
     expected_rows: int,
     expected_delete_rows: int,
+    expected_seed: int,
 ) -> None:
     primary = _primary_field(spec)
     expected_primary_field = primary.name if primary is not None else "id"
@@ -1754,6 +1755,126 @@ def _validate_phase_checkpoint_entry_payload(
             actual=scalar_queries,
         )
 
+    expected_probe_seed = (
+        expected_seed
+        if group_name == "existing_collections" and auto_id_enabled(spec)
+        else expected_seed + 101
+        if group_name == "existing_collections"
+        else expected_seed + 17
+    )
+    if collection_checkpoint.get("search_probe_seed") != expected_probe_seed:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint search probe seed does not match the workflow",
+            group=group_name,
+            collection=collection,
+            expected=expected_probe_seed,
+            actual=collection_checkpoint.get("search_probe_seed"),
+        )
+
+    primary = _primary_field(spec)
+    if primary is None:
+        return
+    inserted_values = collection_checkpoint.get("inserted_values")
+    sample_values = collection_checkpoint.get("sample_values")
+    if auto_id_enabled(spec):
+        if (
+            not isinstance(inserted_values, list)
+            or len(inserted_values) != expected_rows
+            or len(set(inserted_values)) != expected_rows
+        ):
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "auto-id phase checkpoint lacks the complete unique returned IDs",
+                group=group_name,
+                collection=collection,
+                expected_count=expected_rows,
+                actual_count=(
+                    len(inserted_values) if isinstance(inserted_values, list) else None
+                ),
+            )
+            return
+        expected_samples = inserted_values[:3]
+        if group_name == "existing_collections":
+            expected_auto_id_values = {
+                "deleted_values": inserted_values[:expected_delete_rows],
+                "remaining_values": inserted_values[expected_delete_rows:],
+                "remaining_min_pk": None,
+                "remaining_max_pk": None,
+                "upserted": 0,
+                "upsert_skipped_auto_id": True,
+                "upsert_samples": {"field": None, "samples": []},
+            }
+            for field_name, expected_value in expected_auto_id_values.items():
+                if collection_checkpoint.get(field_name) != expected_value:
+                    report.fail(
+                        PHASE_CHECKPOINT_INVALID,
+                        "auto-id phase checkpoint oracle is incomplete",
+                        group=group_name,
+                        collection=collection,
+                        field=field_name,
+                        expected=expected_value,
+                        actual=collection_checkpoint.get(field_name),
+                    )
+        elif sample_values != expected_samples:
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "auto-id new collection sample IDs do not match returned IDs",
+                group=group_name,
+                collection=collection,
+                expected=expected_samples,
+                actual=sample_values,
+            )
+        return
+
+    expected_min_pk = generate_primary_key_value(
+        primary,
+        expected_start_id
+        + (expected_delete_rows if group_name == "existing_collections" else 0),
+    )
+    expected_max_pk = generate_primary_key_value(
+        primary,
+        expected_start_id + expected_rows - 1,
+    )
+    if group_name == "existing_collections":
+        expected_explicit_values = {
+            "inserted_values": [],
+            "remaining_min_pk": expected_min_pk,
+            "remaining_max_pk": expected_max_pk,
+            "remaining_values": [expected_min_pk, expected_max_pk],
+            "deleted_values": [
+                generate_primary_key_value(primary, expected_start_id + offset)
+                for offset in range(expected_delete_rows)
+            ],
+            "upserted": expected_rows,
+            "upsert_skipped_auto_id": False,
+            "upsert_samples": _upsert_sample_payload(
+                spec,
+                primary,
+                expected_start_id,
+                [expected_delete_rows, expected_rows - 1],
+                expected_seed,
+            ),
+        }
+    else:
+        expected_explicit_values = {
+            "inserted_values": [],
+            "min_pk": expected_min_pk,
+            "max_pk": expected_max_pk,
+            "sample_values": [expected_min_pk, expected_max_pk],
+        }
+    for field_name, expected_value in expected_explicit_values.items():
+        if collection_checkpoint.get(field_name) != expected_value:
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "explicit-PK phase checkpoint oracle is incomplete",
+                group=group_name,
+                collection=collection,
+                field=field_name,
+                expected=expected_value,
+                actual=collection_checkpoint.get(field_name),
+            )
+
 
 def _validate_phase_checkpoint_contract(
     checkpoint: Any,
@@ -1765,6 +1886,7 @@ def _validate_phase_checkpoint_contract(
     expected_existing_dml_rows: int,
     expected_existing_delete_rows: int,
     expected_new_collection_rows: int,
+    expected_seed: int,
 ) -> bool:
     failures_before = len(report.failures)
     if not isinstance(checkpoint, dict):
@@ -1931,6 +2053,7 @@ def _validate_phase_checkpoint_contract(
                         if group_name == "existing_collections"
                         else 0
                     ),
+                    expected_seed=expected_seed,
                 )
 
         observed_schemas = set(schema_names)
@@ -2040,6 +2163,7 @@ def _validate_phase_checkpoint_before_rollback(
         expected_existing_dml_rows=expected_existing_dml_rows,
         expected_existing_delete_rows=expected_existing_delete_rows,
         expected_new_collection_rows=expected_new_collection_rows,
+        expected_seed=seed,
     ):
         return metrics
     for collection_checkpoint in checkpoint.get("existing_collections", {}).values():

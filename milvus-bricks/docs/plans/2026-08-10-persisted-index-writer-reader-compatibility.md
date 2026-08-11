@@ -372,7 +372,7 @@ harbor.milvus.io/milvusdb/milvus:2.6-20260807-d85dc945@sha256:2051a754368d70f589
 ### 提交前验证
 
 ```text
-PYTHONPATH=. pytest -q milvus_client/tests: 463 passed
+PYTHONPATH=. pytest -q milvus_client/tests: 470 passed
 ruff check: passed
 ruff format --check: passed
 argo lint --offline argo: no linting errors
@@ -478,7 +478,7 @@ git diff --check: passed
 - **[P2] JSON/ARRAY AutoIndex 子类型不足。** JSON path cast 从 double 扩展为
   double/bool/varchar，ARRAY element type 从 VARCHAR 扩展为
   INT64/FLOAT/BOOL/VARCHAR，并为每个新增索引增加确定性 filter contract。
-- 当前 review hardening 已通过 `463` 个单元测试；R6 真实环境数据仍对应
+- 当前 review hardening 已通过 `470` 个单元测试；R6 真实环境数据仍对应
   `625df1493fc2f01c2e12f8a104a4e71dc2e90c49`，新增 subtype 和同阶段 reload 需要在
   #52359 修复镜像可用后随完整 workflow 一并补跑。
 
@@ -504,3 +504,16 @@ git diff --check: passed
 - 每个 entry 的 primary field、start ID、rows、inserted、deleted、remaining count、
   search probe 范围/PK/seed 和 vector search 数量均需与 schema 及顶层运行参数一致。
   同名 collection 复用、错误 seed/prefix 名称和 `rows: 0` 均在 reload 前 fail-closed。
+
+### Round 13：existing/new data oracle 完整性
+
+- **[P1] existing entry 缺少 range/PK/delete/upsert oracle 时，后续 validator 会把
+  缺失字段当空值并跳过。** 显式 PK collection 现在强制携带可由 schema、start ID、
+  row/delete count 和 seed 推导的 `remaining_min_pk/max_pk`、`remaining_values`、
+  `deleted_values` 与完整 `upsert_samples`。
+- AutoID collection 必须携带完整、唯一的 `inserted_values`，且 deleted/remaining
+  IDs、skip-upsert 状态和空 upsert oracle 必须与 returned ID 顺序一致。
+- new collection 同样强制显式 PK range/sample 或 AutoID returned-ID/sample oracle，
+  防止相同的空列表降级路径转移到 target-written collection。
+- 删除任一 existing 显式 PK oracle 字段都会在 reload 前失败；AutoID 完整和缺失
+  returned-ID 两条路径均有独立 contract 测试。

@@ -369,7 +369,10 @@ def _minimal_phase_checkpoint_payload(
     *,
     version=2,
     phase="after-upgrade",
+    seed=7,
 ):
+    spec = _dense_spec()
+    primary = next(field for field in spec.fields if field.primary)
     return {
         "version": version,
         "phase": phase,
@@ -386,11 +389,25 @@ def _minimal_phase_checkpoint_payload(
                 "start_id": 50_000_000,
                 "rows": 4,
                 "inserted": 4,
+                "inserted_values": [],
+                "upserted": 4,
                 "deleted": 1,
+                "deleted_values": [50_000_000],
                 "remaining_count": 3,
+                "remaining_min_pk": 50_000_001,
+                "remaining_max_pk": 50_000_003,
+                "remaining_values": [50_000_001, 50_000_003],
+                "upsert_samples": validate_phase_dml_dql._upsert_sample_payload(
+                    spec,
+                    primary,
+                    50_000_000,
+                    [1, 3],
+                    seed,
+                ),
+                "upsert_skipped_auto_id": False,
                 "search_probe_data_pk": 50_000_003,
                 "search_probe_pk": 50_000_003,
-                "search_probe_seed": 101,
+                "search_probe_seed": seed + 101,
                 "searches": 1,
                 "scalar_index_queries": 1,
             }
@@ -403,9 +420,13 @@ def _minimal_phase_checkpoint_payload(
                 "start_id": 60_000_000,
                 "rows": 4,
                 "inserted": 4,
+                "inserted_values": [],
+                "min_pk": 60_000_000,
+                "max_pk": 60_000_003,
+                "sample_values": [60_000_000, 60_000_003],
                 "search_probe_data_pk": 60_000_003,
                 "search_probe_pk": 60_000_003,
-                "search_probe_seed": 17,
+                "search_probe_seed": seed + 17,
                 "searches": 1,
                 "scalar_index_queries": 1,
             }
@@ -421,6 +442,38 @@ def _phase_checkpoint_expectations():
         "expected_existing_delete_rows": 1,
         "expected_new_collection_rows": 4,
     }
+
+
+def _auto_id_phase_checkpoint_payload(seed=7):
+    payload = _minimal_phase_checkpoint_payload(seed=seed)
+    existing = payload["existing_collections"]["qa_dense"]
+    existing_ids = [1000, 1001, 1002, 1003]
+    existing.update(
+        {
+            "inserted_values": existing_ids,
+            "upserted": 0,
+            "deleted_values": [1000],
+            "remaining_min_pk": None,
+            "remaining_max_pk": None,
+            "remaining_values": [1001, 1002, 1003],
+            "upsert_samples": {"field": None, "samples": []},
+            "upsert_skipped_auto_id": True,
+            "search_probe_pk": 1003,
+            "search_probe_seed": seed,
+        }
+    )
+    new = payload["new_collections"]["qa_after_upgrade_dense"]
+    new_ids = [2000, 2001, 2002, 2003]
+    new.update(
+        {
+            "inserted_values": new_ids,
+            "min_pk": None,
+            "max_pk": None,
+            "sample_values": [2000, 2001, 2002],
+            "search_probe_pk": 2003,
+        }
+    )
+    return payload
 
 
 def _args(tmp_path, checkpoint):
@@ -1270,6 +1323,85 @@ def test_phase_checkpoint_contract_rejects_zero_row_payload(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "remaining_min_pk",
+        "remaining_max_pk",
+        "remaining_values",
+        "deleted_values",
+        "upsert_samples",
+    ],
+)
+def test_phase_checkpoint_contract_requires_explicit_pk_oracles_before_reload(
+    tmp_path,
+    field_name,
+):
+    payload = _minimal_phase_checkpoint_payload()
+    payload["existing_collections"]["qa_dense"].pop(field_name)
+    checkpoint = tmp_path / "phase.json"
+    checkpoint.write_text(json.dumps(payload))
+    client = PhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._validate_phase_checkpoint_before_rollback(
+        client,
+        {"dense": _dense_spec()},
+        checkpoint,
+        seed=7,
+        report=report,
+        **_phase_checkpoint_expectations(),
+    )
+
+    assert not report.passed
+    assert not metrics["phase_checkpoint_validated"]
+    assert metrics["phase_checkpoint_reload_collections_total"] == 0
+    assert not client.calls
+    assert any(
+        failure["type"] == validate_phase_dml_dql.PHASE_CHECKPOINT_INVALID
+        and failure.get("field") == field_name
+        for failure in report.failures
+    )
+
+
+def test_phase_checkpoint_contract_accepts_complete_auto_id_oracles():
+    report = ValidationReport()
+
+    valid = validate_phase_dml_dql._validate_phase_checkpoint_contract(
+        _auto_id_phase_checkpoint_payload(),
+        {"dense": _dense_spec(auto_id=True)},
+        report,
+        **_phase_checkpoint_expectations(),
+        expected_seed=7,
+    )
+
+    assert valid
+    assert report.passed
+
+
+def test_phase_checkpoint_contract_rejects_incomplete_auto_id_oracles():
+    payload = _auto_id_phase_checkpoint_payload()
+    payload["existing_collections"]["qa_dense"].pop("inserted_values")
+    report = ValidationReport()
+
+    valid = validate_phase_dml_dql._validate_phase_checkpoint_contract(
+        payload,
+        {"dense": _dense_spec(auto_id=True)},
+        report,
+        **_phase_checkpoint_expectations(),
+        expected_seed=7,
+    )
+
+    assert not valid
+    assert not report.passed
+    assert any(
+        failure["type"] == validate_phase_dml_dql.PHASE_CHECKPOINT_INVALID
+        and failure.get("group") == "existing_collections"
+        and failure.get("expected_count") == 4
+        for failure in report.failures
+    )
+
+
 def test_phase_checkpoint_reload_failure_fails_closed(monkeypatch, tmp_path):
     checkpoint = tmp_path / "phase.json"
     checkpoint.write_text(json.dumps(_minimal_phase_checkpoint_payload()))
@@ -1326,12 +1458,25 @@ def test_phase_checkpoint_reload_failure_fails_closed(monkeypatch, tmp_path):
 def test_phase_checkpoint_queries_scalar_indexes_after_reload(monkeypatch, tmp_path):
     checkpoint = tmp_path / "phase.json"
     payload = _minimal_phase_checkpoint_payload()
+    spec = _dense_spec()
+    primary = next(field for field in spec.fields if field.primary)
     payload["existing_start_id"] = 100
     payload["new_start_id"] = 200
     payload["existing_collections"]["qa_dense"].update(
         {
             "primary_field": "id",
             "start_id": 100,
+            "deleted_values": [100],
+            "remaining_min_pk": 101,
+            "remaining_max_pk": 103,
+            "remaining_values": [101, 103],
+            "upsert_samples": validate_phase_dml_dql._upsert_sample_payload(
+                spec,
+                primary,
+                100,
+                [1, 3],
+                7,
+            ),
             "search_probe_data_pk": 103,
             "search_probe_pk": 103,
         }
@@ -1340,6 +1485,9 @@ def test_phase_checkpoint_queries_scalar_indexes_after_reload(monkeypatch, tmp_p
         {
             "primary_field": "id",
             "start_id": 200,
+            "min_pk": 200,
+            "max_pk": 203,
+            "sample_values": [200, 203],
             "search_probe_data_pk": 203,
             "search_probe_pk": 203,
         }
@@ -1394,6 +1542,10 @@ def test_phase_checkpoint_queries_scalar_indexes_after_reload(monkeypatch, tmp_p
         metrics["phase_checkpoint.qa_after_upgrade_dense.scalar_index_queries_total"]
         == 2
     )
+    expected_overrides = validate_phase_dml_dql._phase_upsert_scalar_probe_overrides(
+        spec,
+        payload["existing_collections"]["qa_dense"],
+    )
     assert observed == [
         (
             "qa_dense",
@@ -1405,7 +1557,7 @@ def test_phase_checkpoint_queries_scalar_indexes_after_reload(monkeypatch, tmp_p
                 "data_max_pk": 103,
             },
             7,
-            {},
+            expected_overrides,
         ),
         (
             "qa_after_upgrade_dense",
