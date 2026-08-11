@@ -59,6 +59,4 @@ def test_feature_detection_uses_hint_only_for_opaque_server_version():
 
 def test_feature_detection_rejects_unverified_opaque_hint():
     with pytest.raises(ValueError, match="release-eligible"):
-        server_version_for_feature_detection(
-            "master-20260810-eaec01bc71", "3.0.0"
-        )
+        server_version_for_feature_detection("master-20260810-eaec01bc71", "3.0.0")

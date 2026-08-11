@@ -36,7 +36,9 @@ def build_common_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument("--compat-mode", choices=COMPAT_MODES, default="rollback_safe")
     parser.add_argument("--capability-probe", type=parse_bool, default=True)
     parser.add_argument("--skip-unsupported", type=parse_bool, default=True)
-    parser.add_argument("--lifecycle-phase", choices=LIFECYCLE_PHASES, default="steady_state")
+    parser.add_argument(
+        "--lifecycle-phase", choices=LIFECYCLE_PHASES, default="steady_state"
+    )
     parser.add_argument("--checkpoint-dir", required=True)
     parser.add_argument("--output-json", required=True)
     parser.add_argument("--log-level", default="INFO")

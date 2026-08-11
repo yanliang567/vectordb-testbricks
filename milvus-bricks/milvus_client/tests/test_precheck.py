@@ -97,9 +97,7 @@ def test_precheck_rejects_unparseable_server_version(monkeypatch, tmp_path):
     assert result["failures"][0]["type"] == "SERVER_VERSION_UNAVAILABLE"
 
 
-def test_precheck_accepts_digest_pinned_candidate_build_identity(
-    monkeypatch, tmp_path
-):
+def test_precheck_accepts_digest_pinned_candidate_build_identity(monkeypatch, tmp_path):
     monkeypatch.setattr(
         precheck,
         "create_client",
@@ -121,9 +119,7 @@ def test_precheck_accepts_digest_pinned_candidate_build_identity(
     result = json.loads((tmp_path / "result.json").read_text())
     assert code == 0
     assert result["status"] == "passed"
-    assert result["capabilities"]["server_version"] == (
-        "master-20260810-eaec01bc71"
-    )
+    assert result["capabilities"]["server_version"] == ("master-20260810-eaec01bc71")
     assert result["capabilities"]["effective_server_version"] == "3.0.0"
     assert result["metrics"]["server_version_family"] == "3.0"
     assert result["metrics"]["server_version_validation_mode"] == (

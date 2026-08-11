@@ -733,8 +733,7 @@ def test_upgrade_rollback_version_sensitive_bricks_receive_phase_identity():
             }
             assert (
                 "--server-version-hint "
-                f"{{{{workflow.parameters.{version_parameter}}}}}"
-                in parameters["args"]
+                f"{{{{workflow.parameters.{version_parameter}}}}}" in parameters["args"]
             )
             phase = version_parameter.removesuffix("-version")
             assert (
@@ -744,8 +743,7 @@ def test_upgrade_rollback_version_sensitive_bricks_receive_phase_identity():
             )
             assert (
                 "--release-gate-eligible "
-                "{{workflow.parameters.release-gate-eligible}}"
-                in parameters["args"]
+                "{{workflow.parameters.release-gate-eligible}}" in parameters["args"]
             )
 
 
