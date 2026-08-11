@@ -46,14 +46,23 @@ from milvus_client.common.workload import (
     metric_type_for_field,
     search_params_for_field,
 )
+from milvus_client.requests.validate_index_compatibility import (
+    indexed_scalar_indexes,
+    scalar_index_filter_for_value,
+    validate_scalar_index_queries,
+)
 
 
 PHASE_DML_FAILED = "PHASE_DML_FAILED"
 PHASE_DQL_FAILED = "PHASE_DQL_FAILED"
 PHASE_NEW_COLLECTION_FAILED = "PHASE_NEW_COLLECTION_FAILED"
 PHASE_UPSERT_NOT_APPLIED = "PHASE_UPSERT_NOT_APPLIED"
+PHASE_CHECKPOINT_RELOAD_FAILED = "PHASE_CHECKPOINT_RELOAD_FAILED"
+PHASE_COLLECTION_RELOAD_FAILED = "PHASE_COLLECTION_RELOAD_FAILED"
+PHASE_CHECKPOINT_INVALID = "PHASE_CHECKPOINT_INVALID"
 CHECKPOINT_NOT_FOUND = "CHECKPOINT_NOT_FOUND"
 PHASE_CHECKPOINT_NOT_FOUND = "PHASE_CHECKPOINT_NOT_FOUND"
+DEFAULT_RELOAD_TIMEOUT_SEC = 120.0
 _EXPECTED_PK_UNSET = object()
 
 
@@ -73,6 +82,9 @@ def add_args(parser):
     parser.add_argument("--validate-phase-checkpoint", type=parse_bool, default=False)
     parser.add_argument("--visibility-timeout-sec", type=int, default=120)
     parser.add_argument("--visibility-interval-sec", type=float, default=2.0)
+    parser.add_argument(
+        "--reload-timeout-sec", type=float, default=DEFAULT_RELOAD_TIMEOUT_SEC
+    )
     parser.add_argument(
         "--drop-new-collections-if-exist", type=parse_bool, default=True
     )
@@ -440,6 +452,7 @@ def _phase_search_query(
     vector_field: FieldSpec,
     data_pk: int,
     seed: int,
+    apply_update: bool = False,
 ) -> tuple[Any, int | None] | None:
     function_outputs = function_output_fields(spec)
     if vector_field.name in function_outputs:
@@ -448,8 +461,16 @@ def _phase_search_query(
             return None
         return query, None
     struct_array = struct_array_for_field(spec, field_name)
+    updated_row = None
+    if apply_update:
+        updated_row = generate_rows(spec, start_id=data_pk, count=1, seed=seed)[0]
+        apply_deterministic_update(spec, updated_row, data_pk)
     if struct_array is not None:
-        value = generate_struct_array_value(struct_array, data_pk, seed)
+        value = (
+            updated_row.get(struct_array.name)
+            if updated_row is not None
+            else generate_struct_array_value(struct_array, data_pk, seed)
+        )
         if value is None:
             return None
         for offset, element in enumerate(value):
@@ -459,7 +480,11 @@ def _phase_search_query(
                     metric_type_for_field(spec, field_name), vector, offset
                 )
         return None
-    query = generate_field_value(vector_field, data_pk, seed)
+    query = (
+        updated_row.get(vector_field.name)
+        if updated_row is not None
+        else generate_field_value(vector_field, data_pk, seed)
+    )
     if query is None:
         return None
     return query, None
@@ -470,13 +495,21 @@ def _select_phase_search_probe_pk(
     start_id: int,
     rows: int,
     seed: int,
+    apply_update: bool = False,
 ) -> int:
     if rows <= 0:
         return start_id
     fields = indexed_vector_fields(spec)
     for data_pk in range(start_id + rows - 1, start_id - 1, -1):
         if all(
-            _phase_search_query(spec, field_name, vector_field, data_pk, seed)
+            _phase_search_query(
+                spec,
+                field_name,
+                vector_field,
+                data_pk,
+                seed,
+                apply_update=apply_update,
+            )
             is not None
             for field_name, vector_field in fields
         ):
@@ -610,6 +643,7 @@ def _run_searches(
     pk: int,
     report: ValidationReport,
     expected_pk: Any = _EXPECTED_PK_UNSET,
+    apply_update: bool = False,
 ) -> int:
     searches = 0
     primary = _primary_field(spec)
@@ -620,7 +654,14 @@ def _run_searches(
         )
     for field_name, vector_field in indexed_vector_fields(spec):
         metric_type = metric_type_for_field(spec, field_name)
-        query_probe = _phase_search_query(spec, field_name, vector_field, pk, seed)
+        query_probe = _phase_search_query(
+            spec,
+            field_name,
+            vector_field,
+            pk,
+            seed,
+            apply_update=apply_update,
+        )
         if query_probe is None:
             report.fail(
                 PHASE_DQL_FAILED,
@@ -857,6 +898,8 @@ def _run_existing_collection_dml_dql(
     visibility_timeout_sec: int,
     visibility_interval_sec: float,
     report: ValidationReport,
+    *,
+    reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
@@ -877,6 +920,12 @@ def _run_existing_collection_dml_dql(
         "remaining_max_pk": None,
         "upsert_samples": {"field": None, "samples": []},
         "searches": 0,
+        "scalar_index_queries": 0,
+        "reload_attempted": False,
+        "reload_operations_succeeded": False,
+        "reload_succeeded": False,
+        "reload_vector_searches": 0,
+        "reload_scalar_index_queries": 0,
         "search_probe_data_pk": None,
         "search_probe_pk": None,
         "search_probe_seed": None,
@@ -967,6 +1016,8 @@ def _run_existing_collection_dml_dql(
             seed,
         )
 
+    validation_failures_before = len(report.failures)
+
     def validate_visibility(current: ValidationReport) -> None:
         if auto_id_enabled(spec):
             _validate_pk_values_present_strict(
@@ -1028,7 +1079,11 @@ def _run_existing_collection_dml_dql(
         return metrics
     search_probe_seed = seed if auto_id_enabled(spec) else seed + 101
     search_probe_data_pk = _select_phase_search_probe_pk(
-        spec, start_id, rows, search_probe_seed
+        spec,
+        start_id,
+        rows,
+        search_probe_seed,
+        apply_update=not auto_id_enabled(spec),
     )
     if auto_id_enabled(spec):
         search_probe_pk = inserted_ids[search_probe_data_pk - start_id]
@@ -1045,7 +1100,45 @@ def _run_existing_collection_dml_dql(
         search_probe_data_pk,
         report,
         expected_pk=search_probe_pk,
+        apply_update=not auto_id_enabled(spec),
     )
+    metrics["scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
+        client,
+        spec,
+        metrics,
+        search_probe_seed,
+        report,
+        existing=True,
+    )
+    if len(report.failures) > validation_failures_before:
+        return metrics
+    metrics["reload_attempted"] = True
+    if not _reload_phase_collection(
+        client,
+        target_collection,
+        report,
+        timeout_sec=reload_timeout_sec,
+    ):
+        return metrics
+    metrics["reload_operations_succeeded"] = True
+    reload_failures_before = len(report.failures)
+    metrics["reload_vector_searches"] = _validate_existing_phase_checkpoint_collection(
+        client,
+        spec,
+        metrics,
+        report,
+        seed,
+        metric_prefix="phase_reload",
+    )
+    metrics["reload_scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
+        client,
+        spec,
+        metrics,
+        search_probe_seed,
+        report,
+        existing=True,
+    )
+    metrics["reload_succeeded"] = len(report.failures) == reload_failures_before
     return metrics
 
 
@@ -1059,6 +1152,8 @@ def _run_new_collection_dml_dql(
     seed: int,
     drop_if_exists: bool,
     report: ValidationReport,
+    *,
+    reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
@@ -1074,6 +1169,12 @@ def _run_new_collection_dml_dql(
         "min_pk": None,
         "max_pk": None,
         "searches": 0,
+        "scalar_index_queries": 0,
+        "reload_attempted": False,
+        "reload_operations_succeeded": False,
+        "reload_succeeded": False,
+        "reload_vector_searches": 0,
+        "reload_scalar_index_queries": 0,
         "search_probe_data_pk": None,
         "search_probe_pk": None,
         "search_probe_seed": None,
@@ -1109,6 +1210,7 @@ def _run_new_collection_dml_dql(
         )
         return metrics
 
+    validation_failures_before = len(report.failures)
     if auto_id_enabled(spec):
         validate_collection_count(
             client,
@@ -1164,6 +1266,43 @@ def _run_new_collection_dml_dql(
         report,
         expected_pk=search_probe_pk,
     )
+    metrics["scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
+        client,
+        spec,
+        metrics,
+        search_probe_seed,
+        report,
+        existing=False,
+    )
+    if len(report.failures) > validation_failures_before:
+        return metrics
+    metrics["reload_attempted"] = True
+    if not _reload_phase_collection(
+        client,
+        target_collection,
+        report,
+        timeout_sec=reload_timeout_sec,
+    ):
+        return metrics
+    metrics["reload_operations_succeeded"] = True
+    reload_failures_before = len(report.failures)
+    metrics["reload_vector_searches"] = _validate_new_phase_checkpoint_collection(
+        client,
+        spec,
+        metrics,
+        report,
+        seed,
+        metric_prefix="phase_reload",
+    )
+    metrics["reload_scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
+        client,
+        spec,
+        metrics,
+        search_probe_seed,
+        report,
+        existing=False,
+    )
+    metrics["reload_succeeded"] = len(report.failures) == reload_failures_before
     return metrics
 
 
@@ -1197,6 +1336,8 @@ def _validate_existing_phase_checkpoint_collection(
     checkpoint: dict[str, Any],
     report: ValidationReport,
     seed: int,
+    *,
+    metric_prefix: str = "phase_checkpoint",
 ) -> int:
     collection = checkpoint["collection"]
     primary_name = checkpoint["primary_field"]
@@ -1212,7 +1353,7 @@ def _validate_existing_phase_checkpoint_collection(
                 checkpoint["remaining_min_pk"],
                 checkpoint["remaining_max_pk"],
             ),
-            metric_suffix="phase_checkpoint_existing_count",
+            metric_suffix=f"{metric_prefix}_existing_count",
         )
     _validate_pk_values_present_strict(
         client,
@@ -1263,6 +1404,7 @@ def _validate_existing_phase_checkpoint_collection(
             search_probe_data_pk,
             report,
             expected_pk=search_probe_pk,
+            apply_update=not auto_id_enabled(spec),
         )
     return searches
 
@@ -1273,6 +1415,8 @@ def _validate_new_phase_checkpoint_collection(
     checkpoint: dict[str, Any],
     report: ValidationReport,
     seed: int,
+    *,
+    metric_prefix: str = "phase_checkpoint",
 ) -> int:
     collection = checkpoint["collection"]
     primary_name = checkpoint["primary_field"]
@@ -1286,7 +1430,7 @@ def _validate_new_phase_checkpoint_collection(
             filter_expr=pk_range_filter(
                 primary_name, checkpoint["min_pk"], checkpoint["max_pk"]
             ),
-            metric_suffix="phase_checkpoint_new_collection_count",
+            metric_suffix=f"{metric_prefix}_new_collection_count",
         )
     else:
         validate_collection_count(
@@ -1294,7 +1438,7 @@ def _validate_new_phase_checkpoint_collection(
             collection,
             int(checkpoint["inserted"]),
             report,
-            metric_suffix="phase_checkpoint_new_collection_count",
+            metric_suffix=f"{metric_prefix}_new_collection_count",
         )
     _validate_pk_values_present_strict(
         client,
@@ -1330,18 +1474,668 @@ def _validate_new_phase_checkpoint_collection(
     return searches
 
 
+def _reload_collection_strict(
+    client: Any,
+    collection: str,
+    report: ValidationReport,
+    *,
+    failure_type: str,
+    context: str,
+    timeout_sec: float,
+) -> bool:
+    if timeout_sec <= 0:
+        report.fail(
+            failure_type,
+            "collection reload timeout must be positive",
+            collection=collection,
+            operation="configuration",
+            timeout_sec=timeout_sec,
+            context=context,
+        )
+        return False
+    for operation in ("release_collection", "load_collection"):
+        method = getattr(client, operation, None)
+        if method is None:
+            report.fail(
+                failure_type,
+                "Milvus client does not expose a required collection reload operation",
+                collection=collection,
+                operation=operation,
+                context=context,
+            )
+            return False
+        try:
+            method(collection_name=collection, timeout=timeout_sec)
+        except TypeError:
+            try:
+                method(collection, timeout=timeout_sec)
+            except Exception as exc:
+                report.fail(
+                    failure_type,
+                    f"{context} collection reload failed",
+                    collection=collection,
+                    operation=operation,
+                    error=str(exc),
+                    context=context,
+                    timeout_sec=timeout_sec,
+                )
+                return False
+        except Exception as exc:
+            report.fail(
+                failure_type,
+                f"{context} collection reload failed",
+                collection=collection,
+                operation=operation,
+                error=str(exc),
+                context=context,
+                timeout_sec=timeout_sec,
+            )
+            return False
+    return True
+
+
+def _reload_phase_collection(
+    client: Any,
+    collection: str,
+    report: ValidationReport,
+    *,
+    timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
+) -> bool:
+    return _reload_collection_strict(
+        client,
+        collection,
+        report,
+        failure_type=PHASE_COLLECTION_RELOAD_FAILED,
+        context="phase DML/DQL",
+        timeout_sec=timeout_sec,
+    )
+
+
+def _reload_phase_checkpoint_collection(
+    client: Any,
+    collection: str,
+    report: ValidationReport,
+    *,
+    timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
+) -> bool:
+    return _reload_collection_strict(
+        client,
+        collection,
+        report,
+        failure_type=PHASE_CHECKPOINT_RELOAD_FAILED,
+        context="phase checkpoint",
+        timeout_sec=timeout_sec,
+    )
+
+
+def _phase_checkpoint_index_meta(
+    spec: SchemaSpec,
+    checkpoint: dict[str, Any],
+    *,
+    existing: bool,
+) -> dict[str, Any] | None:
+    rows = int(checkpoint.get("rows", 0))
+    if rows <= 0:
+        return None
+    start_id = int(checkpoint["start_id"])
+    deleted = int(checkpoint.get("deleted", 0)) if existing else 0
+    data_min_pk = start_id + deleted
+    data_max_pk = start_id + rows - 1
+    if data_min_pk > data_max_pk:
+        return None
+    meta: dict[str, Any] = {
+        "primary_field": checkpoint["primary_field"],
+        "min_pk": data_min_pk,
+        "max_pk": data_max_pk,
+        "data_min_pk": data_min_pk,
+        "data_max_pk": data_max_pk,
+    }
+    if auto_id_enabled(spec):
+        pk_values = (
+            checkpoint.get("remaining_values")
+            if existing
+            else checkpoint.get("inserted_values")
+        ) or []
+        meta["pk_values"] = list(pk_values)
+    return meta
+
+
+def _validate_phase_checkpoint_scalar_indexes(
+    client: Any,
+    spec: SchemaSpec,
+    checkpoint: dict[str, Any],
+    seed: int,
+    report: ValidationReport,
+    *,
+    existing: bool,
+) -> int:
+    meta = _phase_checkpoint_index_meta(spec, checkpoint, existing=existing)
+    if meta is None:
+        return 0
+    return validate_scalar_index_queries(
+        client,
+        checkpoint["collection"],
+        spec,
+        meta,
+        seed,
+        report,
+        probe_overrides=_phase_upsert_scalar_probe_overrides(spec, checkpoint),
+    )
+
+
+def _phase_upsert_scalar_probe_overrides(
+    spec: SchemaSpec,
+    checkpoint: dict[str, Any],
+) -> dict[str, tuple[int, Any, str]]:
+    upsert_samples = checkpoint.get("upsert_samples") or {}
+    updated_field = upsert_samples.get("field")
+    samples = upsert_samples.get("samples") or []
+    if not updated_field or not samples:
+        return {}
+    sample = samples[0]
+    data_pk = int(checkpoint["start_id"]) + int(checkpoint.get("deleted", 0))
+    overrides = {}
+    for index, field in indexed_scalar_indexes(spec):
+        if index.field != updated_field and not index.field.startswith(
+            f"{updated_field}["
+        ):
+            continue
+        filter_expr = scalar_index_filter_for_value(
+            spec,
+            index,
+            field,
+            sample.get("expected"),
+        )
+        if filter_expr:
+            overrides[index.field] = (data_pk, sample["pk"], filter_expr)
+    return overrides
+
+
+def _validate_phase_checkpoint_entry_payload(
+    collection_checkpoint: dict[str, Any],
+    spec: SchemaSpec,
+    report: ValidationReport,
+    *,
+    group_name: str,
+    collection: str,
+    expected_start_id: int,
+    expected_rows: int,
+    expected_delete_rows: int,
+    expected_seed: int,
+) -> None:
+    primary = _primary_field(spec)
+    expected_primary_field = primary.name if primary is not None else "id"
+    if collection_checkpoint.get("primary_field") != expected_primary_field:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint primary field does not match the schema",
+            group=group_name,
+            collection=collection,
+            expected=expected_primary_field,
+            actual=collection_checkpoint.get("primary_field"),
+        )
+    expected_values = {
+        "start_id": expected_start_id,
+        "rows": expected_rows,
+        "inserted": expected_rows,
+    }
+    if group_name == "existing_collections":
+        expected_values.update(
+            {
+                "deleted": expected_delete_rows,
+                "remaining_count": expected_rows - expected_delete_rows,
+            }
+        )
+    for field_name, expected_value in expected_values.items():
+        actual_value = collection_checkpoint.get(field_name)
+        if type(actual_value) is not int or actual_value != expected_value:
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "phase checkpoint collection payload does not match run parameters",
+                group=group_name,
+                collection=collection,
+                field=field_name,
+                expected=expected_value,
+                actual=actual_value,
+            )
+
+    probe_min_pk = expected_start_id
+    if group_name == "existing_collections":
+        probe_min_pk += expected_delete_rows
+    probe_max_pk = expected_start_id + expected_rows - 1
+    probe_data_pk = collection_checkpoint.get("search_probe_data_pk")
+    if (
+        type(probe_data_pk) is not int
+        or probe_data_pk < probe_min_pk
+        or probe_data_pk > probe_max_pk
+    ):
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint search probe is outside the persisted data range",
+            group=group_name,
+            collection=collection,
+            probe_data_pk=probe_data_pk,
+            probe_min_pk=probe_min_pk,
+            probe_max_pk=probe_max_pk,
+        )
+    if collection_checkpoint.get("search_probe_pk") is None:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint search probe lacks the actual primary key",
+            group=group_name,
+            collection=collection,
+        )
+    if type(collection_checkpoint.get("search_probe_seed")) is not int:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint search probe lacks a deterministic seed",
+            group=group_name,
+            collection=collection,
+            actual=collection_checkpoint.get("search_probe_seed"),
+        )
+
+    expected_searches = len(indexed_vector_fields(spec))
+    actual_searches = collection_checkpoint.get("searches")
+    if type(actual_searches) is not int or actual_searches != expected_searches:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint vector search coverage is incomplete",
+            group=group_name,
+            collection=collection,
+            expected_searches=expected_searches,
+            actual_searches=actual_searches,
+        )
+    scalar_queries = collection_checkpoint.get("scalar_index_queries")
+    if type(scalar_queries) is not int or scalar_queries < 0:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint scalar index query count is invalid",
+            group=group_name,
+            collection=collection,
+            actual=scalar_queries,
+        )
+
+    expected_probe_seed = (
+        expected_seed
+        if group_name == "existing_collections" and auto_id_enabled(spec)
+        else expected_seed + 101
+        if group_name == "existing_collections"
+        else expected_seed + 17
+    )
+    if collection_checkpoint.get("search_probe_seed") != expected_probe_seed:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint search probe seed does not match the workflow",
+            group=group_name,
+            collection=collection,
+            expected=expected_probe_seed,
+            actual=collection_checkpoint.get("search_probe_seed"),
+        )
+
+    primary = _primary_field(spec)
+    if primary is None:
+        return
+    inserted_values = collection_checkpoint.get("inserted_values")
+    sample_values = collection_checkpoint.get("sample_values")
+    if auto_id_enabled(spec):
+        if (
+            not isinstance(inserted_values, list)
+            or len(inserted_values) != expected_rows
+            or len(set(inserted_values)) != expected_rows
+        ):
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "auto-id phase checkpoint lacks the complete unique returned IDs",
+                group=group_name,
+                collection=collection,
+                expected_count=expected_rows,
+                actual_count=(
+                    len(inserted_values) if isinstance(inserted_values, list) else None
+                ),
+            )
+            return
+        expected_samples = inserted_values[:3]
+        if group_name == "existing_collections":
+            expected_auto_id_values = {
+                "deleted_values": inserted_values[:expected_delete_rows],
+                "remaining_values": inserted_values[expected_delete_rows:],
+                "remaining_min_pk": None,
+                "remaining_max_pk": None,
+                "upserted": 0,
+                "upsert_skipped_auto_id": True,
+                "upsert_samples": {"field": None, "samples": []},
+            }
+            for field_name, expected_value in expected_auto_id_values.items():
+                if collection_checkpoint.get(field_name) != expected_value:
+                    report.fail(
+                        PHASE_CHECKPOINT_INVALID,
+                        "auto-id phase checkpoint oracle is incomplete",
+                        group=group_name,
+                        collection=collection,
+                        field=field_name,
+                        expected=expected_value,
+                        actual=collection_checkpoint.get(field_name),
+                    )
+        elif sample_values != expected_samples:
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "auto-id new collection sample IDs do not match returned IDs",
+                group=group_name,
+                collection=collection,
+                expected=expected_samples,
+                actual=sample_values,
+            )
+        return
+
+    expected_min_pk = generate_primary_key_value(
+        primary,
+        expected_start_id
+        + (expected_delete_rows if group_name == "existing_collections" else 0),
+    )
+    expected_max_pk = generate_primary_key_value(
+        primary,
+        expected_start_id + expected_rows - 1,
+    )
+    if group_name == "existing_collections":
+        expected_explicit_values = {
+            "inserted_values": [],
+            "remaining_min_pk": expected_min_pk,
+            "remaining_max_pk": expected_max_pk,
+            "remaining_values": [expected_min_pk, expected_max_pk],
+            "deleted_values": [
+                generate_primary_key_value(primary, expected_start_id + offset)
+                for offset in range(expected_delete_rows)
+            ],
+            "upserted": expected_rows,
+            "upsert_skipped_auto_id": False,
+            "upsert_samples": _upsert_sample_payload(
+                spec,
+                primary,
+                expected_start_id,
+                [expected_delete_rows, expected_rows - 1],
+                expected_seed,
+            ),
+        }
+    else:
+        expected_explicit_values = {
+            "inserted_values": [],
+            "min_pk": expected_min_pk,
+            "max_pk": expected_max_pk,
+            "sample_values": [expected_min_pk, expected_max_pk],
+        }
+    for field_name, expected_value in expected_explicit_values.items():
+        if collection_checkpoint.get(field_name) != expected_value:
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "explicit-PK phase checkpoint oracle is incomplete",
+                group=group_name,
+                collection=collection,
+                field=field_name,
+                expected=expected_value,
+                actual=collection_checkpoint.get(field_name),
+            )
+
+
+def _validate_phase_checkpoint_contract(
+    checkpoint: Any,
+    specs: dict[str, SchemaSpec],
+    report: ValidationReport,
+    *,
+    expected_existing_collections: dict[str, str],
+    expected_new_collection_prefix: str,
+    expected_existing_dml_rows: int,
+    expected_existing_delete_rows: int,
+    expected_new_collection_rows: int,
+    expected_seed: int,
+) -> bool:
+    failures_before = len(report.failures)
+    if not isinstance(checkpoint, dict):
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint root must be an object",
+            actual_type=type(checkpoint).__name__,
+        )
+        return False
+    if type(checkpoint.get("version")) is not int or checkpoint.get("version") != 2:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint version is unsupported",
+            expected_version=2,
+            actual_version=checkpoint.get("version"),
+        )
+    if checkpoint.get("phase") != "after-upgrade":
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint was not produced after upgrade",
+            expected_phase="after-upgrade",
+            actual_phase=checkpoint.get("phase"),
+        )
+
+    expected_run_parameters = {
+        "existing_dml_rows": expected_existing_dml_rows,
+        "existing_delete_rows": expected_existing_delete_rows,
+        "new_collection_rows": expected_new_collection_rows,
+    }
+    if expected_existing_dml_rows <= 0 or expected_new_collection_rows <= 0:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint validation requires positive phase row counts",
+            expected_existing_dml_rows=expected_existing_dml_rows,
+            expected_new_collection_rows=expected_new_collection_rows,
+        )
+    if not 0 <= expected_existing_delete_rows < expected_existing_dml_rows:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint delete count must leave searchable rows",
+            expected_existing_dml_rows=expected_existing_dml_rows,
+            expected_existing_delete_rows=expected_existing_delete_rows,
+        )
+    for field_name, expected_value in expected_run_parameters.items():
+        actual_value = checkpoint.get(field_name)
+        if type(actual_value) is not int or actual_value != expected_value:
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "phase checkpoint run parameters do not match rollback expectations",
+                field=field_name,
+                expected=expected_value,
+                actual=actual_value,
+            )
+    start_ids = {}
+    for field_name in ("existing_start_id", "new_start_id"):
+        value = checkpoint.get(field_name)
+        if type(value) is not int or value < 0:
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "phase checkpoint start id is invalid",
+                field=field_name,
+                actual=value,
+            )
+        else:
+            start_ids[field_name] = value
+
+    if not expected_existing_collections:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "seed checkpoint does not declare existing collections",
+        )
+    if not expected_new_collection_prefix:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "expected target-written collection prefix is empty",
+        )
+    expected_new_collections = {
+        collection_name(expected_new_collection_prefix, spec): schema_name
+        for schema_name, spec in specs.items()
+    }
+    expected_groups = {
+        "existing_collections": expected_existing_collections,
+        "new_collections": expected_new_collections,
+    }
+
+    expected_schemas = set(specs)
+    observed_group_collections: dict[str, set[str]] = {}
+    for group_name in ("existing_collections", "new_collections"):
+        group = checkpoint.get(group_name)
+        if not isinstance(group, dict):
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "phase checkpoint collection group must be an object",
+                group=group_name,
+                actual_type=type(group).__name__,
+            )
+            continue
+
+        schema_names: list[str] = []
+        observed_collections: dict[str, str] = {}
+        for collection_key, collection_checkpoint in group.items():
+            if not isinstance(collection_checkpoint, dict):
+                report.fail(
+                    PHASE_CHECKPOINT_INVALID,
+                    "phase checkpoint collection entry must be an object",
+                    group=group_name,
+                    collection_key=collection_key,
+                    actual_type=type(collection_checkpoint).__name__,
+                )
+                continue
+            collection = collection_checkpoint.get("collection")
+            schema_name = collection_checkpoint.get("schema_name")
+            if not isinstance(collection, str) or not collection:
+                report.fail(
+                    PHASE_CHECKPOINT_INVALID,
+                    "phase checkpoint collection entry lacks a collection name",
+                    group=group_name,
+                    collection_key=collection_key,
+                )
+            elif collection != collection_key:
+                report.fail(
+                    PHASE_CHECKPOINT_INVALID,
+                    "phase checkpoint collection key does not match its payload",
+                    group=group_name,
+                    collection_key=collection_key,
+                    collection=collection,
+                )
+            if not isinstance(schema_name, str) or not schema_name:
+                report.fail(
+                    PHASE_CHECKPOINT_INVALID,
+                    "phase checkpoint collection entry lacks a schema name",
+                    group=group_name,
+                    collection_key=collection_key,
+                )
+                continue
+            schema_names.append(schema_name)
+            observed_collections[collection_key] = schema_name
+
+            expected_schema_name = expected_groups[group_name].get(collection_key)
+            start_id_field = (
+                "existing_start_id"
+                if group_name == "existing_collections"
+                else "new_start_id"
+            )
+            if (
+                expected_schema_name == schema_name
+                and schema_name in specs
+                and start_id_field in start_ids
+            ):
+                _validate_phase_checkpoint_entry_payload(
+                    collection_checkpoint,
+                    specs[schema_name],
+                    report,
+                    group_name=group_name,
+                    collection=collection_key,
+                    expected_start_id=start_ids[start_id_field],
+                    expected_rows=(
+                        expected_existing_dml_rows
+                        if group_name == "existing_collections"
+                        else expected_new_collection_rows
+                    ),
+                    expected_delete_rows=(
+                        expected_existing_delete_rows
+                        if group_name == "existing_collections"
+                        else 0
+                    ),
+                    expected_seed=expected_seed,
+                )
+
+        observed_schemas = set(schema_names)
+        duplicate_schemas = sorted(
+            schema_name
+            for schema_name in observed_schemas
+            if schema_names.count(schema_name) > 1
+        )
+        missing_schemas = sorted(expected_schemas - observed_schemas)
+        unexpected_schemas = sorted(observed_schemas - expected_schemas)
+        if missing_schemas or unexpected_schemas or duplicate_schemas:
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "phase checkpoint schema coverage is incomplete or ambiguous",
+                group=group_name,
+                missing_schemas=missing_schemas,
+                unexpected_schemas=unexpected_schemas,
+                duplicate_schemas=duplicate_schemas,
+            )
+        expected_collections = expected_groups[group_name]
+        missing_collections = sorted(
+            set(expected_collections) - set(observed_collections)
+        )
+        unexpected_collections = sorted(
+            set(observed_collections) - set(expected_collections)
+        )
+        schema_mismatches = {
+            collection: {
+                "expected": expected_collections[collection],
+                "actual": observed_collections[collection],
+            }
+            for collection in sorted(
+                set(expected_collections) & set(observed_collections)
+            )
+            if expected_collections[collection] != observed_collections[collection]
+        }
+        if missing_collections or unexpected_collections or schema_mismatches:
+            report.fail(
+                PHASE_CHECKPOINT_INVALID,
+                "phase checkpoint collection identities do not match the workflow",
+                group=group_name,
+                missing_collections=missing_collections,
+                unexpected_collections=unexpected_collections,
+                schema_mismatches=schema_mismatches,
+            )
+        observed_group_collections[group_name] = set(observed_collections)
+
+    overlapping_collections = sorted(
+        observed_group_collections.get("existing_collections", set())
+        & observed_group_collections.get("new_collections", set())
+    )
+    if overlapping_collections:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "existing and target-written checkpoint collections overlap",
+            overlapping_collections=overlapping_collections,
+        )
+    return len(report.failures) == failures_before
+
+
 def _validate_phase_checkpoint_before_rollback(
     client: Any,
     specs: dict[str, SchemaSpec],
     path: Path,
     seed: int,
     report: ValidationReport,
+    *,
+    expected_existing_collections: dict[str, str],
+    expected_new_collection_prefix: str,
+    expected_existing_dml_rows: int,
+    expected_existing_delete_rows: int,
+    expected_new_collection_rows: int,
+    reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
 ) -> dict[str, Any]:
     metrics = {
         "phase_checkpoint_validated": False,
         "phase_checkpoint_existing_collections_total": 0,
         "phase_checkpoint_new_collections_total": 0,
         "phase_checkpoint_searches_total": 0,
+        "phase_checkpoint_scalar_index_queries_total": 0,
+        "phase_checkpoint_reload_collections_total": 0,
+        "phase_checkpoint_reload_failures_total": 0,
     }
     if not path.exists():
         report.fail(
@@ -1350,7 +2144,28 @@ def _validate_phase_checkpoint_before_rollback(
             path=str(path),
         )
         return metrics
-    checkpoint = json.loads(path.read_text())
+    try:
+        checkpoint = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        report.fail(
+            PHASE_CHECKPOINT_INVALID,
+            "phase checkpoint cannot be read as JSON",
+            path=str(path),
+            error=str(exc),
+        )
+        return metrics
+    if not _validate_phase_checkpoint_contract(
+        checkpoint,
+        specs,
+        report,
+        expected_existing_collections=expected_existing_collections,
+        expected_new_collection_prefix=expected_new_collection_prefix,
+        expected_existing_dml_rows=expected_existing_dml_rows,
+        expected_existing_delete_rows=expected_existing_delete_rows,
+        expected_new_collection_rows=expected_new_collection_rows,
+        expected_seed=seed,
+    ):
+        return metrics
     for collection_checkpoint in checkpoint.get("existing_collections", {}).values():
         spec = specs.get(collection_checkpoint["schema_name"])
         if spec is None:
@@ -1362,11 +2177,32 @@ def _validate_phase_checkpoint_before_rollback(
             )
             continue
         metrics["phase_checkpoint_existing_collections_total"] += 1
+        if not _reload_phase_checkpoint_collection(
+            client,
+            collection_checkpoint["collection"],
+            report,
+            timeout_sec=reload_timeout_sec,
+        ):
+            metrics["phase_checkpoint_reload_failures_total"] += 1
+            continue
+        metrics["phase_checkpoint_reload_collections_total"] += 1
         metrics["phase_checkpoint_searches_total"] += (
             _validate_existing_phase_checkpoint_collection(
                 client, spec, collection_checkpoint, report, seed
             )
         )
+        scalar_queries = _validate_phase_checkpoint_scalar_indexes(
+            client,
+            spec,
+            collection_checkpoint,
+            seed,
+            report,
+            existing=True,
+        )
+        metrics["phase_checkpoint_scalar_index_queries_total"] += scalar_queries
+        metrics[
+            f"phase_checkpoint.{collection_checkpoint['collection']}.scalar_index_queries_total"
+        ] = scalar_queries
     for collection_checkpoint in checkpoint.get("new_collections", {}).values():
         spec = specs.get(collection_checkpoint["schema_name"])
         if spec is None:
@@ -1378,13 +2214,52 @@ def _validate_phase_checkpoint_before_rollback(
             )
             continue
         metrics["phase_checkpoint_new_collections_total"] += 1
+        if not _reload_phase_checkpoint_collection(
+            client,
+            collection_checkpoint["collection"],
+            report,
+            timeout_sec=reload_timeout_sec,
+        ):
+            metrics["phase_checkpoint_reload_failures_total"] += 1
+            continue
+        metrics["phase_checkpoint_reload_collections_total"] += 1
         metrics["phase_checkpoint_searches_total"] += (
             _validate_new_phase_checkpoint_collection(
                 client, spec, collection_checkpoint, report, seed + 17
             )
         )
+        scalar_queries = _validate_phase_checkpoint_scalar_indexes(
+            client,
+            spec,
+            collection_checkpoint,
+            seed + 17,
+            report,
+            existing=False,
+        )
+        metrics["phase_checkpoint_scalar_index_queries_total"] += scalar_queries
+        metrics[
+            f"phase_checkpoint.{collection_checkpoint['collection']}.scalar_index_queries_total"
+        ] = scalar_queries
     metrics["phase_checkpoint_validated"] = report.passed
     return metrics
+
+
+def _accumulate_phase_reload_metrics(
+    metrics: dict[str, Any],
+    collection_metrics: dict[str, Any],
+) -> None:
+    if collection_metrics.get("reload_attempted"):
+        metrics["phase_reload_attempted_collections_total"] += 1
+    if collection_metrics.get("reload_succeeded"):
+        metrics["phase_reload_collections_total"] += 1
+    elif collection_metrics.get("reload_attempted"):
+        metrics["phase_reload_failures_total"] += 1
+    metrics["phase_reload_vector_searches_total"] += int(
+        collection_metrics.get("reload_vector_searches", 0)
+    )
+    metrics["phase_reload_scalar_index_queries_total"] += int(
+        collection_metrics.get("reload_scalar_index_queries", 0)
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1413,6 +2288,7 @@ def main(argv: list[str] | None = None) -> int:
         report = ValidationReport()
         metrics: dict[str, Any] = {
             "phase": args.phase,
+            "reload_timeout_sec": args.reload_timeout_sec,
             "existing_collections_total": 0,
             "new_collections_total": 0,
             "existing_inserted_total": 0,
@@ -1425,6 +2301,12 @@ def main(argv: list[str] | None = None) -> int:
             "carried_deleted_total": 0,
             "new_collection_inserted_total": 0,
             "searches_total": 0,
+            "scalar_index_queries_total": 0,
+            "phase_reload_attempted_collections_total": 0,
+            "phase_reload_collections_total": 0,
+            "phase_reload_failures_total": 0,
+            "phase_reload_vector_searches_total": 0,
+            "phase_reload_scalar_index_queries_total": 0,
             "existing_collections": [],
             "carried_collections": [],
             "new_collections": [],
@@ -1433,6 +2315,9 @@ def main(argv: list[str] | None = None) -> int:
             "phase_checkpoint_existing_collections_total": 0,
             "phase_checkpoint_new_collections_total": 0,
             "phase_checkpoint_searches_total": 0,
+            "phase_checkpoint_scalar_index_queries_total": 0,
+            "phase_checkpoint_reload_collections_total": 0,
+            "phase_checkpoint_reload_failures_total": 0,
         }
 
         if args.phase == "after-rollback" and args.validate_phase_checkpoint:
@@ -1443,6 +2328,17 @@ def main(argv: list[str] | None = None) -> int:
                     _phase_checkpoint_path(args),
                     args.seed,
                     report,
+                    expected_existing_collections={
+                        collection: meta["schema_name"]
+                        for collection, meta in checkpoint.get(
+                            "collections", {}
+                        ).items()
+                    },
+                    expected_new_collection_prefix=args.carried_collection_prefix,
+                    expected_existing_dml_rows=args.existing_dml_rows,
+                    expected_existing_delete_rows=args.existing_delete_rows,
+                    expected_new_collection_rows=args.new_collection_rows,
+                    reload_timeout_sec=args.reload_timeout_sec,
                 )
             )
             if not report.passed:
@@ -1475,12 +2371,17 @@ def main(argv: list[str] | None = None) -> int:
                 args.visibility_timeout_sec,
                 args.visibility_interval_sec,
                 report,
+                reload_timeout_sec=args.reload_timeout_sec,
             )
             metrics["existing_collections"].append(existing_metrics)
             metrics["existing_inserted_total"] += existing_metrics["inserted"]
             metrics["existing_upserted_total"] += existing_metrics["upserted"]
             metrics["existing_deleted_total"] += existing_metrics["deleted"]
             metrics["searches_total"] += existing_metrics["searches"]
+            metrics["scalar_index_queries_total"] += existing_metrics[
+                "scalar_index_queries"
+            ]
+            _accumulate_phase_reload_metrics(metrics, existing_metrics)
             if existing_metrics["upsert_skipped_auto_id"]:
                 metrics["existing_upsert_skipped_auto_id_total"] += 1
 
@@ -1503,12 +2404,17 @@ def main(argv: list[str] | None = None) -> int:
                     args.visibility_timeout_sec,
                     args.visibility_interval_sec,
                     report,
+                    reload_timeout_sec=args.reload_timeout_sec,
                 )
                 metrics["carried_collections"].append(carried_metrics)
                 metrics["carried_inserted_total"] += carried_metrics["inserted"]
                 metrics["carried_upserted_total"] += carried_metrics["upserted"]
                 metrics["carried_deleted_total"] += carried_metrics["deleted"]
                 metrics["searches_total"] += carried_metrics["searches"]
+                metrics["scalar_index_queries_total"] += carried_metrics[
+                    "scalar_index_queries"
+                ]
+                _accumulate_phase_reload_metrics(metrics, carried_metrics)
 
         for spec in specs.values():
             new_collection = collection_name(args.new_collection_prefix, spec)
@@ -1523,10 +2429,13 @@ def main(argv: list[str] | None = None) -> int:
                 args.seed + 17,
                 args.drop_new_collections_if_exist,
                 report,
+                reload_timeout_sec=args.reload_timeout_sec,
             )
             metrics["new_collections"].append(new_metrics)
             metrics["new_collection_inserted_total"] += new_metrics["inserted"]
             metrics["searches_total"] += new_metrics["searches"]
+            metrics["scalar_index_queries_total"] += new_metrics["scalar_index_queries"]
+            _accumulate_phase_reload_metrics(metrics, new_metrics)
 
         if args.phase == "after-upgrade" and report.passed:
             _write_after_upgrade_phase_checkpoint(

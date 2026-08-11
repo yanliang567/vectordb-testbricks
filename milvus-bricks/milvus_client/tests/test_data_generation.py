@@ -1,6 +1,8 @@
 from pathlib import Path
+from struct import pack, unpack
 
 from milvus_client.common.data import (
+    canonical_float32,
     checksum_fields_for_spec,
     generate_rows,
     stable_checksum,
@@ -90,6 +92,69 @@ def test_stable_checksum_normalizes_float32_round_trip_precision():
     )
 
 
+def test_struct_array_vector_checksum_survives_float32_storage_round_trip():
+    spec = next(
+        spec
+        for spec in load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")
+        if spec.name == "struct_array_element_rollback_safe"
+    )
+    inserted_rows = generate_rows(spec, start_id=0, count=100, seed=0)
+    queried_rows = []
+    for row in inserted_rows:
+        queried_rows.append(
+            {
+                **row,
+                "items": [
+                    {
+                        **item,
+                        "embedding": [
+                            unpack("!f", pack("!f", value))[0]
+                            for value in item["embedding"]
+                        ],
+                    }
+                    for item in row["items"]
+                ],
+            }
+        )
+    fields = checksum_fields_for_spec(spec)
+
+    assert stable_checksum(
+        inserted_rows, fields=fields, primary_field="id"
+    ) == stable_checksum(queried_rows, fields=fields, primary_field="id")
+
+
+def test_struct_array_scalar_float_uses_storage_precision_before_checksum():
+    spec = next(
+        spec
+        for spec in load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")
+        if spec.name == "struct_array_numeric_autoindex_rollback_safe"
+    )
+
+    row = generate_rows(spec, start_id=129, count=1, seed=0)[0]
+    score = row["items"][1]["score"]
+
+    assert score == canonical_float32(129.1)
+    assert score != 129.1
+    assert stable_checksum(
+        [row], fields=["id", "items"], primary_field="id"
+    ) == stable_checksum(
+        [
+            {
+                **row,
+                "items": [
+                    {
+                        **item,
+                        "score": canonical_float32(item["score"]),
+                    }
+                    for item in row["items"]
+                ],
+            }
+        ],
+        fields=["id", "items"],
+        primary_field="id",
+    )
+
+
 def test_checksum_fields_exclude_vectors():
     spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")[0]
 
@@ -99,7 +164,11 @@ def test_checksum_fields_exclude_vectors():
 
 
 def test_generate_rows_uses_sdk_compatible_vector_values():
-    spec = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")[1]
+    spec = next(
+        spec
+        for spec in load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")
+        if spec.name == "vector_autoid_bm25"
+    )
     row = generate_rows(spec, start_id=1, count=1, seed=7)[0]
 
     assert "id" not in row

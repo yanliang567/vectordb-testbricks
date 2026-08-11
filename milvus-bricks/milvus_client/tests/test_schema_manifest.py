@@ -89,9 +89,13 @@ def test_schema_matrix_2_6_covers_expanded_rollback_safe_shapes():
 
     assert [spec.name for spec in specs] == [
         "scalar_dynamic_partition_key",
+        "scalar_autoindex_formats_rollback_safe",
+        "scalar_explicit_index_formats_rollback_safe",
         "vector_autoid_bm25",
         "explicit_partitions_nullable",
         "struct_array_element_rollback_safe",
+        "struct_array_varchar_autoindex_rollback_safe",
+        "struct_array_numeric_autoindex_rollback_safe",
         "nullable_vectors_all",
         "geometry_rtree_rollback_safe",
         "legacy_index_rollback_safe",
@@ -166,6 +170,173 @@ def test_schema_matrix_2_6_covers_expanded_rollback_safe_shapes():
         "SPARSE_FLOAT_VECTOR",
     }
     assert any(spec.struct_arrays for spec in specs)
+    assert all(spec.shards_num == 1 for spec in specs)
+
+
+def test_schema_matrix_2_6_covers_persisted_scalar_autoindex_families():
+    specs = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")
+    by_name = {spec.name: spec for spec in specs}
+    scalar_spec = by_name["scalar_autoindex_formats_rollback_safe"]
+    scalar_autoindex_fields = {
+        index.field: resolve_field(scalar_spec, index.field).dtype
+        for index in scalar_spec.indexes
+        if index.index_type == "AUTOINDEX"
+    }
+
+    assert scalar_autoindex_fields == {
+        "int64_auto": "INT64",
+        "float_auto": "FLOAT",
+        "bool_auto": "BOOL",
+        "varchar_auto": "VARCHAR",
+        "json_auto": "JSON",
+        "json_bool": "JSON",
+        "json_varchar": "JSON",
+        "arr_int64_auto": "ARRAY",
+        "arr_float_auto": "ARRAY",
+        "arr_bool_auto": "ARRAY",
+        "arr_varchar_auto": "ARRAY",
+    }
+    json_indexes = {
+        index.field: index.params
+        for index in scalar_spec.indexes
+        if resolve_field(scalar_spec, index.field).dtype == "JSON"
+    }
+    assert json_indexes == {
+        "json_auto": {
+            "json_cast_type": "double",
+            "json_path": "json_auto['bucket']",
+        },
+        "json_bool": {
+            "json_cast_type": "bool",
+            "json_path": "json_bool['active']",
+        },
+        "json_varchar": {
+            "json_cast_type": "varchar",
+            "json_path": "json_varchar['label']",
+        },
+    }
+
+    varchar_spec = by_name["struct_array_varchar_autoindex_rollback_safe"]
+    assert {index.field: index.index_type for index in varchar_spec.indexes}[
+        "items[category]"
+    ] == "AUTOINDEX"
+    assert varchar_spec.validator_params["min_struct_scalar_index_queries"] == 1
+    assert "struct_array_scalar_index_queries" in varchar_spec.validators
+
+    numeric_spec = by_name["struct_array_numeric_autoindex_rollback_safe"]
+    numeric_autoindex_fields = {
+        index.field: resolve_field(numeric_spec, index.field).dtype
+        for index in numeric_spec.indexes
+        if index.index_type == "AUTOINDEX"
+    }
+    assert numeric_autoindex_fields == {
+        "items[score]": "FLOAT",
+        "items[rank]": "INT64",
+        "items[enabled]": "BOOL",
+    }
+    assert numeric_spec.validator_params["min_struct_scalar_index_queries"] == 3
+    assert "struct_array_scalar_index_queries" in numeric_spec.validators
+
+
+def test_schema_matrix_2_6_covers_unpartitioned_explicit_scalar_index_formats():
+    specs = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")
+    explicit_spec = next(
+        spec
+        for spec in specs
+        if spec.name == "scalar_explicit_index_formats_rollback_safe"
+    )
+    scalar_index_types = {
+        index.field: index.index_type
+        for index in explicit_spec.indexes
+        if resolve_field(explicit_spec, index.field).dtype != "FLOAT_VECTOR"
+    }
+
+    assert explicit_spec.shards_num == 1
+    assert explicit_spec.num_partitions is None
+    assert explicit_spec.partitions == []
+    assert resolve_field(explicit_spec, "bool_bitmap").nullable is True
+    assert resolve_field(explicit_spec, "json_profile").nullable is True
+    assert scalar_index_types == {
+        "int8_bitmap": "BITMAP",
+        "int16_inverted": "INVERTED",
+        "int32_sort": "STL_SORT",
+        "float_sort": "STL_SORT",
+        "double_inverted": "INVERTED",
+        "bool_bitmap": "BITMAP",
+        "varchar_trie": "TRIE",
+        "varchar_ngram": "NGRAM",
+        "json_profile": "INVERTED",
+        "arr_int64": "INVERTED",
+        "arr_varchar": "INVERTED",
+    }
+
+
+def test_schema_matrix_2_6_keeps_persisted_vector_format_contract():
+    specs = load_schema_matrix(ROOT / "manifests" / "schema_matrix_2_6.yaml")
+    indexed_vector_types = {
+        resolve_field(spec, index.field).dtype
+        for spec in specs
+        for index in spec.indexes
+        if resolve_field(spec, index.field) is not None
+        and resolve_field(spec, index.field).dtype.endswith("VECTOR")
+    }
+    vector_index_types = {
+        index.index_type
+        for spec in specs
+        for index in spec.indexes
+        if resolve_field(spec, index.field) is not None
+        and resolve_field(spec, index.field).dtype.endswith("VECTOR")
+    }
+    vector_autoindex_types = {
+        resolve_field(spec, index.field).dtype
+        for spec in specs
+        for index in spec.indexes
+        if index.index_type == "AUTOINDEX"
+        and resolve_field(spec, index.field) is not None
+        and resolve_field(spec, index.field).dtype.endswith("VECTOR")
+    }
+
+    assert indexed_vector_types == {
+        "FLOAT_VECTOR",
+        "FLOAT16_VECTOR",
+        "BFLOAT16_VECTOR",
+        "INT8_VECTOR",
+        "BINARY_VECTOR",
+        "SPARSE_FLOAT_VECTOR",
+    }
+    assert {
+        "FLAT",
+        "IVF_FLAT",
+        "IVF_SQ8",
+        "IVF_PQ",
+        "SCANN",
+        "HNSW",
+        "HNSW_SQ",
+        "IVF_RABITQ",
+        "DISKANN",
+        "BIN_FLAT",
+        "BIN_IVF_FLAT",
+        "SPARSE_INVERTED_INDEX",
+        "SPARSE_WAND",
+        "AUTOINDEX",
+    }.issubset(vector_index_types)
+    assert vector_autoindex_types == {"FLOAT_VECTOR", "INT8_VECTOR"}
+    assert any(
+        index.field == "items[embedding]" and index.index_type == "HNSW"
+        for spec in specs
+        for index in spec.indexes
+    )
+
+
+def test_create_collection_kwargs_preserve_explicit_shard_count():
+    spec = SchemaSpec(
+        name="single_shard",
+        version="2.6",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        shards_num=1,
+    )
+
+    assert create_collection_kwargs(spec) == {"shards_num": 1}
 
 
 def test_schema_matrix_3_0_covers_forward_schema_evolution_shapes():

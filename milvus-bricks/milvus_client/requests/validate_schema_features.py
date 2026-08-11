@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 
 from milvus_client.common.args import build_common_parser
-from milvus_client.common.client import create_client
+from milvus_client.common.client import create_client, get_server_version
 from milvus_client.common.feature_validators import (
     EXTERNAL_VALIDATORS,
     run_feature_validator,
@@ -113,6 +113,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
         client = create_client(args.uri, args.token, args.db_name)
+        server_version = get_server_version(client)
+        result.capabilities = {"server_version": server_version}
         runtime_config = _runtime_config(args)
         report = ValidationReport()
         metrics = {
@@ -148,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
                         args.seed,
                         report,
                         runtime_config=runtime_config,
+                        server_version=server_version,
                     )
                     metrics["feature_validators_executed"] += 1
                 except Exception as exc:

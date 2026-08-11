@@ -28,6 +28,7 @@ from milvus_client.common.validators import (
     format_filter_value,
     query_count,
 )
+from milvus_client.common.version import version_at_least
 from milvus_client.common.workload import metric_type_for_field, search_params_for_field
 
 
@@ -432,6 +433,7 @@ def validate_struct_array_scalar_index_queries(
     meta: dict[str, Any],
     seed: int,
     report: ValidationReport,
+    server_version: str = "unknown",
 ) -> None:
     primary = _primary_field(spec)
     data_min_pk, data_max_pk = _data_pk_range(meta)
@@ -450,6 +452,25 @@ def validate_struct_array_scalar_index_queries(
             collection=collection,
             schema=spec.name,
         )
+    try:
+        query_supported = version_at_least(server_version, "3.0.0")
+    except ValueError:
+        report.fail(
+            "STRUCT_ARRAY_SCALAR_INDEX_RUNTIME_VERSION_UNKNOWN",
+            "cannot determine whether the runtime supports StructArray scalar filters",
+            collection=collection,
+            schema=spec.name,
+            server_version=server_version,
+        )
+        return
+    report.metrics[f"{collection}.struct_array_scalar_index_queries.supported"] = (
+        query_supported
+    )
+    if not query_supported:
+        report.metrics[
+            f"{collection}.struct_array_scalar_index_queries.skipped_unsupported_total"
+        ] = len(scalar_indexes)
+        return
     for index in scalar_indexes:
         field = resolve_field(spec, index.field)
         if field is None:
@@ -1134,6 +1155,7 @@ def run_feature_validator(
     seed: int,
     report: ValidationReport,
     runtime_config: dict[str, Any] | None = None,
+    server_version: str = "unknown",
 ) -> None:
     handlers = {
         "nullable_vector_semantics": validate_nullable_vector_semantics,
@@ -1148,6 +1170,17 @@ def run_feature_validator(
     }
     if validator == "index_engine_version":
         validate_index_engine_version(collection, spec, runtime_config, report)
+        return
+    if validator == "struct_array_scalar_index_queries":
+        validate_struct_array_scalar_index_queries(
+            client,
+            collection,
+            spec,
+            meta,
+            seed,
+            report,
+            server_version=server_version,
+        )
         return
     handler = handlers.get(validator)
     if handler is None:

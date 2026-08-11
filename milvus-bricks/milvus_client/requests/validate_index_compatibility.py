@@ -8,7 +8,7 @@ import math
 import sys
 
 from milvus_client.common.args import build_common_parser, parse_bool
-from milvus_client.common.client import create_client
+from milvus_client.common.client import create_client, get_server_version
 from milvus_client.common.data import (
     generate_field_value,
     generate_primary_key_value,
@@ -40,6 +40,7 @@ from milvus_client.common.workload import (
     metric_type_for_field,
     search_params_for_field,
 )
+from milvus_client.common.version import version_at_least
 
 
 INDEX_SEARCH_FAILED = "INDEX_SEARCH_FAILED"
@@ -89,7 +90,7 @@ def _indexed_vector_fields(spec: SchemaSpec) -> list[FieldSpec]:
     return [field for _, field in _indexed_vector_indexes(spec)]
 
 
-def _indexed_scalar_indexes(spec: SchemaSpec) -> list[tuple[IndexSpec, FieldSpec]]:
+def indexed_scalar_indexes(spec: SchemaSpec) -> list[tuple[IndexSpec, FieldSpec]]:
     return [
         (index, field)
         for index in spec.indexes
@@ -932,12 +933,14 @@ def _format_timestamptz_filter_value(value: Any) -> str:
     return f"ISO '{escaped}'"
 
 
-def _scalar_index_filter(
-    spec: SchemaSpec, index: IndexSpec, field: FieldSpec, pk: int, seed: int
+def scalar_index_filter_for_value(
+    spec: SchemaSpec,
+    index: IndexSpec,
+    field: FieldSpec,
+    value: Any,
 ) -> str | None:
     struct_array = struct_array_for_field(spec, index.field)
     if struct_array is not None:
-        value = generate_struct_array_value(struct_array, pk, seed)
         if not value:
             return None
         nested_value = value[0].get(field.name)
@@ -952,7 +955,6 @@ def _scalar_index_filter(
             f"{format_filter_value(nested_value)})"
         )
     if field.dtype == "JSON":
-        value = generate_field_value(field, pk, seed)
         json_path = str(index.params.get("json_path") or f"{field.name}['bucket']")
         path_value = _json_path_value(value, _json_path_keys(json_path, field.name))
         if path_value is not None:
@@ -961,22 +963,33 @@ def _scalar_index_filter(
             return f"{json_path} == {format_filter_value(path_value)}"
         return None
     if field.dtype == "ARRAY":
-        value = generate_field_value(field, pk, seed)
         if isinstance(value, list) and value:
             return f"ARRAY_CONTAINS({field.name}, {format_filter_value(value[0])})"
         return None
     if field.dtype == "GEOMETRY":
-        value = generate_field_value(field, pk, seed)
         if isinstance(value, str) and value:
             escaped = value.replace("\\", "\\\\").replace("'", "\\'")
             return f"ST_EQUALS({field.name}, '{escaped}')"
         return None
-    value = generate_field_value(field, pk, seed)
     if value is None:
         return f"{field.name} is null"
     if field.dtype == "TIMESTAMPTZ":
         return f"{field.name} == {_format_timestamptz_filter_value(value)}"
+    if index.index_type == "NGRAM" and field.dtype in {"VARCHAR", "STRING", "TEXT"}:
+        return f"{field.name} LIKE {format_filter_value('%' + str(value) + '%')}"
     return f"{field.name} == {format_filter_value(value)}"
+
+
+def _scalar_index_filter(
+    spec: SchemaSpec, index: IndexSpec, field: FieldSpec, pk: int, seed: int
+) -> str | None:
+    struct_array = struct_array_for_field(spec, index.field)
+    value = (
+        generate_struct_array_value(struct_array, pk, seed)
+        if struct_array is not None
+        else generate_field_value(field, pk, seed)
+    )
+    return scalar_index_filter_for_value(spec, index, field, value)
 
 
 def _scalar_index_probe(
@@ -1001,21 +1014,56 @@ def _scalar_index_probe(
     return null_fallback
 
 
-def _validate_scalar_index_queries(
+def validate_scalar_index_queries(
     client: Any,
     collection: str,
     spec: SchemaSpec,
     meta: dict[str, Any],
     seed: int,
     report: ValidationReport,
+    probe_overrides: dict[str, tuple[int, Any, str]] | None = None,
+    server_version: str | None = None,
 ) -> int:
     primary = _primary_field(spec)
     primary_name = meta.get("primary_field") or (
         primary.name if primary is not None else "id"
     )
     queries = 0
-    for index, field in _indexed_scalar_indexes(spec):
-        probe = _scalar_index_probe(spec, meta, index, field, seed)
+    scalar_indexes = indexed_scalar_indexes(spec)
+    nested_scalar_indexes = [
+        (index, field)
+        for index, field in scalar_indexes
+        if struct_array_for_field(spec, index.field) is not None
+    ]
+    nested_query_supported = True
+    if nested_scalar_indexes:
+        actual_server_version = server_version or get_server_version(client)
+        try:
+            nested_query_supported = version_at_least(actual_server_version, "3.0.0")
+        except ValueError:
+            report.fail(
+                INDEX_SCALAR_QUERY_FAILED,
+                "cannot determine whether the runtime supports StructArray scalar filters",
+                collection=collection,
+                server_version=actual_server_version,
+            )
+            nested_query_supported = False
+        report.metrics[f"{collection}.struct_array_scalar_index_queries.supported"] = (
+            nested_query_supported
+        )
+        if not nested_query_supported:
+            report.metrics[
+                f"{collection}.struct_array_scalar_index_queries.skipped_unsupported_total"
+            ] = len(nested_scalar_indexes)
+    for index, field in scalar_indexes:
+        if (
+            struct_array_for_field(spec, index.field) is not None
+            and not nested_query_supported
+        ):
+            continue
+        probe = (probe_overrides or {}).get(index.field) or _scalar_index_probe(
+            spec, meta, index, field, seed
+        )
         if probe is None:
             report.fail(
                 INDEX_SCALAR_QUERY_FAILED,
@@ -1229,6 +1277,19 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             metrics["collections_checked"] += 1
             indexed_fields = _indexed_fields(spec)
+            collection_metric_prefix = f"{collection}."
+            collection_metrics = {
+                f"{collection_metric_prefix}actual_indexes_total": 0,
+                f"{collection_metric_prefix}vector_searches_total": 0,
+                f"{collection_metric_prefix}scalar_index_queries_total": 0,
+                f"{collection_metric_prefix}reload_cycles_total": 0,
+                f"{collection_metric_prefix}reload_vector_searches_total": 0,
+                f"{collection_metric_prefix}reload_scalar_index_queries_total": 0,
+                f"{collection_metric_prefix}declared_autoindexes_total": sum(
+                    index.index_type == "AUTOINDEX" for index in spec.indexes
+                ),
+            }
+            metrics.update(collection_metrics)
             if indexed_fields:
                 metrics["collections_with_index"] += 1
             try:
@@ -1256,6 +1317,9 @@ def main(argv: list[str] | None = None) -> int:
                 _load_collection(client, collection, args.timeout_sec)
                 actual_indexes = _actual_index_metadata(client, collection, spec)
                 metrics["actual_indexes_total"] += len(actual_indexes)
+                metrics[f"{collection_metric_prefix}actual_indexes_total"] = len(
+                    actual_indexes
+                )
                 _validate_expected_index_fields_present(
                     collection,
                     indexed_fields,
@@ -1284,7 +1348,7 @@ def main(argv: list[str] | None = None) -> int:
                         report,
                     )
                 _validate_query_serviceability(client, collection, spec, meta, report)
-                metrics["searches_total"] += _validate_index_searches(
+                vector_searches = _validate_index_searches(
                     client,
                     collection,
                     spec,
@@ -1292,19 +1356,40 @@ def main(argv: list[str] | None = None) -> int:
                     args.seed,
                     report,
                 )
-                metrics["scalar_index_queries_total"] += _validate_scalar_index_queries(
+                metrics["searches_total"] += vector_searches
+                metrics[f"{collection_metric_prefix}vector_searches_total"] = (
+                    vector_searches
+                )
+                scalar_index_queries = validate_scalar_index_queries(
                     client,
                     collection,
                     spec,
                     meta,
                     args.seed,
                     report,
+                )
+                metrics["scalar_index_queries_total"] += scalar_index_queries
+                metrics[f"{collection_metric_prefix}scalar_index_queries_total"] = (
+                    scalar_index_queries
                 )
                 _release_collection(client, collection, args.timeout_sec)
                 _load_collection(client, collection, args.timeout_sec)
                 metrics["reload_cycles_total"] += 1
+                metrics[f"{collection_metric_prefix}reload_cycles_total"] = 1
                 _validate_query_serviceability(client, collection, spec, meta, report)
-                metrics["reload_searches_total"] += _validate_index_searches(
+                reload_vector_searches = _validate_index_searches(
+                    client,
+                    collection,
+                    spec,
+                    meta,
+                    args.seed,
+                    report,
+                )
+                metrics["reload_searches_total"] += reload_vector_searches
+                metrics[f"{collection_metric_prefix}reload_vector_searches_total"] = (
+                    reload_vector_searches
+                )
+                reload_scalar_index_queries = validate_scalar_index_queries(
                     client,
                     collection,
                     spec,
@@ -1313,15 +1398,11 @@ def main(argv: list[str] | None = None) -> int:
                     report,
                 )
                 metrics["reload_scalar_index_queries_total"] += (
-                    _validate_scalar_index_queries(
-                        client,
-                        collection,
-                        spec,
-                        meta,
-                        args.seed,
-                        report,
-                    )
+                    reload_scalar_index_queries
                 )
+                metrics[
+                    f"{collection_metric_prefix}reload_scalar_index_queries_total"
+                ] = reload_scalar_index_queries
                 output_checkpoint["collections"][collection] = {
                     "schema_name": schema_name,
                     "actual_indexes": actual_indexes,

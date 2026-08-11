@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from milvus_client.common.data import stable_vector_value
 from milvus_client.common.schema import (
@@ -731,6 +732,13 @@ def test_index_validation_rechecks_query_and_search_after_release_reload(
     assert result["metrics"]["reload_cycles_total"] == 1
     assert result["metrics"]["reload_searches_total"] == 1
     assert result["metrics"]["reload_scalar_index_queries_total"] == 1
+    assert result["metrics"]["qa_dense.actual_indexes_total"] == 2
+    assert result["metrics"]["qa_dense.vector_searches_total"] == 1
+    assert result["metrics"]["qa_dense.scalar_index_queries_total"] == 1
+    assert result["metrics"]["qa_dense.reload_cycles_total"] == 1
+    assert result["metrics"]["qa_dense.reload_vector_searches_total"] == 1
+    assert result["metrics"]["qa_dense.reload_scalar_index_queries_total"] == 1
+    assert result["metrics"]["qa_dense.declared_autoindexes_total"] == 0
     assert "search" in call_names[:release_position]
     assert "search" in call_names[release_position + 1 :]
     assert "query" in call_names[:release_position]
@@ -1590,6 +1598,157 @@ def test_struct_scalar_index_filters_use_match_any():
     assert score_filter == "MATCH_ANY(attributes, $[score_sort] >= 3.0)"
     assert category_filter == (
         'MATCH_ANY(attributes, $[category_inverted] == "category_3")'
+    )
+
+
+def test_nested_scalar_index_queries_skip_on_2_6_runtime():
+    class Client:
+        def get_server_version(self):
+            return "v2.6.18"
+
+        def query(self, **kwargs):
+            raise AssertionError("2.6 must not execute MATCH_ANY")
+
+    report = ValidationReport()
+    queries = validate_index_compatibility.validate_scalar_index_queries(
+        Client(),
+        "qa_struct",
+        _struct_index_spec(),
+        {"min_pk": 3, "max_pk": 3, "data_min_pk": 3, "data_max_pk": 3},
+        7,
+        report,
+    )
+
+    assert report.passed
+    assert queries == 0
+    assert (
+        report.metrics[
+            "qa_struct.struct_array_scalar_index_queries.skipped_unsupported_total"
+        ]
+        == 2
+    )
+
+
+def test_nested_scalar_index_queries_execute_on_3_0_runtime():
+    class Client:
+        calls = []
+
+        def get_server_version(self):
+            return "v3.0.0"
+
+        def query(self, **kwargs):
+            self.calls.append(kwargs)
+            return [{"id": 3}]
+
+    client = Client()
+    report = ValidationReport()
+    queries = validate_index_compatibility.validate_scalar_index_queries(
+        client,
+        "qa_struct",
+        _struct_index_spec(),
+        {"min_pk": 3, "max_pk": 3, "data_min_pk": 3, "data_max_pk": 3},
+        7,
+        report,
+    )
+
+    assert report.passed
+    assert queries == 2
+    assert len(client.calls) == 4
+
+
+def test_rollback_safe_autoindex_matrix_builds_deterministic_scalar_filters():
+    matrix = (
+        Path(__file__).resolve().parents[1] / "manifests" / "schema_matrix_2_6.yaml"
+    )
+    specs = validate_index_compatibility.load_schema_matrix(matrix)
+    autoindex_filters = {}
+    for spec in specs:
+        meta = {"min_pk": 3, "max_pk": 3, "data_min_pk": 3, "data_max_pk": 3}
+        for index, field in validate_index_compatibility.indexed_scalar_indexes(spec):
+            if index.index_type != "AUTOINDEX":
+                continue
+            probe = validate_index_compatibility._scalar_index_probe(
+                spec, meta, index, field, seed=7
+            )
+            autoindex_filters[f"{spec.name}.{index.field}"] = (
+                None if probe is None else probe[2]
+            )
+
+    assert autoindex_filters == {
+        "scalar_dynamic_partition_key.int64_category": "int64_category == 3",
+        "scalar_autoindex_formats_rollback_safe.int64_auto": "int64_auto == 3",
+        "scalar_autoindex_formats_rollback_safe.float_auto": (
+            "float_auto == 0.30000001192092896"
+        ),
+        "scalar_autoindex_formats_rollback_safe.bool_auto": "bool_auto == False",
+        "scalar_autoindex_formats_rollback_safe.varchar_auto": (
+            'varchar_auto == "varchar_auto_3"'
+        ),
+        "scalar_autoindex_formats_rollback_safe.json_auto": (
+            "json_auto['bucket'] == 3"
+        ),
+        "scalar_autoindex_formats_rollback_safe.json_bool": (
+            "json_bool['active'] == False"
+        ),
+        "scalar_autoindex_formats_rollback_safe.json_varchar": (
+            "json_varchar['label'] == \"label_3\""
+        ),
+        "scalar_autoindex_formats_rollback_safe.arr_int64_auto": (
+            "ARRAY_CONTAINS(arr_int64_auto, 3)"
+        ),
+        "scalar_autoindex_formats_rollback_safe.arr_float_auto": (
+            "ARRAY_CONTAINS(arr_float_auto, 3.0)"
+        ),
+        "scalar_autoindex_formats_rollback_safe.arr_bool_auto": (
+            "ARRAY_CONTAINS(arr_bool_auto, False)"
+        ),
+        "scalar_autoindex_formats_rollback_safe.arr_varchar_auto": (
+            'ARRAY_CONTAINS(arr_varchar_auto, "tag_3")'
+        ),
+        "struct_array_varchar_autoindex_rollback_safe.items[category]": (
+            'MATCH_ANY(items, $[category] == "category_3")'
+        ),
+        "struct_array_numeric_autoindex_rollback_safe.items[score]": (
+            "MATCH_ANY(items, $[score] == 3.0)"
+        ),
+        "struct_array_numeric_autoindex_rollback_safe.items[rank]": (
+            "MATCH_ANY(items, $[rank] == 30)"
+        ),
+        "struct_array_numeric_autoindex_rollback_safe.items[enabled]": (
+            "MATCH_ANY(items, $[enabled] == False)"
+        ),
+    }
+
+
+def test_scalar_index_filter_uses_like_for_varchar_ngram():
+    spec = validate_index_compatibility.SchemaSpec(
+        name="ngram",
+        version="2.6",
+        fields=[
+            validate_index_compatibility.FieldSpec(
+                name="id", dtype="INT64", primary=True
+            ),
+            validate_index_compatibility.FieldSpec(
+                name="text", dtype="VARCHAR", max_length=128
+            ),
+        ],
+        indexes=[
+            validate_index_compatibility.IndexSpec(
+                field="text",
+                index_type="NGRAM",
+                params={"min_gram": 2, "max_gram": 4},
+            )
+        ],
+    )
+
+    assert (
+        validate_index_compatibility.scalar_index_filter_for_value(
+            spec,
+            spec.indexes[0],
+            spec.fields[1],
+            "text_7",
+        )
+        == 'text LIKE "%text_7%"'
     )
 
 

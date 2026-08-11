@@ -74,6 +74,7 @@ class SchemaSpec:
     enable_dynamic_field: bool = False
     checksum_fields: list[str] = field(default_factory=list)
     num_partitions: int | None = None
+    shards_num: int | None = None
     partitions: list[str] = field(default_factory=list)
     properties: dict[str, Any] = field(default_factory=dict)
 
@@ -198,6 +199,7 @@ def load_schema_matrix(path: str | Path) -> list[SchemaSpec]:
                 enable_dynamic_field=bool(item.get("enable_dynamic_field", False)),
                 checksum_fields=list(item.get("checksum_fields", [])),
                 num_partitions=item.get("num_partitions"),
+                shards_num=item.get("shards_num"),
                 partitions=list(item.get("partitions", [])),
                 properties=dict(item.get("properties", {})),
             )
@@ -277,6 +279,8 @@ def validate_schema_matrix(
             )
         if spec.num_partitions is not None and spec.num_partitions <= 0:
             errors.append(f"{spec.name}: num_partitions must be positive")
+        if spec.shards_num is not None and spec.shards_num <= 0:
+            errors.append(f"{spec.name}: shards_num must be positive")
         if spec.num_partitions is not None and not partition_key_fields:
             errors.append(
                 f"{spec.name}: num_partitions can only be specified when a partition key is defined"
@@ -547,6 +551,8 @@ def build_index_params(spec: SchemaSpec):
 
 def create_collection_kwargs(spec: SchemaSpec) -> dict[str, Any]:
     kwargs: dict[str, Any] = {}
+    if spec.shards_num is not None:
+        kwargs["shards_num"] = spec.shards_num
     if spec.num_partitions is not None:
         kwargs["num_partitions"] = spec.num_partitions
     if spec.properties:
