@@ -669,6 +669,39 @@ def test_existing_phase_reload_revalidates_scalar_index_queries():
     )
 
 
+def test_phase_scalar_index_validation_uses_effective_server_version(monkeypatch):
+    observed = {}
+
+    def record_scalar_queries(*args, server_version=None, **kwargs):
+        observed["server_version"] = server_version
+        return 1
+
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "validate_scalar_index_queries",
+        record_scalar_queries,
+    )
+
+    queries = validate_phase_dml_dql._validate_phase_checkpoint_scalar_indexes(
+        object(),
+        _dense_spec(),
+        {
+            "collection": "qa_dense",
+            "primary_field": "id",
+            "start_id": 50_000_000,
+            "rows": 4,
+            "deleted": 1,
+        },
+        7,
+        ValidationReport(),
+        existing=True,
+        server_version="3.0.0",
+    )
+
+    assert queries == 1
+    assert observed["server_version"] == "3.0.0"
+
+
 def test_existing_phase_search_uses_upserted_vector_values():
     spec = _dense_spec(dim=128)
     client = StoredVectorSearchPhaseClient()
@@ -1516,6 +1549,7 @@ def test_phase_checkpoint_queries_scalar_indexes_after_reload(monkeypatch, tmp_p
         seed,
         report,
         probe_overrides=None,
+        server_version=None,
     ):
         observed.append((collection, meta, seed, probe_overrides))
         return 2

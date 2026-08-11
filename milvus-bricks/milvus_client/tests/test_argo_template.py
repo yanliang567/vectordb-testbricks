@@ -706,11 +706,13 @@ def test_upgrade_rollback_version_sensitive_bricks_receive_phase_identity():
         "validate-schema-features-base": "base-version",
         "validate-index-compatibility-after-upgrade": "target-version",
         "validate-schema-features-after-upgrade": "target-version",
+        "validate-phase-dml-dql-after-upgrade": "target-version",
         "create-forward-schema": "target-version",
         "validate-forward-indexes-after-upgrade": "target-version",
         "validate-forward-schema-features-after-upgrade": "target-version",
         "validate-index-compatibility-after-rollback": "rollback-version",
         "validate-schema-features-after-rollback": "rollback-version",
+        "validate-phase-dml-dql-after-rollback": "rollback-version",
         "validate-forward-indexes-after-rollback": "rollback-version",
         "validate-forward-schema-features-after-rollback": "rollback-version",
     }

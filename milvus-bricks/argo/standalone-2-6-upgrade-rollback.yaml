@@ -516,6 +516,9 @@ spec:
                     --existing-start-id 50000000
                     --new-start-id 60000000
                     --drop-new-collections-if-exist true
+                    --server-version-hint {{workflow.parameters.target-version}}
+                    --expected-server-image {{workflow.parameters.target-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: schema-evolution-existing
             dependencies: [strict-pressure-after-upgrade, pressure-daemon]
@@ -920,6 +923,9 @@ spec:
                     --existing-start-id 70000000
                     --new-start-id 80000000
                     --drop-new-collections-if-exist true
+                    --server-version-hint {{workflow.parameters.rollback-version}}
+                    --expected-server-image {{workflow.parameters.rollback-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: validate-schema-evolution-existing-after-rollback
             dependencies: [validate-schema-features-after-rollback, pressure-daemon]
