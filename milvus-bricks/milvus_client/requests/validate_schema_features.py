@@ -17,6 +17,7 @@ from milvus_client.common.feature_validators import (
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.schema import SchemaSpec, collection_name, load_schema_matrix
 from milvus_client.common.validators import ValidationReport
+from milvus_client.common.version import server_version_for_feature_detection
 
 
 def add_args(parser):
@@ -113,8 +114,17 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
         client = create_client(args.uri, args.token, args.db_name)
-        server_version = get_server_version(client)
-        result.capabilities = {"server_version": server_version}
+        actual_server_version = get_server_version(client)
+        server_version = server_version_for_feature_detection(
+            actual_server_version,
+            args.server_version_hint,
+            expected_image=args.expected_server_image,
+            release_gate_eligible=args.release_gate_eligible,
+        )
+        result.capabilities = {
+            "server_version": actual_server_version,
+            "effective_server_version": server_version,
+        }
         runtime_config = _runtime_config(args)
         report = ValidationReport()
         metrics = {

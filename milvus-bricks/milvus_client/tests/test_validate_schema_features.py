@@ -115,3 +115,68 @@ def test_validate_schema_features_rejects_missing_matrix_collection(
     assert code == 2
     assert result["failures"][0]["type"] == "SCHEMA_COLLECTION_MISSING"
     assert result["failures"][0]["collections"] == ["qa_geometry"]
+
+
+def test_validate_schema_features_uses_hint_for_opaque_server_version(
+    monkeypatch, tmp_path
+):
+    checkpoint = tmp_path / "seed.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "collections": {
+                    "qa_struct": {
+                        "schema_name": "struct",
+                        "min_pk": 0,
+                        "max_pk": 0,
+                    }
+                }
+            }
+        )
+    )
+    output = tmp_path / "result.json"
+    spec = SchemaSpec(
+        name="struct",
+        version="2.6",
+        fields=[FieldSpec(name="id", dtype="INT64", primary=True)],
+        validators=["geometry_filter"],
+    )
+    observed = {}
+
+    class Client:
+        def get_server_version(self):
+            return "master-20260810-eaec01bc71"
+
+    def record_validator(*args, server_version="unknown", **kwargs):
+        observed["server_version"] = server_version
+
+    monkeypatch.setattr(
+        validate_schema_features, "load_schema_matrix", lambda path: [spec]
+    )
+    monkeypatch.setattr(
+        validate_schema_features, "create_client", lambda *args, **kwargs: Client()
+    )
+    monkeypatch.setattr(
+        validate_schema_features, "run_feature_validator", record_validator
+    )
+
+    code = validate_schema_features.main(
+        [
+            *_args(tmp_path, checkpoint, output),
+            "--server-version-hint",
+            "3.0.0",
+            "--expected-server-image",
+            "harbor.milvus.io/milvusdb/milvus:master-20260810-eaec01bc@sha256:"
+            + "9" * 64,
+            "--release-gate-eligible",
+            "false",
+        ]
+    )
+
+    result = json.loads(output.read_text())
+    assert code == 0
+    assert result["capabilities"] == {
+        "server_version": "master-20260810-eaec01bc71",
+        "effective_server_version": "3.0.0",
+    }
+    assert observed["server_version"] == "3.0.0"

@@ -19,6 +19,7 @@ from milvus_client.common.schema import (
     rollback_incompatible_specs,
     validate_schema_matrix,
 )
+from milvus_client.common.version import server_version_for_feature_detection
 
 
 def add_args(parser):
@@ -94,7 +95,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     client = create_client(args.uri, args.token, args.db_name)
-    server_version = get_server_version(client)
+    actual_server_version = get_server_version(client)
+    server_version = server_version_for_feature_detection(
+        actual_server_version,
+        args.server_version_hint,
+        expected_image=args.expected_server_image,
+        release_gate_eligible=args.release_gate_eligible,
+    )
     capabilities = load_capability_catalog(args.capability_catalog)
     specs = load_schema_matrix(args.schema_matrix)
     created = []
@@ -167,7 +174,10 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             failed.append({"schema": spec.name, "collection": name, "error": str(exc)})
 
-    result.capabilities = {"server_version": server_version}
+    result.capabilities = {
+        "server_version": actual_server_version,
+        "effective_server_version": server_version,
+    }
     result.metrics = {
         "schemas_total": len(specs),
         "created_total": len(created),

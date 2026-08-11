@@ -40,7 +40,10 @@ from milvus_client.common.workload import (
     metric_type_for_field,
     search_params_for_field,
 )
-from milvus_client.common.version import version_at_least
+from milvus_client.common.version import (
+    server_version_for_feature_detection,
+    version_at_least,
+)
 
 
 INDEX_SEARCH_FAILED = "INDEX_SEARCH_FAILED"
@@ -1240,6 +1243,17 @@ def main(argv: list[str] | None = None) -> int:
 
         specs = _spec_by_schema(args.schema_matrix)
         client = create_client(args.uri, args.token, args.db_name)
+        actual_server_version = get_server_version(client)
+        server_version = server_version_for_feature_detection(
+            actual_server_version,
+            args.server_version_hint,
+            expected_image=args.expected_server_image,
+            release_gate_eligible=args.release_gate_eligible,
+        )
+        result.capabilities = {
+            "server_version": actual_server_version,
+            "effective_server_version": server_version,
+        }
         report = ValidationReport()
         output_checkpoint = {
             "version": 1,
@@ -1367,6 +1381,7 @@ def main(argv: list[str] | None = None) -> int:
                     meta,
                     args.seed,
                     report,
+                    server_version=server_version,
                 )
                 metrics["scalar_index_queries_total"] += scalar_index_queries
                 metrics[f"{collection_metric_prefix}scalar_index_queries_total"] = (
@@ -1396,6 +1411,7 @@ def main(argv: list[str] | None = None) -> int:
                     meta,
                     args.seed,
                     report,
+                    server_version=server_version,
                 )
                 metrics["reload_scalar_index_queries_total"] += (
                     reload_scalar_index_queries

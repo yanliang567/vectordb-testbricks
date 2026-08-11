@@ -214,6 +214,8 @@ spec:
                 - name: args
                   value: >-
                     --expected-server-version {{workflow.parameters.base-version}}
+                    --expected-server-image {{workflow.parameters.base-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: create-compat-schema
             dependencies: [precheck-base]
@@ -231,6 +233,9 @@ spec:
                     --schema-matrix {{workflow.parameters.schema-matrix}}
                     --drop-if-exists true
                     --load-after-create true
+                    --server-version-hint {{workflow.parameters.base-version}}
+                    --expected-server-image {{workflow.parameters.base-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: seed-compat-data
             dependencies: [create-compat-schema]
@@ -283,6 +288,9 @@ spec:
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
                     --runtime-milvus-config /tmp/milvus-bricks/k8s/runtime-milvus-base.yaml
                     --runtime-user-config /tmp/milvus-bricks/k8s/runtime-user-base.yaml
+                    --server-version-hint {{workflow.parameters.base-version}}
+                    --expected-server-image {{workflow.parameters.base-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: strict-pressure-before-upgrade
             dependencies: [validate-schema-features-base]
@@ -386,6 +394,8 @@ spec:
                 - name: args
                   value: >-
                     --expected-server-version {{workflow.parameters.target-version}}
+                    --expected-server-image {{workflow.parameters.target-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: wait-upgrade-serviceability
             dependencies: [precheck-after-upgrade, pressure-daemon]
@@ -454,6 +464,9 @@ spec:
                     --phase after-upgrade
                     --rebuild-index false
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+                    --server-version-hint {{workflow.parameters.target-version}}
+                    --expected-server-image {{workflow.parameters.target-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: validate-schema-features-after-upgrade
             dependencies: [validate-index-compatibility-after-upgrade, pressure-daemon]
@@ -472,6 +485,9 @@ spec:
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
                     --runtime-milvus-config /tmp/milvus-bricks/k8s/runtime-milvus-after-upgrade.yaml
                     --runtime-user-config /tmp/milvus-bricks/k8s/runtime-user-after-upgrade.yaml
+                    --server-version-hint {{workflow.parameters.target-version}}
+                    --expected-server-image {{workflow.parameters.target-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: validate-phase-dml-dql-after-upgrade
             dependencies: [validate-schema-features-after-upgrade, pressure-daemon]
@@ -592,6 +608,9 @@ spec:
                     --rollback-version {{workflow.parameters.rollback-version}}
                     --rollback-enabled {{workflow.parameters.rollback-enabled}}
                     --rollback-forward-validation-enabled {{workflow.parameters.rollback-forward-validation-enabled}}
+                    --server-version-hint {{workflow.parameters.target-version}}
+                    --expected-server-image {{workflow.parameters.target-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: seed-forward-data
             dependencies: [create-forward-schema, pressure-daemon]
@@ -652,6 +671,9 @@ spec:
                     --phase after-upgrade
                     --rebuild-index false
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+                    --server-version-hint {{workflow.parameters.target-version}}
+                    --expected-server-image {{workflow.parameters.target-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: validate-forward-schema-features-after-upgrade
             dependencies: [validate-forward-indexes-after-upgrade, pressure-daemon]
@@ -672,6 +694,9 @@ spec:
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
                     --runtime-milvus-config /tmp/milvus-bricks/k8s/runtime-milvus-post-upgrade-config.yaml
                     --runtime-user-config /tmp/milvus-bricks/k8s/runtime-user-post-upgrade-config.yaml
+                    --server-version-hint {{workflow.parameters.target-version}}
+                    --expected-server-image {{workflow.parameters.target-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: schema-evolution-forward
             dependencies: [validate-forward-schema-features-after-upgrade, pressure-daemon]
@@ -801,6 +826,8 @@ spec:
                 - name: args
                   value: >-
                     --expected-server-version {{workflow.parameters.rollback-version}}
+                    --expected-server-image {{workflow.parameters.rollback-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: validate-after-rollback
             dependencies: [validate-phase-dml-dql-after-rollback, pressure-daemon]
@@ -841,6 +868,9 @@ spec:
                     --phase after-rollback
                     --rebuild-index false
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+                    --server-version-hint {{workflow.parameters.rollback-version}}
+                    --expected-server-image {{workflow.parameters.rollback-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: validate-schema-features-after-rollback
             dependencies: [validate-index-compatibility-after-rollback, pressure-daemon]
@@ -860,6 +890,9 @@ spec:
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
                     --runtime-milvus-config /tmp/milvus-bricks/k8s/runtime-milvus-after-rollback.yaml
                     --runtime-user-config /tmp/milvus-bricks/k8s/runtime-user-after-rollback.yaml
+                    --server-version-hint {{workflow.parameters.rollback-version}}
+                    --expected-server-image {{workflow.parameters.rollback-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: validate-phase-dml-dql-after-rollback
             dependencies: [validate-schema-evolution-existing-after-rollback, pressure-daemon]
@@ -972,6 +1005,9 @@ spec:
                     --phase after-rollback
                     --rebuild-index false
                     --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+                    --server-version-hint {{workflow.parameters.rollback-version}}
+                    --expected-server-image {{workflow.parameters.rollback-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: validate-forward-schema-features-after-rollback
             dependencies: [validate-forward-indexes-after-rollback, pressure-daemon]
@@ -993,6 +1029,9 @@ spec:
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/forward/seed_data.json
                     --runtime-milvus-config /tmp/milvus-bricks/k8s/runtime-milvus-after-rollback.yaml
                     --runtime-user-config /tmp/milvus-bricks/k8s/runtime-user-after-rollback.yaml
+                    --server-version-hint {{workflow.parameters.rollback-version}}
+                    --expected-server-image {{workflow.parameters.rollback-milvus-image}}
+                    --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: wait-forward-rollback-serviceability
             dependencies: [wait-rollback-serviceability, pressure-daemon]
