@@ -565,6 +565,16 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
     assert result["metrics"]["new_collections"][0]["scalar_index_queries"] == 1
     assert result["metrics"]["existing_collections"][0]["reload_succeeded"]
     assert result["metrics"]["new_collections"][0]["reload_succeeded"]
+    maintenance_windows = result["metrics"]["maintenance_windows"]
+    assert len(maintenance_windows) == 2
+    assert {window["collection"] for window in maintenance_windows} == {
+        "qa_dense",
+        "qa_after_upgrade_dense",
+    }
+    assert {window["kind"] for window in maintenance_windows} == {"collection-reload"}
+    assert {window["label"] for window in maintenance_windows} == {
+        "phase-dml-dql-reload-after-upgrade"
+    }
     assert "create_collection" in call_names
     assert "upsert" in call_names
     assert "delete" in call_names
@@ -604,6 +614,10 @@ def test_new_phase_strict_reload_load_failure_fails_closed():
     assert metrics["reload_attempted"]
     assert not metrics["reload_operations_succeeded"]
     assert not metrics["reload_succeeded"]
+    maintenance_windows = report.metrics["maintenance_windows"]
+    assert len(maintenance_windows) == 1
+    assert maintenance_windows[0]["kind"] == "collection-reload"
+    assert maintenance_windows[0]["collection"] == "qa_after_upgrade_dense"
     assert any(
         failure["type"] == validate_phase_dml_dql.PHASE_COLLECTION_RELOAD_FAILED
         and failure["operation"] == "load_collection"
@@ -1092,6 +1106,15 @@ def test_phase_checkpoint_reloads_existing_and_target_written_collections(
     assert metrics["phase_checkpoint_reload_collections_total"] == 2
     assert metrics["phase_checkpoint_reload_failures_total"] == 0
     assert metrics["phase_checkpoint_searches_total"] == 2
+    maintenance_windows = report.metrics["maintenance_windows"]
+    assert len(maintenance_windows) == 2
+    assert {window["collection"] for window in maintenance_windows} == {
+        "qa_dense",
+        "qa_after_upgrade_dense",
+    }
+    assert {window["label"] for window in maintenance_windows} == {
+        "phase-checkpoint-reload-after-rollback"
+    }
     reload_calls = [
         call
         for call in client.calls
