@@ -2324,6 +2324,7 @@ spec:
             from pathlib import Path
             from milvus_client.common.pressure_maintenance import build_pressure_availability_summary
             from milvus_client.common.pressure_maintenance import classify_pressure_result
+            from milvus_client.common.pressure_maintenance import maintenance_windows_from_brick_results
             from milvus_client.common.pressure_maintenance import maintenance_windows_from_workflow_nodes
             from milvus_client.common.pressure_maintenance import pressure_availability_samples
             from milvus_client.common.pressure_maintenance import pressure_result_configmaps
@@ -2379,12 +2380,22 @@ spec:
 
             def _maintenance_windows():
                 nodes = _workflow_nodes()
-                return maintenance_windows_from_workflow_nodes(
+                workflow_windows = maintenance_windows_from_workflow_nodes(
                     nodes,
                     post_upgrade_config_toggle_enabled="{{workflow.parameters.post-upgrade-config-toggle-enabled}}" == "true",
                     schema_evolution_existing_enabled="{{workflow.parameters.schema-evolution-existing-enabled}}" == "true",
                     schema_evolution_forward_enabled="{{workflow.parameters.schema-evolution-forward-enabled}}" == "true",
                 )
+                brick_results = []
+                for path in sorted((root / "results").glob("*.json")):
+                    try:
+                        brick_results.append(json.loads(path.read_text()))
+                    except Exception:
+                        continue
+                return [
+                    *workflow_windows,
+                    *maintenance_windows_from_brick_results(brick_results),
+                ]
 
             maintenance_windows = _maintenance_windows()
 
@@ -2490,7 +2501,10 @@ spec:
                 "excluded_failed_results": excluded_failed,
                 "maintenance_windows": [
                     {
+                        "kind": window.get("kind"),
                         "label": window["label"],
+                        "source": window.get("source"),
+                        "collection": window.get("collection"),
                         "started_at": window["started_at"],
                         "finished_at": window["finished_at"],
                         "duration_sec": window["duration_sec"],

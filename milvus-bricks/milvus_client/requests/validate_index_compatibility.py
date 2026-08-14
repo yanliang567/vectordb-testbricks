@@ -16,6 +16,7 @@ from milvus_client.common.data import (
     prepare_struct_vector_query,
 )
 from milvus_client.common.result import FAILED, PASSED, result_from_args
+from milvus_client.common.pressure_maintenance import record_maintenance_window
 from milvus_client.common.schema import (
     FieldSpec,
     IndexSpec,
@@ -1387,8 +1388,17 @@ def main(argv: list[str] | None = None) -> int:
                 metrics[f"{collection_metric_prefix}scalar_index_queries_total"] = (
                     scalar_index_queries
                 )
-                _release_collection(client, collection, args.timeout_sec)
-                _load_collection(client, collection, args.timeout_sec)
+                maintenance_windows = report.metrics.setdefault(
+                    "maintenance_windows", []
+                )
+                with record_maintenance_window(
+                    maintenance_windows,
+                    label=f"index-compatibility-reload-{args.phase}",
+                    source="validate_index_compatibility",
+                    collection=collection,
+                ):
+                    _release_collection(client, collection, args.timeout_sec)
+                    _load_collection(client, collection, args.timeout_sec)
                 metrics["reload_cycles_total"] += 1
                 metrics[f"{collection_metric_prefix}reload_cycles_total"] = 1
                 _validate_query_serviceability(client, collection, spec, meta, report)

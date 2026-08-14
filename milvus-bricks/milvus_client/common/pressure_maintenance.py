@@ -3,7 +3,8 @@ from __future__ import annotations
 import base64
 import gzip
 import json
-from datetime import datetime, timedelta
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,48 @@ ROLLOUT_WINDOW_LABELS = {
     "post-upgrade-config-rollout",
     "rollback-rollout",
 }
+
+COLLECTION_RELOAD_WINDOW_KIND = "collection-reload"
+
+COLLECTION_RELOAD_WINDOW_LABELS = {
+    "validate_index_compatibility": {
+        "index-compatibility-reload-after-upgrade",
+        "index-compatibility-reload-after-rollback",
+    },
+    "validate_phase_dml_dql": {
+        "phase-dml-dql-reload-after-upgrade",
+        "phase-dml-dql-reload-after-rollback",
+        "phase-checkpoint-reload-after-rollback",
+    },
+}
+
+
+@contextmanager
+def record_maintenance_window(
+    windows: list[dict[str, Any]],
+    *,
+    label: str,
+    source: str,
+    collection: str,
+):
+    started_at = datetime.now(timezone.utc)
+    try:
+        yield
+    finally:
+        finished_at = datetime.now(timezone.utc)
+        windows.append(
+            {
+                "kind": COLLECTION_RELOAD_WINDOW_KIND,
+                "label": label,
+                "source": source,
+                "collection": collection,
+                "started_at": started_at.isoformat(),
+                "finished_at": finished_at.isoformat(),
+                "duration_sec": max(
+                    0.0, (finished_at - started_at).total_seconds()
+                ),
+            }
+        )
 
 
 def _non_negative_int(value: Any) -> int:
@@ -197,6 +240,12 @@ def build_pressure_availability_summary(
         for window in maintenance_windows
         if str(window.get("label") or "") in ROLLOUT_WINDOW_LABELS
     ]
+    steady_state_excluded_windows = [
+        window
+        for window in maintenance_windows
+        if str(window.get("label") or "") in ROLLOUT_WINDOW_LABELS
+        or window.get("kind") == COLLECTION_RELOAD_WINDOW_KIND
+    ]
     window_summaries = []
     for window in rollout_windows:
         overlapping_results = [
@@ -216,7 +265,8 @@ def build_pressure_availability_summary(
         for result in results
         if all(value is not None for value in result_interval(result))
         and not any(
-            _result_overlaps_window(result, window) for window in rollout_windows
+            _result_overlaps_window(result, window)
+            for window in steady_state_excluded_windows
         )
     ]
     unassigned_sample_count = sum(
@@ -414,6 +464,53 @@ def maintenance_windows_from_workflow_nodes(
     return windows
 
 
+def maintenance_windows_from_brick_results(
+    results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    windows = []
+    for result in results:
+        source = str(result.get("brick") or "")
+        allowed_labels = COLLECTION_RELOAD_WINDOW_LABELS.get(source, set())
+        metrics = result.get("metrics") or {}
+        for window in metrics.get("maintenance_windows") or []:
+            if not isinstance(window, dict):
+                continue
+            start = parse_time(window.get("started_at"))
+            end = parse_time(window.get("finished_at"))
+            label = str(window.get("label") or "")
+            kind = str(window.get("kind") or "")
+            if (
+                start is None
+                or end is None
+                or end < start
+                or kind != COLLECTION_RELOAD_WINDOW_KIND
+                or label not in allowed_labels
+            ):
+                continue
+            windows.append(
+                {
+                    "kind": kind,
+                    "label": label,
+                    "source": source,
+                    "collection": str(window.get("collection") or ""),
+                    "started_at": start.isoformat(),
+                    "finished_at": end.isoformat(),
+                    "duration_sec": max(0.0, (end - start).total_seconds()),
+                    "started_at_ts": start,
+                    "finished_at_ts": end,
+                }
+            )
+    return sorted(
+        windows,
+        key=lambda window: (
+            window["started_at_ts"],
+            window["finished_at_ts"],
+            window["label"],
+            window["collection"],
+        ),
+    )
+
+
 def has_failed_metrics(result: dict[str, Any]) -> bool:
     metrics = result.get("metrics") or {}
     return any(int(metrics.get(key, 0) or 0) > 0 for key in FAILED_METRIC_KEYS)
@@ -484,6 +581,18 @@ def is_rollout_service_switch_failure(
     )
 
 
+def is_collection_reload_unavailable_failure(
+    failure: dict[str, Any], window: dict[str, Any]
+) -> bool:
+    if window.get("kind") != COLLECTION_RELOAD_WINDOW_KIND:
+        return False
+    error_type = str(failure.get("error_type") or "")
+    text = json.dumps(failure, sort_keys=True).lower()
+    if error_type != "MilvusException" and "milvusexception" not in text:
+        return False
+    return "collection not loaded" in text or "collection is not loaded" in text
+
+
 def failure_entry(path: Path | str, result: dict[str, Any]) -> dict[str, Any]:
     file_name = path.name if isinstance(path, Path) else str(path)
     return {
@@ -536,7 +645,11 @@ def classify_pressure_result(
             else []
         )
         connectivity_window = (
-            window if window is not None and is_connectivity_failure(failure) else None
+            window
+            if window is not None
+            and window.get("kind") != COLLECTION_RELOAD_WINDOW_KIND
+            and is_connectivity_failure(failure)
+            else None
         )
         schema_mismatch_window = next(
             (
@@ -554,13 +667,24 @@ def classify_pressure_result(
             ),
             None,
         )
+        collection_reload_window = next(
+            (
+                candidate
+                for candidate in failure_windows
+                if is_collection_reload_unavailable_failure(failure, candidate)
+            ),
+            None,
+        )
         if (
             connectivity_window is not None
             or schema_mismatch_window is not None
             or rollout_service_switch_window is not None
+            or collection_reload_window is not None
         ):
             matched_window = (
-                connectivity_window
+                collection_reload_window
+                if collection_reload_window is not None
+                else connectivity_window
                 if connectivity_window is not None
                 else schema_mismatch_window
                 if schema_mismatch_window is not None
@@ -581,7 +705,10 @@ def classify_pressure_result(
 
     entry["failures"] = excluded_failures
     entry["maintenance_window"] = {
+        "kind": matched_window.get("kind"),
         "label": matched_window.get("label"),
+        "source": matched_window.get("source"),
+        "collection": matched_window.get("collection"),
         "started_at": matched_window.get("started_at"),
         "finished_at": matched_window.get("finished_at"),
     }

@@ -13,6 +13,7 @@ import yaml
 from milvus_client.common.pressure_maintenance import (
     build_pressure_availability_summary,
     classify_pressure_result,
+    maintenance_windows_from_brick_results,
     maintenance_windows_from_workflow_nodes,
     pressure_availability_samples,
     pressure_result_configmaps,
@@ -444,6 +445,7 @@ def test_upgrade_rollback_pressure_results_exclude_rollout_connectivity_windows(
         assert "PRESSURE_ATTEMPT_PENDING" in check_command
         assert "PRESSURE_RESULT_MISSING" in check_command
         assert "classify_pressure_result" in check_command
+        assert "maintenance_windows_from_brick_results" in check_command
         assert "maintenance_windows_from_workflow_nodes" in check_command
         assert "metrics_only_failure_without_error_details" not in check_command
         assert "rm -rf /tmp/repo" in check_command
@@ -1411,6 +1413,231 @@ def test_maintenance_windows_skip_enabled_failed_schema_evolution_nodes():
     )
 
     assert windows == []
+
+
+def test_maintenance_windows_from_brick_results_extract_collection_reload_windows():
+    windows = maintenance_windows_from_brick_results(
+        [
+            {
+                "brick": "validate_index_compatibility",
+                "metrics": {
+                    "maintenance_windows": [
+                        {
+                            "kind": "collection-reload",
+                            "label": "index-compatibility-reload-after-upgrade",
+                            "source": "validate_index_compatibility",
+                            "collection": "qa_struct_array",
+                            "started_at": "2026-08-14T04:21:30+00:00",
+                            "finished_at": "2026-08-14T04:21:40+00:00",
+                        }
+                    ]
+                },
+            },
+            {
+                "brick": "unrelated",
+                "metrics": {
+                    "maintenance_windows": [
+                        {
+                            "kind": "collection-reload",
+                            "label": "invalid-window",
+                            "started_at": "not-a-time",
+                            "finished_at": "2026-08-14T04:21:40+00:00",
+                        }
+                    ]
+                },
+            },
+            {
+                "brick": "untrusted_brick",
+                "metrics": {
+                    "maintenance_windows": [
+                        {
+                            "kind": "collection-reload",
+                            "label": "index-compatibility-reload-after-upgrade",
+                            "source": "validate_index_compatibility",
+                            "collection": "qa_struct_array",
+                            "started_at": "2026-08-14T04:21:30+00:00",
+                            "finished_at": "2026-08-14T04:21:40+00:00",
+                        }
+                    ]
+                },
+            },
+        ]
+    )
+
+    assert len(windows) == 1
+    assert windows[0]["kind"] == "collection-reload"
+    assert windows[0]["collection"] == "qa_struct_array"
+    assert windows[0]["duration_sec"] == 10.0
+
+
+def test_pressure_maintenance_classifier_excludes_collection_not_loaded_during_reload():
+    result = {
+        "status": "failed",
+        "brick": "query_pressure",
+        "started_at": "2026-08-14T04:21:30+00:00",
+        "finished_at": "2026-08-14T04:21:40+00:00",
+        "metrics": {"requests_failed": 1, "failed_query": 1},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "query",
+                "started_at": "2026-08-14T04:21:34+00:00",
+                "finished_at": "2026-08-14T04:21:35+00:00",
+                "error_type": "MilvusException",
+                "error": "failed to query: collection not loaded[collection=123]",
+                "connectivity_transient": False,
+            }
+        ],
+    }
+    windows = [
+        {
+            "kind": "collection-reload",
+            "label": "index-compatibility-reload-after-upgrade",
+            "source": "validate_index_compatibility",
+            "collection": "qa_struct_array",
+            "started_at": "2026-08-14T04:21:32+00:00",
+            "finished_at": "2026-08-14T04:21:38+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("query.json", result, windows)
+
+    assert classification == "excluded"
+    assert entry["status"] == "maintenance_window_excluded"
+    assert entry["maintenance_window"]["kind"] == "collection-reload"
+    assert entry["maintenance_window"]["collection"] == "qa_struct_array"
+
+
+@pytest.mark.parametrize(
+    "failure_timestamps",
+    [
+        {
+            "started_at": "2026-08-14T04:21:50+00:00",
+            "finished_at": "2026-08-14T04:21:51+00:00",
+        },
+        {},
+    ],
+    ids=["outside-window", "missing-timestamps"],
+)
+def test_pressure_maintenance_classifier_keeps_reload_failure_without_exact_overlap(
+    failure_timestamps,
+):
+    failure = {
+        "type": "PRESSURE_OPERATION_FAILED",
+        "operation": "query",
+        "error_type": "MilvusException",
+        "error": "failed to query: collection not loaded[collection=123]",
+        "connectivity_transient": False,
+        **failure_timestamps,
+    }
+    result = {
+        "status": "failed",
+        "brick": "query_pressure",
+        "started_at": "2026-08-14T04:21:30+00:00",
+        "finished_at": "2026-08-14T04:22:00+00:00",
+        "metrics": {"requests_failed": 1, "failed_query": 1},
+        "failures": [failure],
+    }
+    windows = [
+        {
+            "kind": "collection-reload",
+            "label": "index-compatibility-reload-after-upgrade",
+            "started_at": "2026-08-14T04:21:32+00:00",
+            "finished_at": "2026-08-14T04:21:38+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("query.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"] == [failure]
+
+
+@pytest.mark.parametrize(
+    ("error_type", "error", "connectivity_transient"),
+    [
+        ("AssertionError", "search returned no hits", False),
+        ("MilvusException", "connection refused", True),
+        ("MilvusException", "collection not found", False),
+    ],
+)
+def test_pressure_maintenance_classifier_keeps_non_reload_failures_strict(
+    error_type,
+    error,
+    connectivity_transient,
+):
+    result = {
+        "status": "failed",
+        "brick": "query_pressure",
+        "started_at": "2026-08-14T04:21:30+00:00",
+        "finished_at": "2026-08-14T04:21:40+00:00",
+        "metrics": {"requests_failed": 1, "failed_query": 1},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "query",
+                "started_at": "2026-08-14T04:21:34+00:00",
+                "finished_at": "2026-08-14T04:21:35+00:00",
+                "error_type": error_type,
+                "error": error,
+                "connectivity_transient": connectivity_transient,
+            }
+        ],
+    }
+    windows = [
+        {
+            "kind": "collection-reload",
+            "label": "phase-dml-dql-reload-after-rollback",
+            "started_at": "2026-08-14T04:21:32+00:00",
+            "finished_at": "2026-08-14T04:21:38+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("query.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"][0]["error"] == error
+
+
+def test_pressure_availability_summary_excludes_reload_window_from_steady_state():
+    results = [
+        {
+            "brick": "query_pressure",
+            "status": "failed",
+            "started_at": "2026-08-14T04:21:30+00:00",
+            "finished_at": "2026-08-14T04:21:40+00:00",
+            "metrics": {"operations_total": 100, "requests_failed": 10},
+            "failures": [
+                {
+                    "started_at": "2026-08-14T04:21:34+00:00",
+                    "finished_at": "2026-08-14T04:21:35+00:00",
+                }
+            ],
+        },
+        {
+            "brick": "query_pressure",
+            "status": "passed",
+            "started_at": "2026-08-14T04:21:41+00:00",
+            "finished_at": "2026-08-14T04:21:50+00:00",
+            "metrics": {"operations_total": 100, "requests_failed": 0},
+        },
+    ]
+    windows = [
+        {
+            "kind": "collection-reload",
+            "label": "phase-dml-dql-reload-after-upgrade",
+            "started_at": "2026-08-14T04:21:32+00:00",
+            "finished_at": "2026-08-14T04:21:38+00:00",
+            "duration_sec": 6.0,
+        }
+    ]
+
+    summary = build_pressure_availability_summary(results, windows)
+
+    assert summary["overall"]["requests_failed"] == 10
+    assert summary["steady_state"]["sample_count"] == 1
+    assert summary["steady_state"]["requests_failed"] == 0
+    assert summary["steady_state"]["success_rate"] == 1.0
 
 
 def test_pressure_maintenance_classifier_excludes_only_window_connectivity_failure():

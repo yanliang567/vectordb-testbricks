@@ -20,6 +20,7 @@ from milvus_client.common.data import (
     update_projection_field,
 )
 from milvus_client.common.result import FAILED, PASSED, result_from_args
+from milvus_client.common.pressure_maintenance import record_maintenance_window
 from milvus_client.common.schema import (
     FieldSpec,
     SchemaSpec,
@@ -901,6 +902,7 @@ def _run_existing_collection_dml_dql(
     report: ValidationReport,
     *,
     reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
+    reload_maintenance_label: str = "phase-dml-dql-reload",
     server_version: str | None = None,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
@@ -1121,6 +1123,7 @@ def _run_existing_collection_dml_dql(
         target_collection,
         report,
         timeout_sec=reload_timeout_sec,
+        maintenance_label=reload_maintenance_label,
     ):
         return metrics
     metrics["reload_operations_succeeded"] = True
@@ -1158,6 +1161,7 @@ def _run_new_collection_dml_dql(
     report: ValidationReport,
     *,
     reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
+    reload_maintenance_label: str = "phase-dml-dql-reload",
     server_version: str | None = None,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
@@ -1288,6 +1292,7 @@ def _run_new_collection_dml_dql(
         target_collection,
         report,
         timeout_sec=reload_timeout_sec,
+        maintenance_label=reload_maintenance_label,
     ):
         return metrics
     metrics["reload_operations_succeeded"] = True
@@ -1489,6 +1494,7 @@ def _reload_collection_strict(
     failure_type: str,
     context: str,
     timeout_sec: float,
+    maintenance_label: str,
 ) -> bool:
     if timeout_sec <= 0:
         report.fail(
@@ -1500,6 +1506,7 @@ def _reload_collection_strict(
             context=context,
         )
         return False
+    methods = []
     for operation in ("release_collection", "load_collection"):
         method = getattr(client, operation, None)
         if method is None:
@@ -1511,11 +1518,31 @@ def _reload_collection_strict(
                 context=context,
             )
             return False
-        try:
-            method(collection_name=collection, timeout=timeout_sec)
-        except TypeError:
+        methods.append((operation, method))
+    maintenance_windows = report.metrics.setdefault("maintenance_windows", [])
+    with record_maintenance_window(
+        maintenance_windows,
+        label=maintenance_label,
+        source="validate_phase_dml_dql",
+        collection=collection,
+    ):
+        for operation, method in methods:
             try:
-                method(collection, timeout=timeout_sec)
+                method(collection_name=collection, timeout=timeout_sec)
+            except TypeError:
+                try:
+                    method(collection, timeout=timeout_sec)
+                except Exception as exc:
+                    report.fail(
+                        failure_type,
+                        f"{context} collection reload failed",
+                        collection=collection,
+                        operation=operation,
+                        error=str(exc),
+                        context=context,
+                        timeout_sec=timeout_sec,
+                    )
+                    return False
             except Exception as exc:
                 report.fail(
                     failure_type,
@@ -1527,17 +1554,6 @@ def _reload_collection_strict(
                     timeout_sec=timeout_sec,
                 )
                 return False
-        except Exception as exc:
-            report.fail(
-                failure_type,
-                f"{context} collection reload failed",
-                collection=collection,
-                operation=operation,
-                error=str(exc),
-                context=context,
-                timeout_sec=timeout_sec,
-            )
-            return False
     return True
 
 
@@ -1547,6 +1563,7 @@ def _reload_phase_collection(
     report: ValidationReport,
     *,
     timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
+    maintenance_label: str = "phase-dml-dql-reload",
 ) -> bool:
     return _reload_collection_strict(
         client,
@@ -1555,6 +1572,7 @@ def _reload_phase_collection(
         failure_type=PHASE_COLLECTION_RELOAD_FAILED,
         context="phase DML/DQL",
         timeout_sec=timeout_sec,
+        maintenance_label=maintenance_label,
     )
 
 
@@ -1572,6 +1590,7 @@ def _reload_phase_checkpoint_collection(
         failure_type=PHASE_CHECKPOINT_RELOAD_FAILED,
         context="phase checkpoint",
         timeout_sec=timeout_sec,
+        maintenance_label="phase-checkpoint-reload-after-rollback",
     )
 
 
@@ -2396,6 +2415,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.visibility_interval_sec,
                 report,
                 reload_timeout_sec=args.reload_timeout_sec,
+                reload_maintenance_label=f"phase-dml-dql-reload-{args.phase}",
                 server_version=server_version,
             )
             metrics["existing_collections"].append(existing_metrics)
@@ -2430,6 +2450,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.visibility_interval_sec,
                     report,
                     reload_timeout_sec=args.reload_timeout_sec,
+                    reload_maintenance_label=f"phase-dml-dql-reload-{args.phase}",
                     server_version=server_version,
                 )
                 metrics["carried_collections"].append(carried_metrics)
@@ -2456,6 +2477,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.drop_new_collections_if_exist,
                 report,
                 reload_timeout_sec=args.reload_timeout_sec,
+                reload_maintenance_label=f"phase-dml-dql-reload-{args.phase}",
                 server_version=server_version,
             )
             metrics["new_collections"].append(new_metrics)

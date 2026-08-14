@@ -739,6 +739,15 @@ def test_index_validation_rechecks_query_and_search_after_release_reload(
     assert result["metrics"]["qa_dense.reload_vector_searches_total"] == 1
     assert result["metrics"]["qa_dense.reload_scalar_index_queries_total"] == 1
     assert result["metrics"]["qa_dense.declared_autoindexes_total"] == 0
+    maintenance_windows = result["metrics"]["maintenance_windows"]
+    assert len(maintenance_windows) == 1
+    assert maintenance_windows[0]["kind"] == "collection-reload"
+    assert maintenance_windows[0]["label"] == (
+        "index-compatibility-reload-after-upgrade"
+    )
+    assert maintenance_windows[0]["source"] == "validate_index_compatibility"
+    assert maintenance_windows[0]["collection"] == "qa_dense"
+    assert maintenance_windows[0]["started_at"] <= maintenance_windows[0]["finished_at"]
     assert "search" in call_names[:release_position]
     assert "search" in call_names[release_position + 1 :]
     assert "query" in call_names[:release_position]
