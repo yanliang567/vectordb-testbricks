@@ -56,6 +56,14 @@ COLLECTION_RELOAD_WINDOW_LABELS = {
     },
 }
 
+COLLECTION_RELOAD_UNAVAILABLE_OPERATIONS = {
+    "search",
+    "query",
+    "query_iterator",
+    "count",
+    "delete",
+}
+
 
 @contextmanager
 def record_maintenance_window(
@@ -585,6 +593,10 @@ def is_collection_reload_unavailable_failure(
     failure: dict[str, Any], window: dict[str, Any]
 ) -> bool:
     if window.get("kind") != COLLECTION_RELOAD_WINDOW_KIND:
+        return False
+    if str(failure.get("operation") or "") not in (
+        COLLECTION_RELOAD_UNAVAILABLE_OPERATIONS
+    ):
         return False
     error_type = str(failure.get("error_type") or "")
     text = json.dumps(failure, sort_keys=True).lower()

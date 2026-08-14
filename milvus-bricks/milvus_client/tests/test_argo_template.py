@@ -1554,14 +1554,21 @@ def test_pressure_maintenance_classifier_keeps_reload_failure_without_exact_over
 
 
 @pytest.mark.parametrize(
-    ("error_type", "error", "connectivity_transient"),
+    ("operation", "error_type", "error", "connectivity_transient"),
     [
-        ("AssertionError", "search returned no hits", False),
-        ("MilvusException", "connection refused", True),
-        ("MilvusException", "collection not found", False),
+        ("query", "AssertionError", "search returned no hits", False),
+        ("query", "MilvusException", "connection refused", True),
+        ("query", "MilvusException", "collection not found", False),
+        (
+            "upsert",
+            "MilvusException",
+            "failed to upsert: collection not loaded[collection=123]",
+            False,
+        ),
     ],
 )
 def test_pressure_maintenance_classifier_keeps_non_reload_failures_strict(
+    operation,
     error_type,
     error,
     connectivity_transient,
@@ -1575,7 +1582,7 @@ def test_pressure_maintenance_classifier_keeps_non_reload_failures_strict(
         "failures": [
             {
                 "type": "PRESSURE_OPERATION_FAILED",
-                "operation": "query",
+                "operation": operation,
                 "started_at": "2026-08-14T04:21:34+00:00",
                 "finished_at": "2026-08-14T04:21:35+00:00",
                 "error_type": error_type,
