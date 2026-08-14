@@ -592,6 +592,12 @@ def is_collection_reload_unavailable_failure(
 ) -> bool:
     if window.get("kind") != COLLECTION_RELOAD_WINDOW_KIND:
         return False
+    failure_collection = str(failure.get("collection") or "")
+    window_collection = str(window.get("collection") or "")
+    if not failure_collection or not window_collection:
+        return False
+    if failure_collection != window_collection:
+        return False
     if str(failure.get("operation") or "") not in (
         COLLECTION_RELOAD_UNAVAILABLE_OPERATIONS
     ):
@@ -654,6 +660,16 @@ def classify_pressure_result(
             if failure_start is not None and failure_end is not None
             else []
         )
+        reload_failure_windows = (
+            overlapping_windows(
+                failure_start,
+                failure_end,
+                maintenance_windows,
+                padding_sec=0,
+            )
+            if failure_start is not None and failure_end is not None
+            else []
+        )
         connectivity_window = (
             window
             if window is not None
@@ -680,7 +696,7 @@ def classify_pressure_result(
         collection_reload_window = next(
             (
                 candidate
-                for candidate in failure_windows
+                for candidate in reload_failure_windows
                 if is_collection_reload_unavailable_failure(failure, candidate)
             ),
             None,

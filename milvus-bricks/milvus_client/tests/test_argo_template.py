@@ -1481,6 +1481,7 @@ def test_pressure_maintenance_classifier_excludes_collection_not_loaded_during_r
             {
                 "type": "PRESSURE_OPERATION_FAILED",
                 "operation": "query",
+                "collection": "qa_struct_array",
                 "started_at": "2026-08-14T04:21:34+00:00",
                 "finished_at": "2026-08-14T04:21:35+00:00",
                 "error_type": "MilvusException",
@@ -1525,6 +1526,7 @@ def test_pressure_maintenance_classifier_keeps_reload_failure_without_exact_over
     failure = {
         "type": "PRESSURE_OPERATION_FAILED",
         "operation": "query",
+        "collection": "qa_struct_array",
         "error_type": "MilvusException",
         "error": "failed to query: collection not loaded[collection=123]",
         "connectivity_transient": False,
@@ -1542,6 +1544,100 @@ def test_pressure_maintenance_classifier_keeps_reload_failure_without_exact_over
         {
             "kind": "collection-reload",
             "label": "index-compatibility-reload-after-upgrade",
+            "collection": "qa_struct_array",
+            "started_at": "2026-08-14T04:21:32+00:00",
+            "finished_at": "2026-08-14T04:21:38+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("query.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"] == [failure]
+
+
+@pytest.mark.parametrize(
+    ("failure_collection", "window_collection"),
+    [
+        (None, "qa_struct_array"),
+        ("qa_struct_array", None),
+        ("qa_sparse", "qa_struct_array"),
+    ],
+    ids=["missing-failure-collection", "missing-window-collection", "mismatch"],
+)
+def test_pressure_maintenance_classifier_keeps_reload_failure_for_wrong_collection(
+    failure_collection,
+    window_collection,
+):
+    failure = {
+        "type": "PRESSURE_OPERATION_FAILED",
+        "operation": "query",
+        "started_at": "2026-08-14T04:21:34+00:00",
+        "finished_at": "2026-08-14T04:21:35+00:00",
+        "error_type": "MilvusException",
+        "error": "failed to query: collection not loaded[collection=123]",
+        "connectivity_transient": False,
+    }
+    if failure_collection is not None:
+        failure["collection"] = failure_collection
+    window = {
+        "kind": "collection-reload",
+        "label": "index-compatibility-reload-after-upgrade",
+        "started_at": "2026-08-14T04:21:32+00:00",
+        "finished_at": "2026-08-14T04:21:38+00:00",
+    }
+    if window_collection is not None:
+        window["collection"] = window_collection
+    result = {
+        "status": "failed",
+        "brick": "query_pressure",
+        "started_at": "2026-08-14T04:21:30+00:00",
+        "finished_at": "2026-08-14T04:21:40+00:00",
+        "metrics": {"requests_failed": 1, "failed_query": 1},
+        "failures": [failure],
+    }
+
+    classification, entry = classify_pressure_result("query.json", result, [window])
+
+    assert classification == "failed"
+    assert entry["failures"] == [failure]
+
+
+@pytest.mark.parametrize(
+    ("started_at", "finished_at"),
+    [
+        ("2026-08-14T04:21:31+00:00", "2026-08-14T04:21:31+00:00"),
+        ("2026-08-14T04:21:39+00:00", "2026-08-14T04:21:39+00:00"),
+    ],
+    ids=["one-second-before", "one-second-after"],
+)
+def test_pressure_maintenance_classifier_uses_zero_padding_for_reload_windows(
+    started_at,
+    finished_at,
+):
+    failure = {
+        "type": "PRESSURE_OPERATION_FAILED",
+        "operation": "query",
+        "collection": "qa_struct_array",
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "error_type": "MilvusException",
+        "error": "failed to query: collection not loaded[collection=123]",
+        "connectivity_transient": False,
+    }
+    result = {
+        "status": "failed",
+        "brick": "query_pressure",
+        "started_at": "2026-08-14T04:21:30+00:00",
+        "finished_at": "2026-08-14T04:21:40+00:00",
+        "metrics": {"requests_failed": 1, "failed_query": 1},
+        "failures": [failure],
+    }
+    windows = [
+        {
+            "kind": "collection-reload",
+            "label": "index-compatibility-reload-after-upgrade",
+            "collection": "qa_struct_array",
             "started_at": "2026-08-14T04:21:32+00:00",
             "finished_at": "2026-08-14T04:21:38+00:00",
         }
@@ -1583,6 +1679,7 @@ def test_pressure_maintenance_classifier_keeps_non_reload_failures_strict(
             {
                 "type": "PRESSURE_OPERATION_FAILED",
                 "operation": operation,
+                "collection": "qa_struct_array",
                 "started_at": "2026-08-14T04:21:34+00:00",
                 "finished_at": "2026-08-14T04:21:35+00:00",
                 "error_type": error_type,
@@ -1595,6 +1692,7 @@ def test_pressure_maintenance_classifier_keeps_non_reload_failures_strict(
         {
             "kind": "collection-reload",
             "label": "phase-dml-dql-reload-after-rollback",
+            "collection": "qa_struct_array",
             "started_at": "2026-08-14T04:21:32+00:00",
             "finished_at": "2026-08-14T04:21:38+00:00",
         }
@@ -2035,6 +2133,39 @@ def test_pressure_maintenance_classifier_excludes_schema_mismatch_inside_schema_
     assert entry["status"] == "maintenance_window_excluded"
     assert entry["maintenance_window"]["label"] == "schema-evolution-existing"
     assert entry["failures"][0]["error_type"] == "SchemaMismatchRetryableException"
+
+
+def test_pressure_maintenance_classifier_retains_padding_for_schema_evolution_window():
+    result = {
+        "status": "failed",
+        "brick": "mixed_rw_pressure",
+        "started_at": "2026-07-23T20:42:11+00:00",
+        "finished_at": "2026-07-23T20:42:11+00:00",
+        "metrics": {"requests_failed": 1, "failed_upsert": 1},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "upsert",
+                "started_at": "2026-07-23T20:42:11+00:00",
+                "finished_at": "2026-07-23T20:42:11+00:00",
+                "error_type": "SchemaMismatchRetryableException",
+                "error": "schema mismatch",
+                "connectivity_transient": False,
+            }
+        ],
+    }
+    windows = [
+        {
+            "label": "schema-evolution-existing",
+            "started_at": "2026-07-23T20:41:50+00:00",
+            "finished_at": "2026-07-23T20:42:10+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "excluded"
+    assert entry["maintenance_window"]["label"] == "schema-evolution-existing"
 
 
 def test_pressure_maintenance_classifier_keeps_schema_mismatch_outside_schema_evolution_window():
