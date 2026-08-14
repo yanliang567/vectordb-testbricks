@@ -86,9 +86,7 @@ def record_maintenance_window(
                 "collection": collection,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),
-                "duration_sec": max(
-                    0.0, (finished_at - started_at).total_seconds()
-                ),
+                "duration_sec": max(0.0, (finished_at - started_at).total_seconds()),
             }
         )
 

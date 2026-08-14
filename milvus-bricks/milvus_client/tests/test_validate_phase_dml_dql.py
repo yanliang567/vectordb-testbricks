@@ -571,9 +571,7 @@ def test_phase_dml_dql_mutates_existing_and_creates_new_collection(
         "qa_dense",
         "qa_after_upgrade_dense",
     }
-    assert {window["kind"] for window in maintenance_windows} == {
-        "collection-reload"
-    }
+    assert {window["kind"] for window in maintenance_windows} == {"collection-reload"}
     assert {window["label"] for window in maintenance_windows} == {
         "phase-dml-dql-reload-after-upgrade"
     }
