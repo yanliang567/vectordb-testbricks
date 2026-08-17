@@ -101,7 +101,7 @@ def image_is_immutable(image: str) -> bool:
     if ":" not in image_name:
         return False
     tag = image_name.rsplit(":", 1)[-1]
-    mutable_tokens = {"latest", "head", "edge"}
+    mutable_tokens = {"latest", "head", "edge", "placeholder"}
     tokens = {token for token in re.split(r"[-_.]", tag.lower()) if token}
     return tag.lower() not in {"master", "main", "nightly", "dev"} and not (
         tokens & mutable_tokens

@@ -506,6 +506,7 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
     _validate_scenario_execution_mode(scenario)
     _validate_phase_image_versions(scenario)
     if scenario.get("classification") not in STRICT_LIFECYCLE_CLASSIFICATIONS:
+        _validate_vortex_loon_dependency(scenario)
         return
     base_version = str(scenario["base"]["version"])
     target_version = str(scenario["target"]["version"])
@@ -536,6 +537,7 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
         and rollback_version.startswith("2.6")
     )
     if not is_2_6_to_3_0_to_2_6:
+        _validate_vortex_loon_dependency(scenario)
         _validate_vortex_compatibility_contract(scenario)
         return
 
@@ -756,6 +758,28 @@ def _validate_vortex_compatibility_contract(scenario: dict[str, Any]) -> None:
             f"rollback; Milvus >= {VORTEX_MIN_SUPPORTED_VERSION} or a reviewed "
             "pre-release candidate image is required"
         )
+    if (
+        scenario.get("rollback_enabled", True)
+        and vortex_data_may_exist
+        and not scenario["rollback"].get("vortex_enabled", False)
+        and scenario.get("classification") != "negative"
+    ):
+        raise ValueError(
+            f"{scenario['id']}: Vortex data written before rollback cannot be "
+            "read with Vortex disabled; disabling Vortex at rollback requires "
+            "an explicit negative scenario"
+        )
+
+
+def _validate_vortex_loon_dependency(scenario: dict[str, Any]) -> None:
+    for phase in ("base", "target", "rollback"):
+        if scenario[phase].get("vortex_enabled") and not scenario[phase].get(
+            "loon_ffi_enabled"
+        ):
+            raise ValueError(
+                f"{scenario['id']}: {phase} Vortex requires LoonFFI "
+                "(vortex_enabled=true implies loon_ffi_enabled=true)"
+            )
 
 
 def _bool_str(value: Any) -> str:
