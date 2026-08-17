@@ -5,11 +5,11 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 ## Current scenario set
 
-The manifest currently registers 14 scenarios:
+The manifest currently registers 23 scenarios:
 
-- 11 promoted gate scenarios
+- 19 promoted gate scenarios
 - 2 pre-release candidate scenarios
-- 1 negative coverage scenario
+- 2 negative coverage scenarios
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
 | --- | --- | --- | --- | --- |
@@ -27,6 +27,15 @@ The manifest currently registers 14 scenarios:
 | `standalone-3-0-index-v10-v4-upgrade-rollback` | standalone | gate | `3.0 baseline + target 10/4 -> 3.0 latest + target 10/4 -> 3.0 baseline + target 10/4` | Runtime target config is checked and SINDI/Block-Max plus JSON scalar index families are executed. |
 | `cluster-3-0-index-v10-v4-upgrade-rollback` | cluster | gate | `3.0 baseline + target 10/4 -> 3.0 latest + target 10/4 -> 3.0 baseline + target 10/4` | Distributed equivalent of the target-version and algorithm-coverage gate. |
 | `standalone-3-0-loon-vortex-to-2-6-negative` | standalone | negative | `2.6.18 -> 3.0 latest + LoonFFI/Vortex -> 2.6 latest` | Unsupported negative coverage only; not a promoted gate. |
+| `standalone-3-0-1-vortex-self-compat-upgrade-rollback` | standalone | gate | `3.0.1 Vortex -> 3.0.1 Vortex -> 3.0.1 Vortex` | LoonFFI/Vortex enabled in every phase; Vortex TEXT LOB baseline survives the round trip. |
+| `cluster-3-0-1-vortex-self-compat-upgrade-rollback` | cluster | gate | `3.0.1 Vortex -> 3.0.1 Vortex -> 3.0.1 Vortex` | Distributed Vortex baseline self-compatibility. |
+| `standalone-3-0-0-to-3-0-1-vortex-enable-rollback` | standalone | gate | `3.0.0 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI/Vortex` | #52340 upgrade path; rollback stays on 3.0.1 Vortex. |
+| `cluster-3-0-0-to-3-0-1-vortex-enable-rollback` | cluster | gate | `3.0.0 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI/Vortex` | Distributed equivalent of the #52340 upgrade path. |
+| `standalone-3-0-1-json-shredding-vortex-rollback` | standalone | gate | `3.0.1 Vortex -> 3.0.1 + JSON Shredding + Vortex -> 3.0.1 + JSON Shredding + Vortex` | JSON Shredding and Vortex enabled together. |
+| `cluster-3-0-1-json-shredding-vortex-rollback` | cluster | gate | `3.0.1 Vortex -> 3.0.1 + JSON Shredding + Vortex -> 3.0.1 + JSON Shredding + Vortex` | Distributed JSON Shredding plus Vortex coverage. |
+| `standalone-3-0-1-loon-ffi-parquet-rollback` | standalone | gate | `3.0.1 legacy -> 3.0.1 + LoonFFI(parquet) -> 3.0.1 legacy` | Isolates LoonFFI engine rollback safety from the Vortex format. |
+| `cluster-3-0-1-loon-ffi-parquet-rollback` | cluster | gate | `3.0.1 legacy -> 3.0.1 + LoonFFI(parquet) -> 3.0.1 legacy` | Distributed LoonFFI-only rollback coverage. |
+| `standalone-3-0-1-vortex-disable-rollback-negative` | standalone | negative | `3.0.1 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 legacy` | In-place Vortex disable at rollback is unsafe; observe-only boundary. |
 
 Milvus v3.0.0 is not a supported Vortex reader/writer baseline. The candidate
 scenarios use two immutable 3.0 branch images that both contain
@@ -207,8 +216,14 @@ step executes the same reviewed test implementation.
 - LoonFFI/storage v3 is represented by Milvus config key
   `common.storage.useLoonFFI`.
 - Vortex is represented by Milvus config key `dataNode.storage.format=vortex`.
+- Enabling Vortex requires LoonFFI/storage v3 to be enabled in the same phase
+  (`vortex_enabled=true` implies `loon_ffi_enabled=true`); the manifest validator
+  and the CR/Helm renderers both fail closed on `Vortex` without `useLoonFFI`.
 - Promoted Vortex gates require Milvus v3.0.1 or later for every Vortex writer
   and for any rollback reader that may encounter Vortex data.
+- Disabling Vortex at rollback after Vortex data was written before rollback is
+  rejected for gate/candidate scenarios; only an explicit negative scenario may
+  exercise that in-place format downgrade boundary.
 - Pre-release candidate aliases are immutable and locked in the manifest.
   Runtime image/version overrides are rejected; refresh the reviewed alias and
   storage/source commit metadata through a code change instead.
