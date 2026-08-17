@@ -631,10 +631,10 @@ scenarios:
       gate_allow_warning: false
 
   - id: standalone-3-0-0-to-3-0-1-vortex-enable-rollback
-    description: "Pre-release candidate for the #52340 upgrade path: 3.0.0 legacy baseline upgraded to 3.0.1 with LoonFFI/Vortex enabled, then rolled back to 3.0.1 with Vortex still enabled. Mixed legacy + Vortex segments must be confirmed on real hardware before promotion."
+    description: "3.0.0 legacy baseline upgraded to 3.0.1 with LoonFFI/Vortex enabled, then rolled back to 3.0.1 with Vortex still enabled; validates the #52340 upgrade path. 3.0.1 dual reader handles mixed legacy + Vortex segments."
     mode: standalone
-    classification: candidate
-    support_status: pre_release_candidate
+    classification: gate
+    support_status: supported
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
     schema_matrix_ref: rollback_safe_base
@@ -665,10 +665,10 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-3-0-0-to-3-0-1-vortex-enable-rollback
-    description: "Cluster pre-release candidate for the #52340 upgrade path: 3.0.0 legacy baseline upgraded to 3.0.1 with LoonFFI/Vortex enabled, then rolled back to 3.0.1 with Vortex still enabled under distributed components. Mixed legacy + Vortex segments must be confirmed on real hardware before promotion."
+    description: "Cluster 3.0.0 legacy baseline upgraded to 3.0.1 with LoonFFI/Vortex enabled, then rolled back to 3.0.1 with Vortex still enabled under distributed components; validates the #52340 upgrade path."
     mode: cluster
-    classification: candidate
-    support_status: pre_release_candidate
+    classification: gate
+    support_status: supported
     submit_generate_name: c301ve-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
@@ -774,15 +774,15 @@ scenarios:
       pressure_fail_on_error: true
       gate_allow_warning: false
 
-  - id: standalone-3-0-1-loon-ffi-parquet-rollback
-    description: "Pre-release candidate: 3.0.1 LoonFFI engine with parquet format. Enable LoonFFI without Vortex at upgrade, then rollback to the legacy engine to isolate LoonFFI rollback safety from Vortex. Whether L=1 parquet data is readable by the L=0 legacy engine must be confirmed before promotion."
+  - id: standalone-3-0-1-loon-ffi-rollback
+    description: "3.0.1 LoonFFI (storage v3) without Vortex: enable LoonFFI at upgrade, then rollback to the legacy storage v2 engine; validates storage v3 -> v2 rollback readability under the 3.0.1 dual-engine reader."
     mode: standalone
-    classification: candidate
-    support_status: pre_release_candidate
+    classification: gate
+    support_status: supported
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
     schema_matrix_ref: "3.0"
-    collection_prefix: qa_gate_301_loon_parquet
+    collection_prefix: qa_gate_301_loon_ffi
     forward_workload_enabled: false
     schema_evolution_existing_enabled: false
     schema_evolution_forward_enabled: false
@@ -808,16 +808,16 @@ scenarios:
       pressure_fail_on_error: true
       gate_allow_warning: false
 
-  - id: cluster-3-0-1-loon-ffi-parquet-rollback
-    description: "Cluster pre-release candidate: 3.0.1 LoonFFI engine with parquet format. Enable LoonFFI without Vortex at upgrade, then rollback to the legacy engine under distributed components. Whether L=1 parquet data is readable by the L=0 legacy engine must be confirmed before promotion."
+  - id: cluster-3-0-1-loon-ffi-rollback
+    description: "Cluster 3.0.1 LoonFFI (storage v3) without Vortex: enable LoonFFI at upgrade, then rollback to the legacy storage v2 engine under distributed components."
     mode: cluster
-    classification: candidate
-    support_status: pre_release_candidate
+    classification: gate
+    support_status: supported
     submit_generate_name: c301lf-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
     schema_matrix_ref: "3.0"
-    collection_prefix: qa_gate_cluster_301_loon_parquet
+    collection_prefix: qa_gate_cluster_301_loon_ffi
     forward_workload_enabled: false
     schema_evolution_existing_enabled: false
     schema_evolution_forward_enabled: false
@@ -843,16 +843,16 @@ scenarios:
       pressure_fail_on_error: true
       gate_allow_warning: false
 
-  - id: standalone-3-0-1-vortex-disable-rollback-negative
-    description: "Negative coverage: disabling Vortex at rollback after Vortex data was written is unsafe in-place format downgrade and must not be promoted to gate."
+  - id: standalone-3-0-1-vortex-disable-rollback
+    description: "3.0.1 Vortex enable then disable at rollback: validate that the 3.0.1 dual-format reader still reads Vortex segments after rolling back to the default parquet format."
     mode: standalone
-    classification: negative
-    support_status: unsupported
+    classification: gate
+    support_status: supported
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
     schema_matrix_ref: rollback_safe_base
     forward_schema_matrix_ref: 3.0_storage_v3
-    collection_prefix: qa_negative_301_vortex_off_rb
+    collection_prefix: qa_gate_301_vortex_off_rb
     forward_workload_enabled: true
     base:
       image_ref: milvus-3-0-1
@@ -869,21 +869,21 @@ scenarios:
       loon_ffi_enabled: false
       vortex_enabled: false
     validation_policy:
-      data_integrity: observe
-      serviceability: observe
-      pressure_fail_on_error: false
-      gate_allow_warning: true
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
 
-  - id: standalone-3-0-1-vortex-disable-keep-loon-negative
-    description: "Negative coverage: disabling Vortex at rollback while keeping LoonFFI enabled (S4 -> S2) after Vortex data was written is an unsafe in-place format downgrade and must not be promoted to gate."
+  - id: standalone-3-0-1-vortex-disable-keep-loon-rollback
+    description: "3.0.1 Vortex enable then disable at rollback while keeping LoonFFI (S4 -> S2): validate that the 3.0.1 dual-format reader still reads Vortex segments after disabling Vortex but retaining the LoonFFI engine."
     mode: standalone
-    classification: negative
-    support_status: unsupported
+    classification: gate
+    support_status: supported
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
     schema_matrix_ref: rollback_safe_base
     forward_schema_matrix_ref: 3.0_storage_v3
-    collection_prefix: qa_negative_301_vortex_off_keep_loon
+    collection_prefix: qa_gate_301_vortex_off_keep_loon
     forward_workload_enabled: true
     base:
       image_ref: milvus-3-0-1
@@ -900,7 +900,7 @@ scenarios:
       loon_ffi_enabled: true
       vortex_enabled: false
     validation_policy:
-      data_integrity: observe
-      serviceability: observe
-      pressure_fail_on_error: false
-      gate_allow_warning: true
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
