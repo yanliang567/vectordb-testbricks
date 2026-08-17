@@ -66,9 +66,10 @@ image_aliases:
     image: harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder
     version: "3.0.0"
   # TODO(release): placeholder pending the official v3.0.1 multi-arch
-  # manifest-list digest. Scenarios that reference this alias are render-blocked
-  # (validate_no_gate_placeholders) and are registered as candidate until the
-  # digest is pinned and the product boundary is confirmed.
+  # manifest-list digest. Every scenario referencing this alias is render-blocked
+  # (validate_no_gate_placeholders) until the digest is pinned. Confirmed positive
+  # paths (P1/P3) stay gate, unconfirmed product boundaries (P2/P4) stay candidate,
+  # and the downgrade boundaries (P5/P5a) stay negative.
   milvus-3-0-1:
     image: harbor.milvus.io/milvusdb/milvus:v3.0.1-placeholder
     version: "3.0.1"

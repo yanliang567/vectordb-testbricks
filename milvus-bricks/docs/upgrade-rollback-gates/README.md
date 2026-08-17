@@ -38,11 +38,20 @@ The manifest currently registers 24 scenarios:
 | `standalone-3-0-1-vortex-disable-rollback-negative` | standalone | negative | `3.0.1 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 legacy` | In-place Vortex disable at rollback is unsafe; observe-only boundary. |
 | `standalone-3-0-1-vortex-disable-keep-loon-negative` | standalone | negative | `3.0.1 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI(no Vortex)` | In-place Vortex disable while keeping LoonFFI (S4 -> S2) is unsafe; observe-only boundary. |
 
-Milvus v3.0.0 is not a supported Vortex reader/writer baseline. The candidate
-scenarios use two immutable 3.0 branch images that both contain
-`milvus-storage 63c29c6` and Vortex 0.75. They provide pre-release evidence for
-the v3.0.1 contract but are excluded from the promoted release-gate count. Once
-v3.0.1 is released, replace the candidate baseline with the v3.0.1 manifest-list
+Milvus v3.0.0 is not a supported Vortex reader/writer baseline. The manifest
+registers two candidate flavors, both excluded from the promoted release-gate
+count:
+
+- pre-release Vortex candidates (`standalone/cluster-3-0-vortex-candidate-*`)
+  use two immutable 3.0 branch images that both contain `milvus-storage 63c29c6`
+  and Vortex 0.75, and whose images are locked;
+- pending-confirmation candidates (the 3.0.0 -> 3.0.1 Vortex-enable and
+  LoonFFI-parquet paths) use the placeholder `milvus-3-0-1` alias and stay
+  runtime-overridable until the release digest is pinned and the product
+  boundary (mixed legacy/Vortex segments, L=1 parquet -> L=0 legacy readability)
+  is confirmed on real hardware.
+
+Once v3.0.1 is released, replace the placeholder with the v3.0.1 manifest-list
 digest and promote the scenarios only after real standalone and cluster reruns.
 
 The standalone and cluster target-only feature gates use the 2.6 baseline
