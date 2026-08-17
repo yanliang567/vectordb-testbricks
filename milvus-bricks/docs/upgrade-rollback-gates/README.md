@@ -44,11 +44,11 @@ use two immutable 3.0 branch images that both contain `milvus-storage 63c29c6`
 and Vortex 0.75, and whose images are locked. They are excluded from the
 promoted release-gate count.
 
-The 3.0.0+ binaries are dual readers/writers (storage v2 + v3 engine, parquet +
-vortex format), so same-version LoonFFI/Vortex/JSON toggles at rollback are
-supported positive gates; the only compatibility boundaries are cross-version
-(2.6 cannot read storage v3/Vortex; v3.0.0 cannot read the v3.0.1-upgraded
-Vortex encoding #52340).
+Within a single 3.0.x version, binaries are dual readers/writers (storage v2 +
+v3 engine, parquet + vortex format), so same-version LoonFFI/Vortex/JSON toggles
+at rollback are supported positive gates; the only compatibility boundaries are
+cross-version (2.6 cannot read storage v3/Vortex; v3.0.0 cannot read the
+v3.0.1-upgraded Vortex encoding #52340).
 
 Once v3.0.1 is released, replace the `milvus-3-0-1` placeholder with the
 official manifest-list digest and rerun the standalone and cluster gates.

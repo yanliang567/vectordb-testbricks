@@ -845,7 +845,7 @@ scenarios:
       gate_allow_warning: false
 
   - id: standalone-3-0-1-vortex-disable-rollback
-    description: "3.0.1 Vortex enable then disable at rollback: validate that the 3.0.1 dual-format reader still reads Vortex segments after rolling back to the default parquet format."
+    description: "3.0.1 Vortex enable then disable at rollback: validate that the 3.0.1 dual-format reader still reads Vortex segments after rolling back to legacy storage v2."
     mode: standalone
     classification: gate
     support_status: supported
