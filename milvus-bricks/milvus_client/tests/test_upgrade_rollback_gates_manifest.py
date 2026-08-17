@@ -906,6 +906,8 @@ def test_3_0_1_vortex_disable_rollback_gate():
     assert scenario["support_status"] == "supported"
     assert scenario["target"]["vortex_enabled"] is True
     assert scenario["rollback"]["vortex_enabled"] is False
+    assert scenario["forward_workload_enabled"] is True
+    assert scenario["rollback_forward_validation_enabled"] is True
     assert scenario["validation_policy"]["data_integrity"] == "strict"
     assert scenario["validation_policy"]["gate_allow_warning"] is False
 
@@ -920,6 +922,8 @@ def test_3_0_1_vortex_disable_keep_loon_rollback_gate():
     assert scenario["target"]["vortex_enabled"] is True
     assert scenario["rollback"]["loon_ffi_enabled"] is True
     assert scenario["rollback"]["vortex_enabled"] is False
+    assert scenario["forward_workload_enabled"] is True
+    assert scenario["rollback_forward_validation_enabled"] is True
     assert scenario["validation_policy"]["data_integrity"] == "strict"
 
 

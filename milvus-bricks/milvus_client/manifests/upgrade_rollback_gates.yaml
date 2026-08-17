@@ -855,6 +855,7 @@ scenarios:
     forward_schema_matrix_ref: 3.0_storage_v3
     collection_prefix: qa_gate_301_vortex_off_rb
     forward_workload_enabled: true
+    rollback_forward_validation_enabled: true
     base:
       image_ref: milvus-3-0-1
       json_shredding_enabled: false
@@ -886,6 +887,7 @@ scenarios:
     forward_schema_matrix_ref: 3.0_storage_v3
     collection_prefix: qa_gate_301_vortex_off_keep_loon
     forward_workload_enabled: true
+    rollback_forward_validation_enabled: true
     base:
       image_ref: milvus-3-0-1
       json_shredding_enabled: false
