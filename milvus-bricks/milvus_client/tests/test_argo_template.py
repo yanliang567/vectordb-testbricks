@@ -768,7 +768,6 @@ def _run_resolve_inputs_guard(template_name, **overrides):
         "rollback-enabled": "true",
         "allow-unsafe-negative-coverage": "false",
         "scenario-id": "unregistered-vortex-scenario",
-        "scenario-classification": "gate",
         "base-loon-ffi-enabled": "false",
         "base-vortex-enabled": "false",
         "target-loon-ffi-enabled": "true",
@@ -876,39 +875,13 @@ def test_upgrade_templates_reject_vortex_without_loon_ffi(template_name):
         "cluster-upgrade-rollback.yaml",
     ],
 )
-def test_upgrade_templates_reject_vortex_disable_at_rollback_for_gate(template_name):
+def test_upgrade_templates_allow_vortex_disable_at_rollback(template_name):
     result = _run_resolve_inputs_guard(
         template_name,
         **{
             "target-version": "3.0.1",
             "rollback-version": "3.0.1",
             "rollback-vortex-enabled": "false",
-            "scenario-classification": "gate",
-        },
-    )
-
-    assert result.returncode == 2
-    assert "invalid Vortex rollback downgrade" in result.stderr
-
-
-@pytest.mark.parametrize(
-    "template_name",
-    [
-        "standalone-2-6-upgrade-rollback.yaml",
-        "standalone-3-0-upgrade-rollback.yaml",
-        "cluster-upgrade-rollback.yaml",
-    ],
-)
-def test_upgrade_templates_allow_vortex_disable_at_rollback_for_negative(
-    template_name,
-):
-    result = _run_resolve_inputs_guard(
-        template_name,
-        **{
-            "target-version": "3.0.1",
-            "rollback-version": "3.0.1",
-            "rollback-vortex-enabled": "false",
-            "scenario-classification": "negative",
         },
     )
 

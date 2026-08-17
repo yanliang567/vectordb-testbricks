@@ -279,7 +279,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 8
+    assert len(cluster_scenarios) == 10
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-rollback-2-6-latest"]["deploy_profile"]
@@ -316,6 +316,8 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
     for scenario_id in [
         "cluster-3-0-1-vortex-self-compat-upgrade-rollback",
         "cluster-3-0-1-json-shredding-vortex-rollback",
+        "cluster-3-0-0-to-3-0-1-vortex-enable-rollback",
+        "cluster-3-0-1-loon-ffi-rollback",
     ]:
         assert (
             by_id[scenario_id]["deploy_profile"]
@@ -839,16 +841,6 @@ def test_vortex_requires_loon_ffi_in_every_phase(phase):
         validate_resolved_gate_scenario(scenario)
 
 
-def test_vortex_candidate_rejects_disabling_vortex_at_rollback():
-    scenario = resolve_gate_scenario(
-        _manifest(), "standalone-3-0-0-to-3-0-1-vortex-enable-rollback"
-    )
-    scenario["rollback"]["vortex_enabled"] = False
-
-    with pytest.raises(ValueError, match="disabling Vortex at rollback"):
-        validate_resolved_gate_scenario(scenario)
-
-
 def test_3_0_1_vortex_self_compat_gate_keeps_vortex_in_all_phases():
     scenario = resolve_gate_scenario(
         _manifest(), "standalone-3-0-1-vortex-self-compat-upgrade-rollback"
@@ -865,13 +857,13 @@ def test_3_0_1_vortex_self_compat_gate_keeps_vortex_in_all_phases():
         assert scenario[phase]["version"] == "3.0.1"
 
 
-def test_3_0_0_to_3_0_1_vortex_enable_candidate_rolls_back_to_3_0_1():
+def test_3_0_0_to_3_0_1_vortex_enable_gate_rolls_back_to_3_0_1():
     scenario = resolve_gate_scenario(
         _manifest(), "standalone-3-0-0-to-3-0-1-vortex-enable-rollback"
     )
 
-    assert scenario["classification"] == "candidate"
-    assert scenario["support_status"] == "pre_release_candidate"
+    assert scenario["classification"] == "gate"
+    assert scenario["support_status"] == "supported"
     assert scenario["base"]["version"] == "3.0.0"
     assert scenario["base"]["vortex_enabled"] is False
     assert scenario["target"]["version"] == "3.0.1"
@@ -881,13 +873,11 @@ def test_3_0_0_to_3_0_1_vortex_enable_candidate_rolls_back_to_3_0_1():
     assert scenario["rollback"]["vortex_enabled"] is True
 
 
-def test_3_0_1_loon_ffi_parquet_candidate_disables_vortex_across_phases():
-    scenario = resolve_gate_scenario(
-        _manifest(), "standalone-3-0-1-loon-ffi-parquet-rollback"
-    )
+def test_3_0_1_loon_ffi_gate_disables_vortex_across_phases():
+    scenario = resolve_gate_scenario(_manifest(), "standalone-3-0-1-loon-ffi-rollback")
 
-    assert scenario["classification"] == "candidate"
-    assert scenario["support_status"] == "pre_release_candidate"
+    assert scenario["classification"] == "gate"
+    assert scenario["support_status"] == "supported"
     assert scenario["base"]["loon_ffi_enabled"] is False
     assert scenario["target"]["loon_ffi_enabled"] is True
     assert scenario["rollback"]["loon_ffi_enabled"] is False
@@ -907,29 +897,30 @@ def test_3_0_1_json_shredding_vortex_gate_enables_both_features_at_rollback():
     assert scenario["rollback"]["vortex_enabled"] is True
 
 
-def test_3_0_1_vortex_disable_rollback_negative_is_not_a_gate():
+def test_3_0_1_vortex_disable_rollback_gate():
     scenario = resolve_gate_scenario(
-        _manifest(), "standalone-3-0-1-vortex-disable-rollback-negative"
+        _manifest(), "standalone-3-0-1-vortex-disable-rollback"
     )
 
-    assert scenario["classification"] == "negative"
-    assert scenario["support_status"] == "unsupported"
+    assert scenario["classification"] == "gate"
+    assert scenario["support_status"] == "supported"
     assert scenario["target"]["vortex_enabled"] is True
     assert scenario["rollback"]["vortex_enabled"] is False
-    assert scenario["validation_policy"]["gate_allow_warning"] is True
+    assert scenario["validation_policy"]["data_integrity"] == "strict"
+    assert scenario["validation_policy"]["gate_allow_warning"] is False
 
 
-def test_3_0_1_vortex_disable_keep_loon_negative_is_not_a_gate():
+def test_3_0_1_vortex_disable_keep_loon_rollback_gate():
     scenario = resolve_gate_scenario(
-        _manifest(), "standalone-3-0-1-vortex-disable-keep-loon-negative"
+        _manifest(), "standalone-3-0-1-vortex-disable-keep-loon-rollback"
     )
 
-    assert scenario["classification"] == "negative"
-    assert scenario["support_status"] == "unsupported"
+    assert scenario["classification"] == "gate"
+    assert scenario["support_status"] == "supported"
     assert scenario["target"]["vortex_enabled"] is True
     assert scenario["rollback"]["loon_ffi_enabled"] is True
     assert scenario["rollback"]["vortex_enabled"] is False
-    assert scenario["validation_policy"]["gate_allow_warning"] is True
+    assert scenario["validation_policy"]["data_integrity"] == "strict"
 
 
 @pytest.mark.parametrize(
@@ -944,22 +935,22 @@ def test_3_0_1_vortex_disable_keep_loon_negative_is_not_a_gate():
             "milvus-cluster-upgrade-rollback",
         ),
         (
-            "standalone-3-0-1-loon-ffi-parquet-rollback",
+            "standalone-3-0-1-loon-ffi-rollback",
             "milvus-standalone-3-0-upgrade-rollback",
         ),
         (
-            "cluster-3-0-1-loon-ffi-parquet-rollback",
+            "cluster-3-0-1-loon-ffi-rollback",
             "milvus-cluster-upgrade-rollback",
         ),
     ],
 )
-def test_new_storage_candidate_scenarios_are_not_promoted_gates(
+def test_new_storage_gate_scenarios_use_expected_workflow(
     scenario_id, workflow_template
 ):
     scenario = resolve_gate_scenario(_manifest(), scenario_id)
 
-    assert scenario["classification"] == "candidate"
-    assert scenario["support_status"] == "pre_release_candidate"
+    assert scenario["classification"] == "gate"
+    assert scenario["support_status"] == "supported"
     assert scenario["workflow_template"] == workflow_template
 
 
