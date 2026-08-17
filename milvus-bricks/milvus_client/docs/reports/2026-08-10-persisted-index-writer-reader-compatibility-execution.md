@@ -2,6 +2,8 @@
 
 日期：2026-08-10
 
+> 2026-08-14 更新：Milvus #52359 修复已进入 3.0 分支镜像，并完成 standalone 与 cluster Pulsar 1CU 的完整升级/回滚复验。最终结论见 [2026-08-14 #52359 修复镜像升级/回滚复验报告](2026-08-14-52359-fixed-image-upgrade-rollback-validation-zh.md)。本报告后续关于 blocker 的描述保留为修复前历史执行记录。
+
 ## 1. 结论
 
 本轮围绕“向量、标量数据及索引文件的 writer/reader 兼容性”完成了测试审计、实现、PR 多轮自审、真实 K8s 执行和 Milvus issue 复现。
