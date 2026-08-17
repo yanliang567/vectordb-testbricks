@@ -75,6 +75,10 @@ def _storage_config(
     target_vec_index_version: int = -1,
     target_scalar_index_version: int = -1,
 ) -> dict[str, Any]:
+    if vortex_enabled and not loon_ffi_enabled:
+        raise ValueError(
+            "vortex storage requires useLoonFFI (Vortex depends on LoonFFI)"
+        )
     storage: dict[str, Any] = {
         "jsonShreddingEnabled": json_shredding_enabled,
     }

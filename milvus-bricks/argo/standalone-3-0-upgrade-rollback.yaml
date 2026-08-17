@@ -1209,6 +1209,19 @@ spec:
                 "target": "{{workflow.parameters.target-vortex-enabled}}" == "true",
                 "rollback": "{{workflow.parameters.rollback-vortex-enabled}}" == "true",
             }
+            loon_ffi_enabled_by_phase = {
+                "base": "{{workflow.parameters.base-loon-ffi-enabled}}" == "true",
+                "target": "{{workflow.parameters.target-loon-ffi-enabled}}" == "true",
+                "rollback": "{{workflow.parameters.rollback-loon-ffi-enabled}}" == "true",
+            }
+            for phase in ("base", "target", "rollback"):
+                if vortex_enabled_by_phase[phase] and not loon_ffi_enabled_by_phase[phase]:
+                    print(
+                        f"invalid {phase} storage config: Vortex requires LoonFFI "
+                        "(vortex_enabled=true implies loon_ffi_enabled=true)",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(2)
             is_approved_candidate = scenario_id in approved_vortex_candidate_scenarios
 
             def phase_supports_vortex(phase):

@@ -49,6 +49,11 @@ CANDIDATE_ALIAS_METADATA_FIELDS = {
     "milvus_storage_commit",
     "vortex_compatibility",
 }
+# `candidate` is reserved for pre-release Vortex candidates (version < 3.0.1)
+# whose images are locked and must carry CANDIDATE_ALIAS_METADATA_FIELDS plus
+# vortex_compatibility. Same-version LoonFFI/Vortex toggles are positive gates
+# because 3.0.x binaries are dual readers (storage v2/v3, parquet/vortex); the
+# compatibility boundaries are cross-version only.
 FULL_GIT_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
@@ -506,6 +511,7 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
     _validate_scenario_execution_mode(scenario)
     _validate_phase_image_versions(scenario)
     if scenario.get("classification") not in STRICT_LIFECYCLE_CLASSIFICATIONS:
+        _validate_vortex_loon_dependency(scenario)
         return
     base_version = str(scenario["base"]["version"])
     target_version = str(scenario["target"]["version"])
@@ -536,9 +542,14 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
         and rollback_version.startswith("2.6")
     )
     if not is_2_6_to_3_0_to_2_6:
+        _validate_vortex_loon_dependency(scenario)
         _validate_vortex_compatibility_contract(scenario)
         return
 
+    # The 2.6 -> 3.0 -> 2.6 gate path does not call
+    # _validate_vortex_loon_dependency above because the blocked-flags check below
+    # already rejects storage_v3/vortex in every phase, which implies the V => L
+    # dependency holds trivially.
     forbidden = set(scenario.get("forbidden_after_upgrade") or [])
     if not {"storage_v3", "vortex"} <= forbidden:
         raise ValueError(
@@ -756,6 +767,17 @@ def _validate_vortex_compatibility_contract(scenario: dict[str, Any]) -> None:
             f"rollback; Milvus >= {VORTEX_MIN_SUPPORTED_VERSION} or a reviewed "
             "pre-release candidate image is required"
         )
+
+
+def _validate_vortex_loon_dependency(scenario: dict[str, Any]) -> None:
+    for phase in ("base", "target", "rollback"):
+        if scenario[phase].get("vortex_enabled") and not scenario[phase].get(
+            "loon_ffi_enabled"
+        ):
+            raise ValueError(
+                f"{scenario['id']}: {phase} Vortex requires LoonFFI "
+                "(vortex_enabled=true implies loon_ffi_enabled=true)"
+            )
 
 
 def _bool_str(value: Any) -> str:

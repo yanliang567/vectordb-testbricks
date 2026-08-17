@@ -849,6 +849,45 @@ def test_upgrade_templates_reject_old_rollback_reader_after_vortex_writes(
     assert "invalid Vortex rollback reader" in result.stderr
 
 
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
+def test_upgrade_templates_reject_vortex_without_loon_ffi(template_name):
+    result = _run_resolve_inputs_guard(
+        template_name,
+        **{"target-loon-ffi-enabled": "false"},
+    )
+
+    assert result.returncode == 2
+    assert "Vortex requires LoonFFI" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
+def test_upgrade_templates_allow_vortex_disable_at_rollback(template_name):
+    result = _run_resolve_inputs_guard(
+        template_name,
+        **{
+            "target-version": "3.0.1",
+            "rollback-version": "3.0.1",
+            "rollback-vortex-enabled": "false",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_upgrade_templates_delegate_forward_rollback_contract_to_schema_brick():
     for template_name in [
         "standalone-2-6-upgrade-rollback.yaml",

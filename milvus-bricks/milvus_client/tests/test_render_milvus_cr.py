@@ -167,6 +167,39 @@ def test_render_cluster_helm_values_from_profile_emits_enabled_3_0_storage_field
     assert user_config["dataNode"]["storage"]["format"] == "vortex"
 
 
+def test_render_milvus_cr_rejects_vortex_without_loon_ffi():
+    profile = load_deploy_profile(
+        ROOT / "manifests" / "deploy_profiles" / "standalone-rocksmq.yaml"
+    )
+
+    with pytest.raises(ValueError, match="Vortex depends on LoonFFI"):
+        render_milvus_cr(
+            profile=profile,
+            name="vortex-without-loon",
+            namespace="qa-milvus",
+            image="harbor.milvus.io/milvusdb/milvus:v3.0.1",
+            version="3.0.1",
+            image_update_mode="all",
+            vortex_enabled=True,
+        )
+
+
+def test_render_milvus_helm_values_rejects_vortex_without_loon_ffi():
+    profile = load_deploy_profile(
+        ROOT / "manifests" / "deploy_profiles" / "cluster-woodpecker-1cu.yaml"
+    )
+
+    with pytest.raises(ValueError, match="Vortex depends on LoonFFI"):
+        render_milvus_helm_values(
+            profile=profile,
+            name="cluster-vortex-without-loon",
+            namespace="qa-milvus",
+            image="harbor.milvus.io/milvusdb/milvus:v3.0.1",
+            version="3.0.1",
+            vortex_enabled=True,
+        )
+
+
 def test_renderers_emit_explicit_index_engine_versions():
     standalone = load_deploy_profile(
         ROOT / "manifests" / "deploy_profiles" / "standalone-rocksmq.yaml"
