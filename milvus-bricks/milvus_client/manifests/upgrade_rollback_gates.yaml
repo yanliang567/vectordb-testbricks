@@ -65,6 +65,9 @@ image_aliases:
   milvus-3-0-latest:
     image: harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder
     version: "3.0.0"
+  milvus-3-0-1:
+    image: harbor.milvus.io/milvusdb/milvus:v3.0.1-placeholder
+    version: "3.0.1"
 
 scenarios:
   - id: standalone-2-6-18-to-3-0-latest-rollback-2-6-latest
@@ -544,6 +547,321 @@ scenarios:
     rollback:
       image_ref: milvus-2-6-latest
       json_shredding_enabled: false
+      vortex_enabled: false
+    validation_policy:
+      data_integrity: observe
+      serviceability: observe
+      pressure_fail_on_error: false
+      gate_allow_warning: true
+
+  - id: standalone-3-0-1-vortex-self-compat-upgrade-rollback
+    description: "3.0.1 Vortex baseline self-compatibility: keep LoonFFI/Vortex enabled across base, target, and rollback and validate Vortex TEXT LOB data survives the round trip."
+    mode: standalone
+    classification: gate
+    support_status: supported
+    workflow_template_ref: standalone_3_0
+    deploy_profile_ref: standalone
+    schema_matrix_ref: 3.0_storage_v3
+    forward_schema_matrix_ref: 3.0_storage_v3
+    collection_prefix: qa_gate_301_vortex_self
+    forward_workload_enabled: true
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    target:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    rollback:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: cluster-3-0-1-vortex-self-compat-upgrade-rollback
+    description: "Cluster 3.0.1 Vortex baseline self-compatibility: keep LoonFFI/Vortex enabled across base, target, and rollback under distributed Woodpecker components."
+    mode: cluster
+    classification: gate
+    support_status: supported
+    submit_generate_name: c301vs-
+    workflow_template_ref: cluster
+    deploy_profile_ref: cluster_woodpecker_1cu
+    schema_matrix_ref: 3.0_storage_v3
+    forward_schema_matrix_ref: 3.0_storage_v3
+    collection_prefix: qa_gate_cluster_301_vortex_self
+    forward_workload_enabled: true
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    target:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    rollback:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: standalone-3-0-0-to-3-0-1-vortex-enable-rollback
+    description: "3.0.0 legacy baseline upgraded to 3.0.1 with LoonFFI/Vortex enabled, then rolled back to 3.0.1 with Vortex still enabled; validates the #52340 upgrade path."
+    mode: standalone
+    classification: gate
+    support_status: supported
+    workflow_template_ref: standalone_3_0
+    deploy_profile_ref: standalone
+    schema_matrix_ref: rollback_safe_base
+    forward_schema_matrix_ref: 3.0_storage_v3
+    collection_prefix: qa_gate_300_to_301_vortex
+    forward_workload_enabled: true
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    rollback:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: cluster-3-0-0-to-3-0-1-vortex-enable-rollback
+    description: "Cluster 3.0.0 legacy baseline upgraded to 3.0.1 with LoonFFI/Vortex enabled, then rolled back to 3.0.1 with Vortex still enabled under distributed components."
+    mode: cluster
+    classification: gate
+    support_status: supported
+    submit_generate_name: c301ve-
+    workflow_template_ref: cluster
+    deploy_profile_ref: cluster_woodpecker_1cu
+    schema_matrix_ref: rollback_safe_base
+    forward_schema_matrix_ref: 3.0_storage_v3
+    collection_prefix: qa_gate_cluster_300_to_301_vortex
+    forward_workload_enabled: true
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-baseline
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    rollback:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: standalone-3-0-1-json-shredding-vortex-rollback
+    description: "3.0.1 Vortex plus JSON Shredding gate: enable JSON Shredding after upgrade, write JSON-heavy forward data under Vortex, then rollback with both features enabled."
+    mode: standalone
+    classification: gate
+    support_status: supported
+    workflow_template_ref: standalone_3_0
+    deploy_profile_ref: standalone
+    schema_matrix_ref: 3.0_storage_v3
+    forward_schema_matrix_ref: json_shredding
+    collection_prefix: qa_gate_301_json_vortex
+    forward_workload_enabled: true
+    post_upgrade_config_toggle_enabled: true
+    post_upgrade_json_shredding_enabled: true
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    target:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    rollback:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: true
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: cluster-3-0-1-json-shredding-vortex-rollback
+    description: "Cluster 3.0.1 Vortex plus JSON Shredding gate: enable JSON Shredding after upgrade, write JSON-heavy forward data under Vortex, then rollback with both features enabled."
+    mode: cluster
+    classification: gate
+    support_status: supported
+    submit_generate_name: c301jv-
+    workflow_template_ref: cluster
+    deploy_profile_ref: cluster_woodpecker_1cu
+    schema_matrix_ref: 3.0_storage_v3
+    forward_schema_matrix_ref: json_shredding
+    collection_prefix: qa_gate_cluster_301_json_vortex
+    forward_workload_enabled: true
+    post_upgrade_config_toggle_enabled: true
+    post_upgrade_json_shredding_enabled: true
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: true
+    base:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    target:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    rollback:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: true
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: standalone-3-0-1-loon-ffi-parquet-rollback
+    description: "3.0.1 LoonFFI engine with parquet format: enable LoonFFI without Vortex at upgrade, then rollback to the legacy engine to isolate LoonFFI rollback safety from Vortex."
+    mode: standalone
+    classification: gate
+    support_status: supported
+    workflow_template_ref: standalone_3_0
+    deploy_profile_ref: standalone
+    schema_matrix_ref: "3.0"
+    collection_prefix: qa_gate_301_loon_parquet
+    forward_workload_enabled: false
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: false
+    base:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: false
+    rollback:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: cluster-3-0-1-loon-ffi-parquet-rollback
+    description: "Cluster 3.0.1 LoonFFI engine with parquet format: enable LoonFFI without Vortex at upgrade, then rollback to the legacy engine under distributed components."
+    mode: cluster
+    classification: gate
+    support_status: supported
+    submit_generate_name: c301lf-
+    workflow_template_ref: cluster
+    deploy_profile_ref: cluster_woodpecker_1cu
+    schema_matrix_ref: "3.0"
+    collection_prefix: qa_gate_cluster_301_loon_parquet
+    forward_workload_enabled: false
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: false
+    base:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: false
+    rollback:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: standalone-3-0-1-vortex-disable-rollback-negative
+    description: "Negative coverage: disabling Vortex at rollback after Vortex data was written is unsafe in-place format downgrade and must not be promoted to gate."
+    mode: standalone
+    classification: negative
+    support_status: unsupported
+    workflow_template_ref: standalone_3_0
+    deploy_profile_ref: standalone
+    schema_matrix_ref: rollback_safe_base
+    forward_schema_matrix_ref: 3.0_storage_v3
+    collection_prefix: qa_negative_301_vortex_off_rb
+    forward_workload_enabled: true
+    base:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    rollback:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
       vortex_enabled: false
     validation_policy:
       data_integrity: observe
