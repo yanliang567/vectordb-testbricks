@@ -1,12 +1,13 @@
 # Milvus 3.0.1 存储配置矩阵增强测试提案
 
-> **实现状态注记：** 本提案在落地实现（PR #31）时经 review 调整——P2
-> （`3.0.0 legacy -> 3.0.1 + LoonFFI/Vortex`）与 P4
-> （`LoonFFI(parquet) -> legacy`）由 `gate` 降级为 `candidate`，待真机确认
-> 「legacy 与 Vortex 段混存」及「L=1 parquet 数据可被 L=0 legacy 引擎读取」
-> 后再提升；同时新增 P5a negative（S4→S2）与 argo resolve-inputs 的 V⇒L /
-> 回滚降级 guard。最终场景分类见
-> `docs/upgrade-rollback-gates/README.md`（15 gate / 6 candidate / 3 negative）。
+> **实现状态注记：** 本提案在落地实现（PR #31）时经多轮 review 调整，最终
+> 语义如下：3.0.0+ 为 v2/v3 双引擎、parquet/vortex 双格式 reader，因此同一
+> 3.0.x 版本内开关 LoonFFI / Vortex 的配置回退是**安全的**（正向 gate）；兼容
+> 边界只在跨版本（2.6 读不了 storage v3/vortex；3.0.0 读不了 3.0.1 升级后的
+> vortex 编码 #52340）。据此：P2/P4 由 candidate 提升为 gate，P5/P5a 由
+> negative 改为 gate（测「关闭 Vortex 后仍可读回 Vortex 段」的正向属性），并
+> 删除了「回滚时关闭 Vortex 需 negative」的 guard。最终场景分类见
+> `docs/upgrade-rollback-gates/README.md`（21 gate / 2 candidate / 1 negative）。
 
 **目标：** 在 3.0.1 发布前，补齐升级/回滚 gate 中 LoonFFI、Vortex、JSON
 Shredding 三个存储开关组合的覆盖空缺，并利用「Vortex 依赖 LoonFFI」的约束把

@@ -7,9 +7,9 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 The manifest currently registers 24 scenarios:
 
-- 15 promoted gate scenarios
-- 6 pre-release candidate scenarios
-- 3 negative coverage scenarios
+- 21 promoted gate scenarios
+- 2 pre-release candidate scenarios
+- 1 negative coverage scenario
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
 | --- | --- | --- | --- | --- |
@@ -29,14 +29,14 @@ The manifest currently registers 24 scenarios:
 | `standalone-3-0-loon-vortex-to-2-6-negative` | standalone | negative | `2.6.18 -> 3.0 latest + LoonFFI/Vortex -> 2.6 latest` | Unsupported negative coverage only; not a promoted gate. |
 | `standalone-3-0-1-vortex-self-compat-upgrade-rollback` | standalone | gate | `3.0.1 Vortex -> 3.0.1 Vortex -> 3.0.1 Vortex` | LoonFFI/Vortex enabled in every phase; Vortex TEXT LOB baseline survives the round trip. |
 | `cluster-3-0-1-vortex-self-compat-upgrade-rollback` | cluster | gate | `3.0.1 Vortex -> 3.0.1 Vortex -> 3.0.1 Vortex` | Distributed Vortex baseline self-compatibility. |
-| `standalone-3-0-0-to-3-0-1-vortex-enable-rollback` | standalone | candidate | `3.0.0 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI/Vortex` | #52340 upgrade path; rollback stays on 3.0.1 Vortex. Mixed legacy + Vortex segments must be confirmed on real hardware before promotion. |
-| `cluster-3-0-0-to-3-0-1-vortex-enable-rollback` | cluster | candidate | `3.0.0 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI/Vortex` | Distributed equivalent of the #52340 upgrade path; pending real-hardware confirmation. |
+| `standalone-3-0-0-to-3-0-1-vortex-enable-rollback` | standalone | gate | `3.0.0 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI/Vortex` | #52340 upgrade path; rollback stays on 3.0.1 Vortex. The 3.0.1 dual reader handles mixed legacy + Vortex segments. |
+| `cluster-3-0-0-to-3-0-1-vortex-enable-rollback` | cluster | gate | `3.0.0 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI/Vortex` | Distributed equivalent of the #52340 upgrade path. |
 | `standalone-3-0-1-json-shredding-vortex-rollback` | standalone | gate | `3.0.1 Vortex -> 3.0.1 + JSON Shredding + Vortex -> 3.0.1 + JSON Shredding + Vortex` | JSON Shredding and Vortex enabled together. |
 | `cluster-3-0-1-json-shredding-vortex-rollback` | cluster | gate | `3.0.1 Vortex -> 3.0.1 + JSON Shredding + Vortex -> 3.0.1 + JSON Shredding + Vortex` | Distributed JSON Shredding plus Vortex coverage. |
-| `standalone-3-0-1-loon-ffi-parquet-rollback` | standalone | candidate | `3.0.1 legacy -> 3.0.1 + LoonFFI(parquet) -> 3.0.1 legacy` | Isolates LoonFFI engine rollback safety from the Vortex format; L=1 parquet -> L=0 legacy readability must be confirmed before promotion. |
-| `cluster-3-0-1-loon-ffi-parquet-rollback` | cluster | candidate | `3.0.1 legacy -> 3.0.1 + LoonFFI(parquet) -> 3.0.1 legacy` | Distributed LoonFFI-only rollback coverage; pending confirmation. |
-| `standalone-3-0-1-vortex-disable-rollback-negative` | standalone | negative | `3.0.1 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 legacy` | In-place Vortex disable at rollback is unsafe; observe-only boundary. |
-| `standalone-3-0-1-vortex-disable-keep-loon-negative` | standalone | negative | `3.0.1 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI(no Vortex)` | In-place Vortex disable while keeping LoonFFI (S4 -> S2) is unsafe; observe-only boundary. |
+| `standalone-3-0-1-loon-ffi-rollback` | standalone | gate | `3.0.1 legacy -> 3.0.1 + LoonFFI(storage v3) -> 3.0.1 legacy` | LoonFFI (storage v3) without Vortex; validates storage v3 -> v2 rollback readability under the dual-engine reader. |
+| `cluster-3-0-1-loon-ffi-rollback` | cluster | gate | `3.0.1 legacy -> 3.0.1 + LoonFFI(storage v3) -> 3.0.1 legacy` | Distributed LoonFFI (storage v3) rollback coverage. |
+| `standalone-3-0-1-vortex-disable-rollback` | standalone | gate | `3.0.1 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 legacy` | Disabling Vortex at rollback; the 3.0.1 dual-format reader still reads Vortex segments. |
+| `standalone-3-0-1-vortex-disable-keep-loon-rollback` | standalone | gate | `3.0.1 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI(no Vortex)` | Disabling Vortex at rollback while keeping LoonFFI (S4 -> S2); dual-format reader still reads Vortex segments. |
 
 Milvus v3.0.0 is not a supported Vortex reader/writer baseline. The manifest
 registers two candidate flavors, both excluded from the promoted release-gate
@@ -231,9 +231,11 @@ step executes the same reviewed test implementation.
   and the CR/Helm renderers both fail closed on `Vortex` without `useLoonFFI`.
 - Promoted Vortex gates require Milvus v3.0.1 or later for every Vortex writer
   and for any rollback reader that may encounter Vortex data.
-- Disabling Vortex at rollback after Vortex data was written before rollback is
-  rejected for gate/candidate scenarios; only an explicit negative scenario may
-  exercise that in-place format downgrade boundary.
+- Within a single 3.0.x version the binary is a dual reader/writer (storage v2 +
+  v3 engine, parquet + vortex format), so toggling LoonFFI or Vortex on/off at
+  rollback is a supported positive scenario. The compatibility boundaries are
+  cross-version only: 2.6 cannot read storage v3/Vortex, and v3.0.0 cannot read
+  the v3.0.1-upgraded Vortex encoding (#52340).
 - Pre-release candidate aliases are immutable and locked in the manifest.
   Runtime image/version overrides are rejected; refresh the reviewed alias and
   storage/source commit metadata through a code change instead.
