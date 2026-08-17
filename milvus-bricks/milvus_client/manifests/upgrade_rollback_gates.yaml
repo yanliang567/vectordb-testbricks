@@ -181,7 +181,7 @@ scenarios:
       gate_allow_warning: false
 
   - id: standalone-3-0-vortex-candidate-upgrade-rollback
-    description: "Pre-release candidate coverage for the v3.0.1 Vortex rollback contract: upgrade from an earlier reviewed 3.0 branch build to a newer reviewed build with LoonFFI/Vortex enabled, then rollback to the earlier build."
+    description: "Pre-release candidate coverage for the v3.0.1 Vortex rollback contract: upgrade from an earlier reviewed 3.0 branch build to a newer reviewed build with LoonFFI/Vortex enabled, then rollback to the earlier build. Superseded by the milvus-3-0-1 gate scenarios once v3.0.1 ships; retire after the release rerun."
     mode: standalone
     classification: candidate
     support_status: pre_release_candidate
@@ -464,7 +464,7 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-3-0-vortex-candidate-upgrade-rollback
-    description: "Cluster pre-release candidate coverage for the v3.0.1 Vortex rollback contract using reviewed 3.0 branch builds with Vortex 0.75."
+    description: "Cluster pre-release candidate coverage for the v3.0.1 Vortex rollback contract using reviewed 3.0 branch builds with Vortex 0.75. Superseded by the milvus-3-0-1 gate scenarios once v3.0.1 ships; retire after the release rerun."
     mode: cluster
     classification: candidate
     support_status: pre_release_candidate
