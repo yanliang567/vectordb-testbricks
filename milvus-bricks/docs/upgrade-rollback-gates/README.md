@@ -38,21 +38,20 @@ The manifest currently registers 24 scenarios:
 | `standalone-3-0-1-vortex-disable-rollback` | standalone | gate | `3.0.1 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 legacy` | Disabling Vortex at rollback; the 3.0.1 dual-format reader still reads Vortex segments. |
 | `standalone-3-0-1-vortex-disable-keep-loon-rollback` | standalone | gate | `3.0.1 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI(no Vortex)` | Disabling Vortex at rollback while keeping LoonFFI (S4 -> S2); dual-format reader still reads Vortex segments. |
 
-Milvus v3.0.0 is not a supported Vortex reader/writer baseline. The manifest
-registers two candidate flavors, both excluded from the promoted release-gate
-count:
+Milvus v3.0.0 is not a supported Vortex reader/writer baseline. The two
+pre-release candidate scenarios (`standalone/cluster-3-0-vortex-candidate-*`)
+use two immutable 3.0 branch images that both contain `milvus-storage 63c29c6`
+and Vortex 0.75, and whose images are locked. They are excluded from the
+promoted release-gate count.
 
-- pre-release Vortex candidates (`standalone/cluster-3-0-vortex-candidate-*`)
-  use two immutable 3.0 branch images that both contain `milvus-storage 63c29c6`
-  and Vortex 0.75, and whose images are locked;
-- pending-confirmation candidates (the 3.0.0 -> 3.0.1 Vortex-enable and
-  LoonFFI-parquet paths) use the placeholder `milvus-3-0-1` alias and stay
-  runtime-overridable until the release digest is pinned and the product
-  boundary (mixed legacy/Vortex segments, L=1 parquet -> L=0 legacy readability)
-  is confirmed on real hardware.
+The 3.0.0+ binaries are dual readers/writers (storage v2 + v3 engine, parquet +
+vortex format), so same-version LoonFFI/Vortex/JSON toggles at rollback are
+supported positive gates; the only compatibility boundaries are cross-version
+(2.6 cannot read storage v3/Vortex; v3.0.0 cannot read the v3.0.1-upgraded
+Vortex encoding #52340).
 
-Once v3.0.1 is released, replace the placeholder with the v3.0.1 manifest-list
-digest and promote the scenarios only after real standalone and cluster reruns.
+Once v3.0.1 is released, replace the `milvus-3-0-1` placeholder with the
+official manifest-list digest and rerun the standalone and cluster gates.
 
 The standalone and cluster target-only feature gates use the 2.6 baseline
 matrix for the rollback contract and the 3.0 matrix for forward collections

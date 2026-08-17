@@ -49,14 +49,11 @@ CANDIDATE_ALIAS_METADATA_FIELDS = {
     "milvus_storage_commit",
     "vortex_compatibility",
 }
-# `candidate` covers two flavors:
-#   1. pre-release Vortex candidates (version < 3.0.1) whose images are locked
-#      and must carry CANDIDATE_ALIAS_METADATA_FIELDS plus vortex_compatibility;
-#   2. pending-confirmation candidates (version >= 3.0.1, e.g. the 3.0.0 -> 3.0.1
-#      Vortex-enable and LoonFFI-parquet paths) that use a placeholder
-#      `milvus-3-0-1` image and remain runtime-overridable until the release
-#      digest is pinned and the product boundary is confirmed.
-# Only flavor 1 is subject to the "reviewed candidate image is locked" guard.
+# `candidate` is reserved for pre-release Vortex candidates (version < 3.0.1)
+# whose images are locked and must carry CANDIDATE_ALIAS_METADATA_FIELDS plus
+# vortex_compatibility. Same-version LoonFFI/Vortex toggles are positive gates
+# because 3.0.x binaries are dual readers (storage v2/v3, parquet/vortex); the
+# compatibility boundaries are cross-version only.
 FULL_GIT_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
