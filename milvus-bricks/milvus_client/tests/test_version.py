@@ -1,6 +1,7 @@
 import pytest
 
 from milvus_client.common.version import (
+    image_is_immutable,
     server_version_for_feature_detection,
     version_at_least,
     version_core,
@@ -60,3 +61,22 @@ def test_feature_detection_uses_hint_only_for_opaque_server_version():
 def test_feature_detection_rejects_unverified_opaque_hint():
     with pytest.raises(ValueError, match="release-eligible"):
         server_version_for_feature_detection("master-20260810-eaec01bc71", "3.0.0")
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        "harbor.milvus.io/milvusdb/milvus:v3.0.1-placeholder",
+        "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder",
+        "harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder",
+    ],
+)
+def test_image_is_immutable_treats_placeholder_tags_as_mutable(image):
+    assert image_is_immutable(image) is False
+
+
+def test_image_is_immutable_treats_digest_pinned_images_as_immutable():
+    assert (
+        image_is_immutable("harbor.milvus.io/milvusdb/milvus:v3.0.1@sha256:" + "a" * 64)
+        is True
+    )
