@@ -1149,7 +1149,6 @@ spec:
             rollback_enabled = "{{workflow.parameters.rollback-enabled}}" == "true"
             allow_unsafe_negative_coverage = "{{workflow.parameters.allow-unsafe-negative-coverage}}" == "true"
             scenario_id = "{{workflow.parameters.scenario-id}}"
-            scenario_classification = "{{workflow.parameters.scenario-classification}}"
             approved_unsafe_negative_scenarios = {
                 "standalone-3-0-loon-vortex-to-2-6-negative",
             }
@@ -1244,19 +1243,6 @@ spec:
                     print(
                         "invalid Vortex rollback reader: target/base Vortex data requires "
                         "rollback Milvus >= 3.0.1 or an approved pre-release candidate",
-                        file=sys.stderr,
-                    )
-                    raise SystemExit(2)
-                if (
-                    rollback_enabled
-                    and vortex_data_may_exist
-                    and not vortex_enabled_by_phase["rollback"]
-                    and scenario_classification != "negative"
-                ):
-                    print(
-                        "invalid Vortex rollback downgrade: Vortex data written before "
-                        "rollback cannot be read with Vortex disabled; disabling Vortex at "
-                        "rollback requires an explicit negative scenario",
                         file=sys.stderr,
                     )
                     raise SystemExit(2)

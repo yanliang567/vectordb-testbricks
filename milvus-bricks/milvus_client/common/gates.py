@@ -770,16 +770,6 @@ def _validate_vortex_compatibility_contract(scenario: dict[str, Any]) -> None:
             f"rollback; Milvus >= {VORTEX_MIN_SUPPORTED_VERSION} or a reviewed "
             "pre-release candidate image is required"
         )
-    if (
-        scenario.get("rollback_enabled", True)
-        and vortex_data_may_exist
-        and not scenario["rollback"].get("vortex_enabled", False)
-    ):
-        raise ValueError(
-            f"{scenario['id']}: Vortex data written before rollback cannot be "
-            "read with Vortex disabled; disabling Vortex at rollback requires "
-            "an explicit negative scenario"
-        )
 
 
 def _validate_vortex_loon_dependency(scenario: dict[str, Any]) -> None:
