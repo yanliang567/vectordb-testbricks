@@ -5,11 +5,11 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 ## Current scenario set
 
-The manifest currently registers 23 scenarios:
+The manifest currently registers 24 scenarios:
 
-- 19 promoted gate scenarios
-- 2 pre-release candidate scenarios
-- 2 negative coverage scenarios
+- 15 promoted gate scenarios
+- 6 pre-release candidate scenarios
+- 3 negative coverage scenarios
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
 | --- | --- | --- | --- | --- |
@@ -29,13 +29,14 @@ The manifest currently registers 23 scenarios:
 | `standalone-3-0-loon-vortex-to-2-6-negative` | standalone | negative | `2.6.18 -> 3.0 latest + LoonFFI/Vortex -> 2.6 latest` | Unsupported negative coverage only; not a promoted gate. |
 | `standalone-3-0-1-vortex-self-compat-upgrade-rollback` | standalone | gate | `3.0.1 Vortex -> 3.0.1 Vortex -> 3.0.1 Vortex` | LoonFFI/Vortex enabled in every phase; Vortex TEXT LOB baseline survives the round trip. |
 | `cluster-3-0-1-vortex-self-compat-upgrade-rollback` | cluster | gate | `3.0.1 Vortex -> 3.0.1 Vortex -> 3.0.1 Vortex` | Distributed Vortex baseline self-compatibility. |
-| `standalone-3-0-0-to-3-0-1-vortex-enable-rollback` | standalone | gate | `3.0.0 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI/Vortex` | #52340 upgrade path; rollback stays on 3.0.1 Vortex. |
-| `cluster-3-0-0-to-3-0-1-vortex-enable-rollback` | cluster | gate | `3.0.0 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI/Vortex` | Distributed equivalent of the #52340 upgrade path. |
+| `standalone-3-0-0-to-3-0-1-vortex-enable-rollback` | standalone | candidate | `3.0.0 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI/Vortex` | #52340 upgrade path; rollback stays on 3.0.1 Vortex. Mixed legacy + Vortex segments must be confirmed on real hardware before promotion. |
+| `cluster-3-0-0-to-3-0-1-vortex-enable-rollback` | cluster | candidate | `3.0.0 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI/Vortex` | Distributed equivalent of the #52340 upgrade path; pending real-hardware confirmation. |
 | `standalone-3-0-1-json-shredding-vortex-rollback` | standalone | gate | `3.0.1 Vortex -> 3.0.1 + JSON Shredding + Vortex -> 3.0.1 + JSON Shredding + Vortex` | JSON Shredding and Vortex enabled together. |
 | `cluster-3-0-1-json-shredding-vortex-rollback` | cluster | gate | `3.0.1 Vortex -> 3.0.1 + JSON Shredding + Vortex -> 3.0.1 + JSON Shredding + Vortex` | Distributed JSON Shredding plus Vortex coverage. |
-| `standalone-3-0-1-loon-ffi-parquet-rollback` | standalone | gate | `3.0.1 legacy -> 3.0.1 + LoonFFI(parquet) -> 3.0.1 legacy` | Isolates LoonFFI engine rollback safety from the Vortex format. |
-| `cluster-3-0-1-loon-ffi-parquet-rollback` | cluster | gate | `3.0.1 legacy -> 3.0.1 + LoonFFI(parquet) -> 3.0.1 legacy` | Distributed LoonFFI-only rollback coverage. |
+| `standalone-3-0-1-loon-ffi-parquet-rollback` | standalone | candidate | `3.0.1 legacy -> 3.0.1 + LoonFFI(parquet) -> 3.0.1 legacy` | Isolates LoonFFI engine rollback safety from the Vortex format; L=1 parquet -> L=0 legacy readability must be confirmed before promotion. |
+| `cluster-3-0-1-loon-ffi-parquet-rollback` | cluster | candidate | `3.0.1 legacy -> 3.0.1 + LoonFFI(parquet) -> 3.0.1 legacy` | Distributed LoonFFI-only rollback coverage; pending confirmation. |
 | `standalone-3-0-1-vortex-disable-rollback-negative` | standalone | negative | `3.0.1 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 legacy` | In-place Vortex disable at rollback is unsafe; observe-only boundary. |
+| `standalone-3-0-1-vortex-disable-keep-loon-negative` | standalone | negative | `3.0.1 legacy -> 3.0.1 + LoonFFI/Vortex -> 3.0.1 + LoonFFI(no Vortex)` | In-place Vortex disable while keeping LoonFFI (S4 -> S2) is unsafe; observe-only boundary. |
 
 Milvus v3.0.0 is not a supported Vortex reader/writer baseline. The candidate
 scenarios use two immutable 3.0 branch images that both contain

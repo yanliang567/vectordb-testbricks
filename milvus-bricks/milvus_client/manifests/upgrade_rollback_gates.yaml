@@ -65,6 +65,10 @@ image_aliases:
   milvus-3-0-latest:
     image: harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder
     version: "3.0.0"
+  # TODO(release): placeholder pending the official v3.0.1 multi-arch
+  # manifest-list digest. Scenarios that reference this alias are render-blocked
+  # (validate_no_gate_placeholders) and are registered as candidate until the
+  # digest is pinned and the product boundary is confirmed.
   milvus-3-0-1:
     image: harbor.milvus.io/milvusdb/milvus:v3.0.1-placeholder
     version: "3.0.1"
@@ -626,10 +630,10 @@ scenarios:
       gate_allow_warning: false
 
   - id: standalone-3-0-0-to-3-0-1-vortex-enable-rollback
-    description: "3.0.0 legacy baseline upgraded to 3.0.1 with LoonFFI/Vortex enabled, then rolled back to 3.0.1 with Vortex still enabled; validates the #52340 upgrade path."
+    description: "Pre-release candidate for the #52340 upgrade path: 3.0.0 legacy baseline upgraded to 3.0.1 with LoonFFI/Vortex enabled, then rolled back to 3.0.1 with Vortex still enabled. Mixed legacy + Vortex segments must be confirmed on real hardware before promotion."
     mode: standalone
-    classification: gate
-    support_status: supported
+    classification: candidate
+    support_status: pre_release_candidate
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
     schema_matrix_ref: rollback_safe_base
@@ -660,10 +664,10 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-3-0-0-to-3-0-1-vortex-enable-rollback
-    description: "Cluster 3.0.0 legacy baseline upgraded to 3.0.1 with LoonFFI/Vortex enabled, then rolled back to 3.0.1 with Vortex still enabled under distributed components."
+    description: "Cluster pre-release candidate for the #52340 upgrade path: 3.0.0 legacy baseline upgraded to 3.0.1 with LoonFFI/Vortex enabled, then rolled back to 3.0.1 with Vortex still enabled under distributed components. Mixed legacy + Vortex segments must be confirmed on real hardware before promotion."
     mode: cluster
-    classification: gate
-    support_status: supported
+    classification: candidate
+    support_status: pre_release_candidate
     submit_generate_name: c301ve-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
@@ -770,10 +774,10 @@ scenarios:
       gate_allow_warning: false
 
   - id: standalone-3-0-1-loon-ffi-parquet-rollback
-    description: "3.0.1 LoonFFI engine with parquet format: enable LoonFFI without Vortex at upgrade, then rollback to the legacy engine to isolate LoonFFI rollback safety from Vortex."
+    description: "Pre-release candidate: 3.0.1 LoonFFI engine with parquet format. Enable LoonFFI without Vortex at upgrade, then rollback to the legacy engine to isolate LoonFFI rollback safety from Vortex. Whether L=1 parquet data is readable by the L=0 legacy engine must be confirmed before promotion."
     mode: standalone
-    classification: gate
-    support_status: supported
+    classification: candidate
+    support_status: pre_release_candidate
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
     schema_matrix_ref: "3.0"
@@ -804,10 +808,10 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-3-0-1-loon-ffi-parquet-rollback
-    description: "Cluster 3.0.1 LoonFFI engine with parquet format: enable LoonFFI without Vortex at upgrade, then rollback to the legacy engine under distributed components."
+    description: "Cluster pre-release candidate: 3.0.1 LoonFFI engine with parquet format. Enable LoonFFI without Vortex at upgrade, then rollback to the legacy engine under distributed components. Whether L=1 parquet data is readable by the L=0 legacy engine must be confirmed before promotion."
     mode: cluster
-    classification: gate
-    support_status: supported
+    classification: candidate
+    support_status: pre_release_candidate
     submit_generate_name: c301lf-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
@@ -862,6 +866,37 @@ scenarios:
       image_ref: milvus-3-0-1
       json_shredding_enabled: false
       loon_ffi_enabled: false
+      vortex_enabled: false
+    validation_policy:
+      data_integrity: observe
+      serviceability: observe
+      pressure_fail_on_error: false
+      gate_allow_warning: true
+
+  - id: standalone-3-0-1-vortex-disable-keep-loon-negative
+    description: "Negative coverage: disabling Vortex at rollback while keeping LoonFFI enabled (S4 -> S2) after Vortex data was written is an unsafe in-place format downgrade and must not be promoted to gate."
+    mode: standalone
+    classification: negative
+    support_status: unsupported
+    workflow_template_ref: standalone_3_0
+    deploy_profile_ref: standalone
+    schema_matrix_ref: rollback_safe_base
+    forward_schema_matrix_ref: 3.0_storage_v3
+    collection_prefix: qa_negative_301_vortex_off_keep_loon
+    forward_workload_enabled: true
+    base:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
+      vortex_enabled: true
+    rollback:
+      image_ref: milvus-3-0-1
+      json_shredding_enabled: false
+      loon_ffi_enabled: true
       vortex_enabled: false
     validation_policy:
       data_integrity: observe

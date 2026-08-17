@@ -541,6 +541,10 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
         _validate_vortex_compatibility_contract(scenario)
         return
 
+    # The 2.6 -> 3.0 -> 2.6 gate path does not call
+    # _validate_vortex_loon_dependency above because the blocked-flags check below
+    # already rejects storage_v3/vortex in every phase, which implies the V => L
+    # dependency holds trivially.
     forbidden = set(scenario.get("forbidden_after_upgrade") or [])
     if not {"storage_v3", "vortex"} <= forbidden:
         raise ValueError(
@@ -762,7 +766,6 @@ def _validate_vortex_compatibility_contract(scenario: dict[str, Any]) -> None:
         scenario.get("rollback_enabled", True)
         and vortex_data_may_exist
         and not scenario["rollback"].get("vortex_enabled", False)
-        and scenario.get("classification") != "negative"
     ):
         raise ValueError(
             f"{scenario['id']}: Vortex data written before rollback cannot be "
