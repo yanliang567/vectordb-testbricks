@@ -85,6 +85,54 @@ def test_precheck_rejects_server_version_below_expected_patch(monkeypatch, tmp_p
     ]
 
 
+def test_precheck_accepts_daily_build_candidate_for_higher_patch(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        precheck,
+        "create_client",
+        lambda *args: PrecheckClient("3.0-20260817-beb93ec2"),
+    )
+
+    code = precheck.main(
+        _args(
+            tmp_path,
+            "3.0.1",
+            "--expected-server-image",
+            "harbor.milvus.io/milvusdb/milvus:3.0-20260817-beb93ec2",
+            "--release-gate-eligible",
+            "true",
+        )
+    )
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+    assert result["metrics"]["server_version_validation_mode"] == (
+        "release_candidate_build"
+    )
+    assert result["metrics"]["candidate_server_version"] == "3.0-20260817-beb93ec2"
+
+
+def test_precheck_rejects_release_tag_for_higher_patch(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        precheck, "create_client", lambda *args: PrecheckClient("v3.0.0")
+    )
+
+    code = precheck.main(
+        _args(
+            tmp_path,
+            "3.0.1",
+            "--expected-server-image",
+            "harbor.milvus.io/milvusdb/milvus:v3.0.0",
+            "--release-gate-eligible",
+            "true",
+        )
+    )
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 1
+    assert result["failures"][0]["type"] == "SERVER_VERSION_TOO_OLD"
+
+
 def test_precheck_rejects_unparseable_server_version(monkeypatch, tmp_path):
     monkeypatch.setattr(
         precheck, "create_client", lambda *args: PrecheckClient("unknown")

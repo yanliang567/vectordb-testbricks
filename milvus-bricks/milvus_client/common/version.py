@@ -10,6 +10,10 @@ VERSION_CORE = re.compile(
 SHA256_DIGEST = re.compile(r"@sha256:[0-9a-fA-F]{64}$")
 COMMIT_SUFFIX = re.compile(r"(?:^|[-_.])(?P<commit>[0-9a-fA-F]{8,40})$")
 HEX_SUFFIX = re.compile(r"[0-9a-fA-F]{1,32}")
+# A daily/branch build tag such as `3.0-20260817-beb93ec2` or
+# `3.0-20260805-ad3ba1ea-amd64`. These are release candidates for the next
+# patch version, so their server version may still report the base patch.
+DAILY_BUILD_TAG = re.compile(r"^v?\d+\.\d+-\d{8}-[0-9a-fA-F]{8,40}(?:-[a-zA-Z0-9]+)?$")
 
 
 def version_family(value: str) -> str:
@@ -106,3 +110,17 @@ def image_is_immutable(image: str) -> bool:
     return tag.lower() not in {"master", "main", "nightly", "dev"} and not (
         tokens & mutable_tokens
     )
+
+
+def image_tag(image: str) -> str | None:
+    image_name = str(image).split("@", 1)[0].rsplit("/", 1)[-1]
+    if ":" not in image_name:
+        return None
+    return image_name.rsplit(":", 1)[-1]
+
+
+def is_daily_build_image(image: str) -> bool:
+    tag = image_tag(image)
+    if tag is None:
+        return False
+    return DAILY_BUILD_TAG.fullmatch(tag) is not None

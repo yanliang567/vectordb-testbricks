@@ -6,6 +6,7 @@ from milvus_client.common.args import build_common_parser
 from milvus_client.common.client import create_client, get_server_version
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.version import (
+    is_daily_build_image,
     matching_pinned_image_build_tag,
     version_at_least,
     version_family,
@@ -82,14 +83,20 @@ def main(argv: list[str] | None = None) -> int:
                 result.write(args.output_json)
                 return 1
             if not version_at_least(server_version, args.expected_server_version):
-                result.mark_failed(
-                    "SERVER_VERSION_TOO_OLD",
-                    "Milvus server version is below the expected phase version",
-                    expected_version=args.expected_server_version,
-                    actual_version=server_version,
-                )
-                result.write(args.output_json)
-                return 1
+                if is_daily_build_image(args.expected_server_image):
+                    result.metrics["server_version_validation_mode"] = (
+                        "release_candidate_build"
+                    )
+                    result.metrics["candidate_server_version"] = server_version
+                else:
+                    result.mark_failed(
+                        "SERVER_VERSION_TOO_OLD",
+                        "Milvus server version is below the expected phase version",
+                        expected_version=args.expected_server_version,
+                        actual_version=server_version,
+                    )
+                    result.write(args.output_json)
+                    return 1
         result.status = PASSED
     except Exception as exc:
         result.status = FAILED
