@@ -107,6 +107,8 @@ def _normalize_for_checksum(value: Any) -> Any:
             for key in sorted(value, key=str)
         }
     if isinstance(value, (list, tuple)):
+        if len(value) == 1 and isinstance(value[0], bytes):
+            return {"__bytes__": value[0].hex()}
         return [_normalize_for_checksum(item) for item in value]
     if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
         return [_normalize_for_checksum(item) for item in value]

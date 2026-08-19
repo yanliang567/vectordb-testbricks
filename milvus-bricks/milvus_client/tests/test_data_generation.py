@@ -92,6 +92,19 @@ def test_stable_checksum_normalizes_float32_round_trip_precision():
     )
 
 
+def test_stable_checksum_normalizes_binary_vector_round_trip_representation():
+    inserted_rows = [{"id": 1, "binary_flat": b"\x00\x01\x02\x03\x04\x05\x06\x07"}]
+    queried_rows = [{"id": 1, "binary_flat": [b"\x00\x01\x02\x03\x04\x05\x06\x07"]}]
+
+    assert stable_checksum(
+        inserted_rows, fields=["id", "binary_flat"], primary_field="id"
+    ) == stable_checksum(
+        queried_rows,
+        fields=["id", "binary_flat"],
+        primary_field="id",
+    )
+
+
 def test_struct_array_vector_checksum_survives_float32_storage_round_trip():
     spec = next(
         spec
