@@ -798,6 +798,28 @@ def test_phase_dml_dql_minhash_search_uses_function_input_text():
     assert search_call["search_params"]["metric_type"] == "MHJACCARD"
 
 
+def test_phase_dml_dql_minhash_search_uses_updated_input_text_after_upsert():
+    client = PhaseClient()
+    report = ValidationReport()
+
+    searches = validate_phase_dml_dql._run_searches(
+        client,
+        _minhash_spec(),
+        "qa_minhash",
+        seed=7,
+        pk=6_000_001,
+        report=report,
+        apply_update=True,
+    )
+
+    search_call = next(call[1] for call in client.calls if call[0] == "search")
+    assert report.passed
+    assert searches == 1
+    assert search_call["data"] == ["phase_upsert_6000001_milvus_upgrade_rollback"]
+    assert search_call["filter"] == "id == 6000001"
+    assert search_call["search_params"]["metric_type"] == "MHJACCARD"
+
+
 def test_phase_search_rejects_irrelevant_old_primary_key_hit():
     client = PhaseClient(search_hit_id=1)
     report = ValidationReport()
