@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import math
 import sys
+from time import sleep
 from typing import Any
 
 from milvus_client.common.args import build_common_parser, parse_bool
@@ -262,6 +263,37 @@ def _evolution_field_value(
     return f"evo_{row.get(primary_name)}"
 
 
+SCHEMA_MISMATCH_RETRIES = 5
+
+
+def _is_retryable_schema_mismatch(exc: Exception) -> bool:
+    text = f"{type(exc).__name__} {exc}".lower()
+    return "schemamismatchretryable" in text or "schema mismatch" in text
+
+
+def _write_batch_with_retry(
+    client: Any,
+    spec: SchemaSpec,
+    collection: str,
+    rows: list[dict[str, Any]],
+) -> list[Any] | None:
+    for attempt in range(SCHEMA_MISMATCH_RETRIES):
+        try:
+            if auto_id_enabled(spec):
+                return _extract_insert_ids(
+                    client.insert(collection_name=collection, data=rows)
+                )
+            client.upsert(collection_name=collection, data=rows)
+            return None
+        except Exception as exc:
+            if not _is_retryable_schema_mismatch(exc) or (
+                attempt == SCHEMA_MISMATCH_RETRIES - 1
+            ):
+                raise
+            sleep(2**attempt)
+    raise AssertionError("unreachable")
+
+
 def _write_evolution_rows(
     client: Any,
     spec: SchemaSpec,
@@ -283,18 +315,18 @@ def _write_evolution_rows(
                 spec, row, start + offset
             )
         nullable_updates += _nullable_vector_update_rows(evolved, rows, start)
+        batch_ids = _write_batch_with_retry(client, spec, collection, rows)
         if auto_id_enabled(spec):
-            batch_ids = _extract_insert_ids(
-                client.insert(collection_name=collection, data=rows)
-            )
-            if len(batch_ids) != len(rows) or any(pk is None for pk in batch_ids):
+            if (
+                batch_ids is None
+                or len(batch_ids) != len(rows)
+                or any(pk is None for pk in batch_ids)
+            ):
                 raise AssertionError(
                     f"{collection}: auto-id schema evolution insert returned "
-                    f"{len(batch_ids)} primary keys for {len(rows)} rows"
+                    f"{len(batch_ids or [])} primary keys for {len(rows)} rows"
                 )
             inserted_ids.extend(batch_ids)
-        else:
-            client.upsert(collection_name=collection, data=rows)
         written += len(rows)
     if auto_id_enabled(spec) and len(set(inserted_ids)) != len(inserted_ids):
         raise AssertionError(

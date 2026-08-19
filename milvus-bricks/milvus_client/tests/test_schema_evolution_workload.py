@@ -340,6 +340,59 @@ def test_schema_evolution_cycles_existing_collection_fields_functions_and_reads(
     assert metrics["drop_field_skipped_total"] == 1
 
 
+class SchemaMismatchRetryableException(Exception):
+    pass
+
+
+class FlakySchemaMismatchClient(FakeClient):
+    def __init__(self, fail_upserts: int = 1):
+        super().__init__()
+        self.fail_upserts = fail_upserts
+        self.upsert_attempts = 0
+
+    def upsert(self, collection_name, data):
+        self.upsert_attempts += 1
+        if self.upsert_attempts <= self.fail_upserts:
+            raise SchemaMismatchRetryableException(
+                f"collection schema mismatch[collection={collection_name}]"
+            )
+        return super().upsert(collection_name, data)
+
+
+def test_schema_evolution_retries_upsert_on_schema_mismatch():
+    client = FlakySchemaMismatchClient(fail_upserts=1)
+
+    metrics = run_schema_evolution(
+        client,
+        [_baseline_bm25_spec()],
+        collection_prefix="qa",
+        rows_per_collection=2,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    assert client.upsert_attempts == 2
+    assert metrics["failed_total"] == 0
+
+
+def test_schema_evolution_gives_up_after_schema_mismatch_retries():
+    client = FlakySchemaMismatchClient(fail_upserts=99)
+
+    metrics = run_schema_evolution(
+        client,
+        [_baseline_bm25_spec()],
+        collection_prefix="qa",
+        rows_per_collection=2,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    assert client.upsert_attempts == 5
+    assert metrics["failed_total"] == 1
+
+
 def test_schema_evolution_uses_function_field_apis_when_available():
     client = FakeFunctionFieldClient()
 
