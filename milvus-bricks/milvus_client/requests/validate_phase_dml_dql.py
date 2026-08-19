@@ -31,6 +31,7 @@ from milvus_client.common.schema import (
     create_collection_kwargs,
     function_output_fields,
     load_schema_matrix,
+    resolve_field,
     struct_array_for_field,
 )
 from milvus_client.common.validators import (
@@ -459,6 +460,16 @@ def _phase_search_query(
     function_outputs = function_output_fields(spec)
     if vector_field.name in function_outputs:
         query = function_input_query_value(spec, vector_field.name, data_pk, seed)
+        if apply_update:
+            function = next(
+                item
+                for item in spec.functions
+                if vector_field.name in item.output_fields
+            )
+            input_field = resolve_field(spec, function.input_fields[0])
+            updated_row = generate_rows(spec, start_id=data_pk, count=1, seed=seed)[0]
+            apply_deterministic_update(spec, updated_row, data_pk)
+            query = updated_row.get(input_field.name)
         if query is None or query == "":
             return None
         return query, None
