@@ -85,6 +85,8 @@ spec:
         value: "true"
       - name: rollback-forward-validation-enabled
         value: "false"
+      - name: drop-forward-before-rollback-enabled
+        value: "false"
       - name: index-compatibility-validation-enabled
         value: "true"
       - name: phase-dml-dql-validation-enabled
@@ -719,8 +721,25 @@ spec:
                     --evolution-checkpoint-file /tmp/milvus-bricks/checkpoints/forward/schema_evolution.json
                     --function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}
 
-          - name: observe-before-rollback
+          - name: drop-forward-schema
             dependencies: [schema-evolution-forward, pressure-daemon]
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.drop-forward-before-rollback-enabled}}"
+                - name: brick-name
+                  value: drop_forward_schema
+                - name: module
+                  value: milvus_client.requests.drop_schema_matrix
+                - name: collection-prefix
+                  value: "{{workflow.parameters.forward-collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.forward-schema-matrix}}
+
+          - name: observe-before-rollback
+            dependencies: [drop-forward-schema, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: observe
             arguments:
