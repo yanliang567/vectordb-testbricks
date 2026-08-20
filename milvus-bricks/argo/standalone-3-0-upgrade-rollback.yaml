@@ -1463,6 +1463,7 @@ spec:
                 "forward-schema-matrix": "{{workflow.parameters.forward-schema-matrix}}",
                 "rollback-enabled": "{{workflow.parameters.rollback-enabled}}",
                 "rollback-forward-validation-enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
+                "drop-forward-before-rollback-enabled": "{{workflow.parameters.drop-forward-before-rollback-enabled}}",
                 "index-compatibility-validation-enabled": "{{workflow.parameters.index-compatibility-validation-enabled}}",
                 "phase-dml-dql-validation-enabled": "{{workflow.parameters.phase-dml-dql-validation-enabled}}",
                 "schema-evolution-existing-enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
