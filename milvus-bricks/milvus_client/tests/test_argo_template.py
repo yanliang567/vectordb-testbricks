@@ -2660,8 +2660,13 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "pressure-daemon",
     ]
     assert tasks["schema-evolution-forward"]["template"] == "optional-run-brick"
-    assert tasks["observe-before-rollback"]["dependencies"] == [
+    assert tasks["drop-forward-schema"]["dependencies"] == [
         "schema-evolution-forward",
+        "pressure-daemon",
+    ]
+    assert tasks["drop-forward-schema"]["template"] == "optional-run-brick"
+    assert tasks["observe-before-rollback"]["dependencies"] == [
+        "drop-forward-schema",
         "pressure-daemon",
     ]
     assert tasks["strict-pressure-before-rollback"]["dependencies"] == [
