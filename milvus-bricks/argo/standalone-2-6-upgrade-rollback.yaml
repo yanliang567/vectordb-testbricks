@@ -723,6 +723,7 @@ spec:
 
           - name: drop-forward-schema
             dependencies: [schema-evolution-forward, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true"
             template: optional-run-brick
             arguments:
               parameters:
@@ -1301,6 +1302,7 @@ spec:
               "forward_schema_matrix": "{{workflow.parameters.forward-schema-matrix}}",
               "rollback_enabled": "{{workflow.parameters.rollback-enabled}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
+              "drop_forward_before_rollback_enabled": "{{workflow.parameters.drop-forward-before-rollback-enabled}}",
               "index_compatibility_validation_enabled": "{{workflow.parameters.index-compatibility-validation-enabled}}",
               "phase_dml_dql_validation_enabled": "{{workflow.parameters.phase-dml-dql-validation-enabled}}",
               "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
@@ -1364,6 +1366,7 @@ spec:
               "collection_prefix": "{{workflow.parameters.collection-prefix}}",
               "forward_collection_prefix": "{{workflow.parameters.forward-collection-prefix}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
+              "drop_forward_before_rollback_enabled": "{{workflow.parameters.drop-forward-before-rollback-enabled}}",
               "index_compatibility_validation_enabled": "{{workflow.parameters.index-compatibility-validation-enabled}}",
               "phase_dml_dql_validation_enabled": "{{workflow.parameters.phase-dml-dql-validation-enabled}}",
               "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",
@@ -2738,6 +2741,7 @@ spec:
               --forward-schema-matrix "{{workflow.parameters.forward-schema-matrix}}" \
               --rollback-enabled "{{workflow.parameters.rollback-enabled}}" \
               --rollback-forward-validation-enabled "{{workflow.parameters.rollback-forward-validation-enabled}}" \
+              --drop-forward-before-rollback-enabled "{{workflow.parameters.drop-forward-before-rollback-enabled}}" \
               --index-compatibility-validation-enabled "{{workflow.parameters.index-compatibility-validation-enabled}}" \
               --phase-dml-dql-validation-enabled "{{workflow.parameters.phase-dml-dql-validation-enabled}}" \
               --phase-new-collection-rows "{{workflow.parameters.phase-new-collection-rows}}" \
@@ -2954,6 +2958,7 @@ spec:
               "collection_prefix": "{{workflow.parameters.collection-prefix}}",
               "forward_collection_prefix": "{{workflow.parameters.forward-collection-prefix}}",
               "rollback_forward_validation_enabled": "{{workflow.parameters.rollback-forward-validation-enabled}}",
+              "drop_forward_before_rollback_enabled": "{{workflow.parameters.drop-forward-before-rollback-enabled}}",
               "index_compatibility_validation_enabled": "{{workflow.parameters.index-compatibility-validation-enabled}}",
               "phase_dml_dql_validation_enabled": "{{workflow.parameters.phase-dml-dql-validation-enabled}}",
               "schema_evolution_existing_enabled": "{{workflow.parameters.schema-evolution-existing-enabled}}",

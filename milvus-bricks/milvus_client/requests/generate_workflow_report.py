@@ -138,6 +138,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "rollback_forward_validation_enabled": parse_bool(
             args.rollback_forward_validation_enabled
         ),
+        "drop_forward_before_rollback_enabled": parse_bool(
+            args.drop_forward_before_rollback_enabled
+        ),
         "index_compatibility_validation_enabled": parse_bool(
             args.index_compatibility_validation_enabled
         ),
@@ -407,6 +410,7 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- forward schema matrix: `{config_matrix.get('forward_schema_matrix')}`",
         f"- rollback enabled: `{config_matrix.get('rollback_enabled')}`",
         f"- rollback forward validation: `{config_matrix.get('rollback_forward_validation_enabled')}`",
+        f"- drop forward before rollback: `{config_matrix.get('drop_forward_before_rollback_enabled')}`",
         f"- index compatibility validation: `{config_matrix.get('index_compatibility_validation_enabled')}`",
         f"- phase DML/DQL validation: `{config_matrix.get('phase_dml_dql_validation_enabled')}`",
         f"- phase new collection rows/schema: `{config_matrix.get('phase_new_collection_rows')}`",
@@ -528,6 +532,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--forward-schema-matrix", default="")
     parser.add_argument("--rollback-enabled", default="true")
     parser.add_argument("--rollback-forward-validation-enabled", default="false")
+    parser.add_argument("--drop-forward-before-rollback-enabled", default="false")
     parser.add_argument("--index-compatibility-validation-enabled", default="false")
     parser.add_argument("--phase-dml-dql-validation-enabled", default="false")
     parser.add_argument("--phase-new-collection-rows", type=int, default=0)

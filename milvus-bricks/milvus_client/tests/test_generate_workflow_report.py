@@ -460,6 +460,7 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
         "forward_schema_matrix": "milvus_client/manifests/schema_matrix_3_0.yaml",
         "rollback_enabled": True,
         "rollback_forward_validation_enabled": False,
+        "drop_forward_before_rollback_enabled": False,
         "index_compatibility_validation_enabled": True,
         "phase_dml_dql_validation_enabled": True,
         "phase_new_collection_rows": 3000,

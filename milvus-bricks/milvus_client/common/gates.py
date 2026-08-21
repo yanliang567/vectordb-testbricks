@@ -247,6 +247,7 @@ def render_argo_parameters(
         ),
         "drop-forward-before-rollback-enabled": _bool_str(
             scenario.get("forward_workload_enabled", False)
+            and scenario.get("rollback_enabled", True)
             and not scenario.get("rollback_forward_validation_enabled", False)
         ),
         "index-compatibility-validation-enabled": _bool_str(

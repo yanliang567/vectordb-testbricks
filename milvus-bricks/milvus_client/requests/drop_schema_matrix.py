@@ -4,7 +4,7 @@ import sys
 
 from milvus_client.common.args import build_common_parser
 from milvus_client.common.client import create_client
-from milvus_client.common.result import FAILED, PASSED, result_from_args
+from milvus_client.common.result import FAILED, PASSED, SKIPPED, result_from_args
 from milvus_client.common.schema import collection_name, load_schema_matrix
 
 
@@ -52,7 +52,9 @@ def main(argv: list[str] | None = None) -> int:
                     **failure,
                 )
         else:
-            result.status = PASSED
+            result.status = PASSED if dropped else SKIPPED
+            if not dropped:
+                result.skip_reason = "no forward collections to drop"
         result.write(args.output_json)
         return 1 if failed else 0
     except Exception as exc:
