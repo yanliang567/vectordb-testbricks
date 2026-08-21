@@ -8,7 +8,11 @@ from milvus_client.common.schema import (
     StructArraySpec,
     load_schema_matrix,
 )
-from milvus_client.common.workload import run_operation, search_params_for_field
+from milvus_client.common.workload import (
+    approximate_recall_index,
+    run_operation,
+    search_params_for_field,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -264,6 +268,44 @@ def test_lossy_faiss_pressure_search_does_not_require_exact_self_recall():
     assert op == "search"
     assert count == 1
     assert "filter" not in client.search_calls[0]
+
+
+def test_approximate_recall_index_recognizes_faiss_factory_pq_as_lossy():
+    pq = SchemaSpec(
+        name="faiss_pq",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=64),
+        ],
+        indexes=[
+            IndexSpec(
+                field="embedding",
+                index_type="FAISS",
+                metric_type="COSINE",
+                params={"faiss_index_name": "OPQ16,IVF64,PQ16x4"},
+            )
+        ],
+    )
+    flat = SchemaSpec(
+        name="faiss_flat",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(name="embedding", dtype="FLOAT_VECTOR", dim=64),
+        ],
+        indexes=[
+            IndexSpec(
+                field="embedding",
+                index_type="FAISS",
+                metric_type="L2",
+                params={"faiss_index_name": "IVF64,Flat"},
+            )
+        ],
+    )
+
+    assert approximate_recall_index(pq, "embedding") is True
+    assert approximate_recall_index(flat, "embedding") is False
 
 
 def test_search_operation_covers_struct_array_only_vector_index():

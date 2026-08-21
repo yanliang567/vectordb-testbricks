@@ -2001,6 +2001,7 @@ def test_lossy_l2_index_allows_bounded_self_search_quantization_error():
         "L2",
         lossy,
         index_type="IVF_PQ",
+        lossy_index=True,
     )
 
     exact = ValidationReport()

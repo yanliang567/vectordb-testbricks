@@ -37,6 +37,7 @@ from milvus_client.common.validators import (
     validate_pk_samples,
 )
 from milvus_client.common.workload import (
+    approximate_recall_index,
     assert_search_result,
     metric_type_for_field,
     search_params_for_field,
@@ -663,6 +664,7 @@ def _validate_vector_search_hit(
     metric_type: str,
     report: ValidationReport,
     index_type: str = "",
+    lossy_index: bool = False,
 ) -> None:
     assert_search_result(response, collection, field_name)
     hits = response[0]
@@ -727,13 +729,6 @@ def _validate_vector_search_hit(
         )
         return
     metric = metric_type.upper().removeprefix("MAX_SIM_")
-    lossy_index = index_type.upper() in {
-        "IVF_PQ",
-        "IVF_SQ8",
-        "HNSW_SQ",
-        "IVF_RABITQ",
-        "SCANN",
-    }
     max_distance = 0.5 if lossy_index and metric == "L2" else 1e-3
     min_score = 0.5 if lossy_index and metric in {"COSINE", "IP"} else 0.9
     if metric in {"L2", "HAMMING", "JACCARD"} and distance < 0:
@@ -888,6 +883,7 @@ def _validate_index_searches(
                 metric_type,
                 report,
                 index_type=index.index_type,
+                lossy_index=approximate_recall_index(spec, index.field),
             )
             searches += 1
         except Exception as exc:
