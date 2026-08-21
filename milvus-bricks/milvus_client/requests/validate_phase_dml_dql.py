@@ -49,7 +49,10 @@ from milvus_client.common.workload import (
     metric_type_for_field,
     search_params_for_field,
 )
-from milvus_client.common.version import server_version_for_feature_detection
+from milvus_client.common.version import (
+    diskann_max_sim_cached_distance_bug,
+    server_version_for_feature_detection,
+)
 from milvus_client.requests.validate_index_compatibility import (
     indexed_scalar_indexes,
     scalar_index_filter_for_value,
@@ -542,6 +545,7 @@ def _validate_phase_search_hit(
     index_type: str,
     report: ValidationReport,
     lossy_index: bool = False,
+    diskann_max_sim_bug: bool = False,
 ) -> None:
     assert_search_result(result, target_collection, field_name)
     hits = result[0]
@@ -630,17 +634,20 @@ def _validate_phase_search_hit(
             max_distance=max_distance,
         )
     if metric in {"COSINE", "IP", "MHJACCARD"} and distance < min_score:
-        report.fail(
-            PHASE_DQL_FAILED,
-            "phase vector self-search score is lower than expected",
-            collection=target_collection,
-            field=field_name,
-            expected_pk=expected_pk,
-            metric_type=metric_type,
-            index_type=index_type,
-            distance=distance,
-            min_score=min_score,
-        )
+        if diskann_max_sim_bug and index_type.upper() == "DISKANN" and distance < 0:
+            report.metrics["diskann_max_sim_negative_score_known"] = True
+        else:
+            report.fail(
+                PHASE_DQL_FAILED,
+                "phase vector self-search score is lower than expected",
+                collection=target_collection,
+                field=field_name,
+                expected_pk=expected_pk,
+                metric_type=metric_type,
+                index_type=index_type,
+                distance=distance,
+                min_score=min_score,
+            )
 
 
 def _run_searches(
@@ -652,6 +659,7 @@ def _run_searches(
     report: ValidationReport,
     expected_pk: Any = _EXPECTED_PK_UNSET,
     apply_update: bool = False,
+    diskann_max_sim_bug: bool = False,
 ) -> int:
     searches = 0
     primary = _primary_field(spec)
@@ -705,6 +713,7 @@ def _run_searches(
                 index_type_for_field(spec, field_name),
                 report,
                 lossy_index=approximate_recall_index(spec, field_name),
+                diskann_max_sim_bug=diskann_max_sim_bug,
             )
             searches += 1
         except Exception as exc:
@@ -914,6 +923,7 @@ def _run_existing_collection_dml_dql(
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
+    diskann_max_sim_bug = diskann_max_sim_cached_distance_bug(server_version or "")
     metrics: dict[str, Any] = {
         "collection": target_collection,
         "schema_name": spec.name,
@@ -1112,6 +1122,7 @@ def _run_existing_collection_dml_dql(
         report,
         expected_pk=search_probe_pk,
         apply_update=not auto_id_enabled(spec),
+        diskann_max_sim_bug=diskann_max_sim_bug,
     )
     metrics["scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
         client,
@@ -1142,6 +1153,7 @@ def _run_existing_collection_dml_dql(
         report,
         seed,
         metric_prefix="phase_reload",
+        diskann_max_sim_bug=diskann_max_sim_bug,
     )
     metrics["reload_scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
         client,
@@ -1173,6 +1185,7 @@ def _run_new_collection_dml_dql(
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
+    diskann_max_sim_bug = diskann_max_sim_cached_distance_bug(server_version or "")
     metrics: dict[str, Any] = {
         "collection": target_collection,
         "schema_name": spec.name,
@@ -1281,6 +1294,7 @@ def _run_new_collection_dml_dql(
         search_probe_data_pk,
         report,
         expected_pk=search_probe_pk,
+        diskann_max_sim_bug=diskann_max_sim_bug,
     )
     metrics["scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
         client,
@@ -1311,6 +1325,7 @@ def _run_new_collection_dml_dql(
         report,
         seed,
         metric_prefix="phase_reload",
+        diskann_max_sim_bug=diskann_max_sim_bug,
     )
     metrics["reload_scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
         client,
@@ -1357,6 +1372,7 @@ def _validate_existing_phase_checkpoint_collection(
     seed: int,
     *,
     metric_prefix: str = "phase_checkpoint",
+    diskann_max_sim_bug: bool = False,
 ) -> int:
     collection = checkpoint["collection"]
     primary_name = checkpoint["primary_field"]
@@ -1424,6 +1440,7 @@ def _validate_existing_phase_checkpoint_collection(
             report,
             expected_pk=search_probe_pk,
             apply_update=not auto_id_enabled(spec),
+            diskann_max_sim_bug=diskann_max_sim_bug,
         )
     return searches
 
@@ -1436,6 +1453,7 @@ def _validate_new_phase_checkpoint_collection(
     seed: int,
     *,
     metric_prefix: str = "phase_checkpoint",
+    diskann_max_sim_bug: bool = False,
 ) -> int:
     collection = checkpoint["collection"]
     primary_name = checkpoint["primary_field"]
@@ -1489,6 +1507,7 @@ def _validate_new_phase_checkpoint_collection(
             search_probe_data_pk,
             report,
             expected_pk=search_probe_pk,
+            diskann_max_sim_bug=diskann_max_sim_bug,
         )
     return searches
 
@@ -2173,6 +2192,7 @@ def _validate_phase_checkpoint_before_rollback(
         "phase_checkpoint_reload_collections_total": 0,
         "phase_checkpoint_reload_failures_total": 0,
     }
+    diskann_max_sim_bug = diskann_max_sim_cached_distance_bug(server_version or "")
     if not path.exists():
         report.fail(
             PHASE_CHECKPOINT_NOT_FOUND,
@@ -2224,7 +2244,8 @@ def _validate_phase_checkpoint_before_rollback(
         metrics["phase_checkpoint_reload_collections_total"] += 1
         metrics["phase_checkpoint_searches_total"] += (
             _validate_existing_phase_checkpoint_collection(
-                client, spec, collection_checkpoint, report, seed
+                client, spec, collection_checkpoint, report, seed,
+                diskann_max_sim_bug=diskann_max_sim_bug,
             )
         )
         scalar_queries = _validate_phase_checkpoint_scalar_indexes(
@@ -2262,7 +2283,8 @@ def _validate_phase_checkpoint_before_rollback(
         metrics["phase_checkpoint_reload_collections_total"] += 1
         metrics["phase_checkpoint_searches_total"] += (
             _validate_new_phase_checkpoint_collection(
-                client, spec, collection_checkpoint, report, seed + 17
+                client, spec, collection_checkpoint, report, seed + 17,
+                diskann_max_sim_bug=diskann_max_sim_bug,
             )
         )
         scalar_queries = _validate_phase_checkpoint_scalar_indexes(

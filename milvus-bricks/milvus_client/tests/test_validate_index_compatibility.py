@@ -2022,6 +2022,41 @@ def test_lossy_l2_index_allows_bounded_self_search_quantization_error():
     assert exact.failures[0]["max_distance"] == 1e-3
 
 
+def test_diskann_max_sim_negative_score_skipped_on_v3_0_0_baseline_bug():
+    known = ValidationReport()
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": 0, "distance": -0.999978244304657}]],
+        "qa_diskann",
+        "embeddings[vector]",
+        "id",
+        0,
+        None,
+        "MAX_SIM_COSINE",
+        known,
+        index_type="DISKANN",
+        diskann_max_sim_bug=True,
+    )
+
+    regressed = ValidationReport()
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": 0, "distance": -0.999978244304657}]],
+        "qa_diskann",
+        "embeddings[vector]",
+        "id",
+        0,
+        None,
+        "MAX_SIM_COSINE",
+        regressed,
+        index_type="DISKANN",
+        diskann_max_sim_bug=False,
+    )
+
+    assert known.passed
+    assert known.metrics.get("diskann_max_sim_negative_score_known") is True
+    assert not regressed.passed
+    assert regressed.failures[0]["type"] == "INDEX_SEARCH_FAILED"
+
+
 def test_describe_index_preserves_top_level_compatibility_params():
     class Client:
         def describe_index(self, **kwargs):

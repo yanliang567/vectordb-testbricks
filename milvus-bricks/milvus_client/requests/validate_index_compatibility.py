@@ -43,6 +43,7 @@ from milvus_client.common.workload import (
     search_params_for_field,
 )
 from milvus_client.common.version import (
+    diskann_max_sim_cached_distance_bug,
     server_version_for_feature_detection,
     version_at_least,
 )
@@ -665,6 +666,7 @@ def _validate_vector_search_hit(
     report: ValidationReport,
     index_type: str = "",
     lossy_index: bool = False,
+    diskann_max_sim_bug: bool = False,
 ) -> None:
     assert_search_result(response, collection, field_name)
     hits = response[0]
@@ -773,18 +775,21 @@ def _validate_vector_search_hit(
             actual_hits=actual_hits,
         )
     if metric in {"COSINE", "IP"} and distance < min_score:
-        report.fail(
-            INDEX_SEARCH_FAILED,
-            "indexed vector self-search score is lower than expected",
-            collection=collection,
-            field=field_name,
-            metric_type=metric_type,
-            index_type=index_type,
-            expected_pk=expected_pk,
-            distance=distance,
-            min_score=min_score,
-            actual_hits=actual_hits,
-        )
+        if diskann_max_sim_bug and index_type.upper() == "DISKANN" and distance < 0:
+            report.metrics["diskann_max_sim_negative_score_known"] = True
+        else:
+            report.fail(
+                INDEX_SEARCH_FAILED,
+                "indexed vector self-search score is lower than expected",
+                collection=collection,
+                field=field_name,
+                metric_type=metric_type,
+                index_type=index_type,
+                expected_pk=expected_pk,
+                distance=distance,
+                min_score=min_score,
+                actual_hits=actual_hits,
+            )
 
 
 def _vector_index_probe(
@@ -842,6 +847,7 @@ def _validate_index_searches(
     meta: dict[str, Any],
     seed: int,
     report: ValidationReport,
+    diskann_max_sim_bug: bool = False,
 ) -> int:
     searches = 0
     primary = _primary_field(spec)
@@ -884,6 +890,7 @@ def _validate_index_searches(
                 report,
                 index_type=index.index_type,
                 lossy_index=approximate_recall_index(spec, index.field),
+                diskann_max_sim_bug=diskann_max_sim_bug,
             )
             searches += 1
         except Exception as exc:
@@ -1251,6 +1258,7 @@ def main(argv: list[str] | None = None) -> int:
             "server_version": actual_server_version,
             "effective_server_version": server_version,
         }
+        diskann_max_sim_bug = diskann_max_sim_cached_distance_bug(server_version)
         report = ValidationReport()
         output_checkpoint = {
             "version": 1,
@@ -1366,6 +1374,7 @@ def main(argv: list[str] | None = None) -> int:
                     meta,
                     args.seed,
                     report,
+                    diskann_max_sim_bug=diskann_max_sim_bug,
                 )
                 metrics["searches_total"] += vector_searches
                 metrics[f"{collection_metric_prefix}vector_searches_total"] = (
@@ -1405,6 +1414,7 @@ def main(argv: list[str] | None = None) -> int:
                     meta,
                     args.seed,
                     report,
+                    diskann_max_sim_bug=diskann_max_sim_bug,
                 )
                 metrics["reload_searches_total"] += reload_vector_searches
                 metrics[f"{collection_metric_prefix}reload_vector_searches_total"] = (

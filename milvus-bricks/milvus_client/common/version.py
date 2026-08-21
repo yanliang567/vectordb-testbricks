@@ -124,3 +124,18 @@ def is_daily_build_image(image: str) -> bool:
     if tag is None:
         return False
     return DAILY_BUILD_TAG.fullmatch(tag) is not None
+
+
+def diskann_max_sim_cached_distance_bug(server_version: str) -> bool:
+    """Return True when the server ships the Knowhere cached-DiskANN-distance
+    sign bug (milvus#52338): DISKANN self-match scores for MAX_SIM metrics are
+    returned with a negative sign. Present in the released v3.0.0 baseline and
+    pre-fix 3.0 daily builds; fixed in the 3.0 branch via the Knowhere bump
+    #52457 (ships in 3.0.1)."""
+    try:
+        core = version_core(server_version)
+    except ValueError:
+        return False
+    if core != (3, 0, 0):
+        return False
+    return not bool(DAILY_BUILD_TAG.fullmatch(str(server_version).strip()))
