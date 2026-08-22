@@ -775,7 +775,12 @@ def _validate_vector_search_hit(
             actual_hits=actual_hits,
         )
     if metric in {"COSINE", "IP"} and distance < min_score:
-        if diskann_max_sim_bug and index_type.upper() == "DISKANN" and distance < 0:
+        if (
+            diskann_max_sim_bug
+            and index_type.upper() == "DISKANN"
+            and metric_type.upper().startswith("MAX_SIM_")
+            and distance < 0
+        ):
             report.metrics["diskann_max_sim_negative_score_known"] = True
         else:
             report.fail(
@@ -1258,7 +1263,9 @@ def main(argv: list[str] | None = None) -> int:
             "server_version": actual_server_version,
             "effective_server_version": server_version,
         }
-        diskann_max_sim_bug = diskann_max_sim_cached_distance_bug(server_version)
+        diskann_max_sim_bug = diskann_max_sim_cached_distance_bug(
+            args.expected_server_image
+        )
         report = ValidationReport()
         output_checkpoint = {
             "version": 1,

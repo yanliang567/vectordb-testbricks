@@ -109,16 +109,16 @@ def test_is_daily_build_image_rejects_release_and_mutable_tags(image):
 
 
 @pytest.mark.parametrize(
-    ("version", "expected"),
+    ("image", "expected"),
     [
-        ("3.0.0", True),
-        ("v3.0.0", True),
-        ("3.0-20260820-c390ccde", False),
-        ("2.6.18", False),
-        ("master", False),
+        ("harbor.milvus.io/milvusdb/milvus:v3.0.0", True),
+        ("harbor.milvus.io/milvusdb/milvus:v3.0.0@sha256:" + "c" * 64, True),
+        ("harbor.milvus.io/milvusdb/milvus:3.0-20260820-c390ccde", False),
+        ("harbor.milvus.io/milvusdb/milvus:v2.6.18", False),
+        ("", False),
     ],
 )
-def test_diskann_max_sim_cached_distance_bug_marks_released_v3_0_0_only(
-    version, expected
+def test_diskann_max_sim_cached_distance_bug_marks_released_v3_0_0_image_only(
+    image, expected
 ):
-    assert diskann_max_sim_cached_distance_bug(version) is expected
+    assert diskann_max_sim_cached_distance_bug(image) is expected

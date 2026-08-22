@@ -2057,6 +2057,26 @@ def test_diskann_max_sim_negative_score_skipped_on_v3_0_0_baseline_bug():
     assert regressed.failures[0]["type"] == "INDEX_SEARCH_FAILED"
 
 
+def test_diskann_non_max_sim_negative_score_still_fails_on_v3_0_0_baseline():
+    cosine = ValidationReport()
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": 0, "distance": -0.999978244304657}]],
+        "qa_diskann_cosine",
+        "embeddings[vector]",
+        "id",
+        0,
+        None,
+        "COSINE",
+        cosine,
+        index_type="DISKANN",
+        diskann_max_sim_bug=True,
+    )
+
+    assert not cosine.passed
+    assert cosine.failures[0]["type"] == "INDEX_SEARCH_FAILED"
+    assert "diskann_max_sim_negative_score_known" not in cosine.metrics
+
+
 def test_describe_index_preserves_top_level_compatibility_params():
     class Client:
         def describe_index(self, **kwargs):

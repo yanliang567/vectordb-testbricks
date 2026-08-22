@@ -634,7 +634,12 @@ def _validate_phase_search_hit(
             max_distance=max_distance,
         )
     if metric in {"COSINE", "IP", "MHJACCARD"} and distance < min_score:
-        if diskann_max_sim_bug and index_type.upper() == "DISKANN" and distance < 0:
+        if (
+            diskann_max_sim_bug
+            and index_type.upper() == "DISKANN"
+            and metric_type.upper().startswith("MAX_SIM_")
+            and distance < 0
+        ):
             report.metrics["diskann_max_sim_negative_score_known"] = True
         else:
             report.fail(
@@ -920,10 +925,10 @@ def _run_existing_collection_dml_dql(
     reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
     reload_maintenance_label: str = "phase-dml-dql-reload",
     server_version: str | None = None,
+    diskann_max_sim_bug: bool = False,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
-    diskann_max_sim_bug = diskann_max_sim_cached_distance_bug(server_version or "")
     metrics: dict[str, Any] = {
         "collection": target_collection,
         "schema_name": spec.name,
@@ -1182,10 +1187,10 @@ def _run_new_collection_dml_dql(
     reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
     reload_maintenance_label: str = "phase-dml-dql-reload",
     server_version: str | None = None,
+    diskann_max_sim_bug: bool = False,
 ) -> dict[str, Any]:
     primary = _primary_field(spec)
     primary_name = primary.name if primary is not None else "id"
-    diskann_max_sim_bug = diskann_max_sim_cached_distance_bug(server_version or "")
     metrics: dict[str, Any] = {
         "collection": target_collection,
         "schema_name": spec.name,
@@ -2182,6 +2187,7 @@ def _validate_phase_checkpoint_before_rollback(
     expected_new_collection_rows: int,
     reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
     server_version: str | None = None,
+    diskann_max_sim_bug: bool = False,
 ) -> dict[str, Any]:
     metrics = {
         "phase_checkpoint_validated": False,
@@ -2192,7 +2198,6 @@ def _validate_phase_checkpoint_before_rollback(
         "phase_checkpoint_reload_collections_total": 0,
         "phase_checkpoint_reload_failures_total": 0,
     }
-    diskann_max_sim_bug = diskann_max_sim_cached_distance_bug(server_version or "")
     if not path.exists():
         report.fail(
             PHASE_CHECKPOINT_NOT_FOUND,
@@ -2356,6 +2361,9 @@ def main(argv: list[str] | None = None) -> int:
             "server_version": actual_server_version,
             "effective_server_version": server_version,
         }
+        diskann_max_sim_bug = diskann_max_sim_cached_distance_bug(
+            args.expected_server_image
+        )
         report = ValidationReport()
         metrics: dict[str, Any] = {
             "phase": args.phase,
@@ -2411,6 +2419,7 @@ def main(argv: list[str] | None = None) -> int:
                     expected_new_collection_rows=args.new_collection_rows,
                     reload_timeout_sec=args.reload_timeout_sec,
                     server_version=server_version,
+                    diskann_max_sim_bug=diskann_max_sim_bug,
                 )
             )
             if not report.passed:
@@ -2446,6 +2455,7 @@ def main(argv: list[str] | None = None) -> int:
                 reload_timeout_sec=args.reload_timeout_sec,
                 reload_maintenance_label=f"phase-dml-dql-reload-{args.phase}",
                 server_version=server_version,
+                diskann_max_sim_bug=diskann_max_sim_bug,
             )
             metrics["existing_collections"].append(existing_metrics)
             metrics["existing_inserted_total"] += existing_metrics["inserted"]
@@ -2481,6 +2491,7 @@ def main(argv: list[str] | None = None) -> int:
                     reload_timeout_sec=args.reload_timeout_sec,
                     reload_maintenance_label=f"phase-dml-dql-reload-{args.phase}",
                     server_version=server_version,
+                    diskann_max_sim_bug=diskann_max_sim_bug,
                 )
                 metrics["carried_collections"].append(carried_metrics)
                 metrics["carried_inserted_total"] += carried_metrics["inserted"]
@@ -2508,6 +2519,7 @@ def main(argv: list[str] | None = None) -> int:
                 reload_timeout_sec=args.reload_timeout_sec,
                 reload_maintenance_label=f"phase-dml-dql-reload-{args.phase}",
                 server_version=server_version,
+                diskann_max_sim_bug=diskann_max_sim_bug,
             )
             metrics["new_collections"].append(new_metrics)
             metrics["new_collection_inserted_total"] += new_metrics["inserted"]
