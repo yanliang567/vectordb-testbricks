@@ -2249,7 +2249,11 @@ def _validate_phase_checkpoint_before_rollback(
         metrics["phase_checkpoint_reload_collections_total"] += 1
         metrics["phase_checkpoint_searches_total"] += (
             _validate_existing_phase_checkpoint_collection(
-                client, spec, collection_checkpoint, report, seed,
+                client,
+                spec,
+                collection_checkpoint,
+                report,
+                seed,
                 diskann_max_sim_bug=diskann_max_sim_bug,
             )
         )
@@ -2288,7 +2292,11 @@ def _validate_phase_checkpoint_before_rollback(
         metrics["phase_checkpoint_reload_collections_total"] += 1
         metrics["phase_checkpoint_searches_total"] += (
             _validate_new_phase_checkpoint_collection(
-                client, spec, collection_checkpoint, report, seed + 17,
+                client,
+                spec,
+                collection_checkpoint,
+                report,
+                seed + 17,
                 diskann_max_sim_bug=diskann_max_sim_bug,
             )
         )
