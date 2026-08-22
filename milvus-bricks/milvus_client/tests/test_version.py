@@ -1,6 +1,7 @@
 import pytest
 
 from milvus_client.common.version import (
+    diskann_max_sim_cached_distance_bug,
     image_is_immutable,
     is_daily_build_image,
     server_version_for_feature_detection,
@@ -105,3 +106,19 @@ def test_is_daily_build_image_matches_daily_build_tags(image):
 )
 def test_is_daily_build_image_rejects_release_and_mutable_tags(image):
     assert is_daily_build_image(image) is False
+
+
+@pytest.mark.parametrize(
+    ("image", "expected"),
+    [
+        ("harbor.milvus.io/milvusdb/milvus:v3.0.0", True),
+        ("harbor.milvus.io/milvusdb/milvus:v3.0.0@sha256:" + "c" * 64, True),
+        ("harbor.milvus.io/milvusdb/milvus:3.0-20260820-c390ccde", False),
+        ("harbor.milvus.io/milvusdb/milvus:v2.6.18", False),
+        ("", False),
+    ],
+)
+def test_diskann_max_sim_cached_distance_bug_marks_released_v3_0_0_image_only(
+    image, expected
+):
+    assert diskann_max_sim_cached_distance_bug(image) is expected

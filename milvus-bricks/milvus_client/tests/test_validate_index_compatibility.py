@@ -2001,6 +2001,7 @@ def test_lossy_l2_index_allows_bounded_self_search_quantization_error():
         "L2",
         lossy,
         index_type="IVF_PQ",
+        lossy_index=True,
     )
 
     exact = ValidationReport()
@@ -2019,6 +2020,61 @@ def test_lossy_l2_index_allows_bounded_self_search_quantization_error():
     assert lossy.passed
     assert not exact.passed
     assert exact.failures[0]["max_distance"] == 1e-3
+
+
+def test_diskann_max_sim_negative_score_skipped_on_v3_0_0_baseline_bug():
+    known = ValidationReport()
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": 0, "distance": -0.999978244304657}]],
+        "qa_diskann",
+        "embeddings[vector]",
+        "id",
+        0,
+        None,
+        "MAX_SIM_COSINE",
+        known,
+        index_type="DISKANN",
+        diskann_max_sim_bug=True,
+    )
+
+    regressed = ValidationReport()
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": 0, "distance": -0.999978244304657}]],
+        "qa_diskann",
+        "embeddings[vector]",
+        "id",
+        0,
+        None,
+        "MAX_SIM_COSINE",
+        regressed,
+        index_type="DISKANN",
+        diskann_max_sim_bug=False,
+    )
+
+    assert known.passed
+    assert known.metrics.get("diskann_max_sim_negative_score_known") is True
+    assert not regressed.passed
+    assert regressed.failures[0]["type"] == "INDEX_SEARCH_FAILED"
+
+
+def test_diskann_non_max_sim_negative_score_still_fails_on_v3_0_0_baseline():
+    cosine = ValidationReport()
+    validate_index_compatibility._validate_vector_search_hit(
+        [[{"id": 0, "distance": -0.999978244304657}]],
+        "qa_diskann_cosine",
+        "embeddings[vector]",
+        "id",
+        0,
+        None,
+        "COSINE",
+        cosine,
+        index_type="DISKANN",
+        diskann_max_sim_bug=True,
+    )
+
+    assert not cosine.passed
+    assert cosine.failures[0]["type"] == "INDEX_SEARCH_FAILED"
+    assert "diskann_max_sim_negative_score_known" not in cosine.metrics
 
 
 def test_describe_index_preserves_top_level_compatibility_params():

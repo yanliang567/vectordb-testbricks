@@ -37,6 +37,7 @@ from milvus_client.common.validators import (
     query_count,
 )
 from milvus_client.common.workload import (
+    approximate_recall_index,
     metric_type_for_field,
     primary_field,
     search_params_for_field,
@@ -525,17 +526,11 @@ def _assert_metric_self_match(
     metric_type: str,
     index_type: str,
     distance: float,
+    lossy_index: bool = False,
 ) -> None:
     metric = metric_type.upper().removeprefix("MAX_SIM_")
     if metric == "BM25":
         return
-    lossy_index = index_type.upper() in {
-        "IVF_PQ",
-        "IVF_SQ8",
-        "HNSW_SQ",
-        "IVF_RABITQ",
-        "SCANN",
-    }
     if metric in {"L2", "HAMMING", "JACCARD"}:
         max_distance = 0.5 if lossy_index and metric == "L2" else 1e-3
         if distance < 0 or distance > max_distance:
@@ -624,6 +619,7 @@ def _validate_search_probe(
         metric_type,
         index_type,
         distance,
+        lossy_index=approximate_recall_index(spec, field_name),
     )
     return {
         "field": field_name,

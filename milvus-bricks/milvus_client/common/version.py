@@ -124,3 +124,18 @@ def is_daily_build_image(image: str) -> bool:
     if tag is None:
         return False
     return DAILY_BUILD_TAG.fullmatch(tag) is not None
+
+
+def diskann_max_sim_cached_distance_bug(expected_server_image: str) -> bool:
+    """Return True when the server image is the released v3.0.0 baseline, which
+    ships the Knowhere cached-DiskANN-distance sign bug (milvus#52338): DISKANN
+    self-match scores for MAX_SIM metrics are returned with a negative sign.
+
+    The bug is fixed in the 3.0 branch via the Knowhere bump #52457 (ships in
+    3.0.1), so daily/branch build images are treated as fixed. Gating on the
+    image tag rather than the runtime version string avoids the ambiguity where
+    a daily build may still report the base 3.0.0 version."""
+    tag = image_tag(expected_server_image)
+    if tag is None:
+        return False
+    return tag.lstrip("v") == "3.0.0"
