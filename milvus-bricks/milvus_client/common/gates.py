@@ -481,7 +481,7 @@ def validate_gate_manifest(
                 "when classification is negative"
             )
         classification = str(scenario.get("classification"))
-        if classification not in {"gate", "candidate", "negative"}:
+        if classification not in {"gate", "candidate", "negative", "known_limitation"}:
             raise ValueError(
                 f"{source}: scenario {scenario_id} has unsupported classification "
                 f"{classification!r}"
