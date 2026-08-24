@@ -10,7 +10,7 @@ Milvus v3.0.0（已发布、不可变）在嵌套 struct-array 子字段的 HYBR
 
 ## 受影响的 gate 场景
 
-以下两个场景回滚目标是 v3.0.0，且 schema 使用含 struct-array HYBRID 标量索引的 2.6 matrix，因此被标记为 `known_limitation`（`release_gate_eligible=false`），不作为发布阻塞项：
+以下两个场景回滚目标是 v3.0.0，且 schema 使用含 struct-array HYBRID 标量索引的 2.6 matrix，因此被标记为 `classification: known_limitation` + `support_status: unsupported`（`release_gate_eligible=false`），不作为发布阻塞项：
 
 - `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline`（#52768）
 - `cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline`（#52341）

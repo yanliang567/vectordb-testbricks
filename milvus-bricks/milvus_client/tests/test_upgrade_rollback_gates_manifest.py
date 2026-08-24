@@ -617,13 +617,15 @@ def test_cluster_target_only_feature_gate_contract():
     assert scenario["rollback_forward_validation_enabled"] is False
 
 
-def test_cluster_json_shredding_gate_writes_forward_data_after_config_toggle():
+def test_cluster_json_shredding_known_limitation_writes_forward_data_after_config_toggle():
     manifest = _manifest()
     scenario = resolve_gate_scenario(
         manifest,
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
     )
 
+    assert scenario["classification"] == "known_limitation"
+    assert scenario["support_status"] == "unsupported"
     assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
     assert scenario["base"]["json_shredding_enabled"] is False
     assert scenario["target"]["json_shredding_enabled"] is False
@@ -1068,7 +1070,7 @@ def test_index_v11_v4_scenarios_pin_runtime_versions_in_every_phase(scenario_id)
     assert parameters["rollback-target-scalar-index-version"] == "4"
 
 
-def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle():
+def test_standalone_json_shredding_known_limitation_writes_forward_data_after_config_toggle():
     manifest = _manifest()
     scenario = resolve_gate_scenario(
         manifest,
@@ -1076,6 +1078,7 @@ def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle(
     )
 
     assert scenario["classification"] == "known_limitation"
+    assert scenario["support_status"] == "unsupported"
     assert scenario["workflow_template"] == ("milvus-standalone-3-0-upgrade-rollback")
     assert scenario["base"]["json_shredding_enabled"] is False
     assert scenario["target"]["json_shredding_enabled"] is False
