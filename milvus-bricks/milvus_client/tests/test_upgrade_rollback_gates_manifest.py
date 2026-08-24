@@ -114,12 +114,14 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "standalone-3-0-index-v10-v4-upgrade-rollback",
+        "standalone-3-0-index-v11-v4-upgrade-rollback",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
         "cluster-3-0-index-v10-v4-upgrade-rollback",
+        "cluster-3-0-index-v11-v4-upgrade-rollback",
     } <= set(scenarios)
     for scenario_id in [
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
@@ -127,12 +129,14 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "standalone-3-0-index-v10-v4-upgrade-rollback",
+        "standalone-3-0-index-v11-v4-upgrade-rollback",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
         "cluster-3-0-index-v10-v4-upgrade-rollback",
+        "cluster-3-0-index-v11-v4-upgrade-rollback",
     ]:
         scenario = scenarios[scenario_id]
         assert scenario["classification"] == "gate"
@@ -279,7 +283,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 10
+    assert len(cluster_scenarios) == 11
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-rollback-2-6-latest"]["deploy_profile"]
@@ -1043,6 +1047,32 @@ def test_index_v10_v4_scenarios_pin_runtime_versions_in_every_phase(scenario_id)
     assert parameters["base-target-vec-index-version"] == "10"
     assert parameters["target-target-vec-index-version"] == "10"
     assert parameters["rollback-target-vec-index-version"] == "10"
+    assert parameters["base-target-scalar-index-version"] == "4"
+    assert parameters["target-target-scalar-index-version"] == "4"
+    assert parameters["rollback-target-scalar-index-version"] == "4"
+
+
+@pytest.mark.parametrize(
+    "scenario_id",
+    [
+        "standalone-3-0-index-v11-v4-upgrade-rollback",
+        "cluster-3-0-index-v11-v4-upgrade-rollback",
+    ],
+)
+def test_index_v11_v4_scenarios_pin_runtime_versions_in_every_phase(scenario_id):
+    manifest = _manifest()
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+    parameters = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+
+    assert scenario["schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_3_0_index_v11_v4.yaml"
+    )
+    for phase in ("base", "target", "rollback"):
+        assert scenario[phase]["target_vec_index_version"] == 11
+        assert scenario[phase]["target_scalar_index_version"] == 4
+    assert parameters["base-target-vec-index-version"] == "11"
+    assert parameters["target-target-vec-index-version"] == "11"
+    assert parameters["rollback-target-vec-index-version"] == "11"
     assert parameters["base-target-scalar-index-version"] == "4"
     assert parameters["target-target-scalar-index-version"] == "4"
     assert parameters["rollback-target-scalar-index-version"] == "4"

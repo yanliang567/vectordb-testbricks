@@ -31,6 +31,7 @@ def test_schema_matrix_manifests_are_valid():
         "schema_matrix_3_0.yaml",
         "schema_matrix_3_0_storage_v3.yaml",
         "schema_matrix_3_0_index_v10_v4.yaml",
+        "schema_matrix_3_0_index_v11_v4.yaml",
         "schema_matrix_json_shredding.yaml",
     ]:
         specs = load_schema_matrix(ROOT / "manifests" / name)

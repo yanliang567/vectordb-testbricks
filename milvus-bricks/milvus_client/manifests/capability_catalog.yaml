@@ -78,3 +78,10 @@ capabilities:
       config_probe: "dataCoord.targetVecIndexVersion=10,dataCoord.targetScalarIndexVersion=4"
     unsupported_behavior: skip
     requires_cluster_admin: true
+
+  - id: IndexEngineV11V4
+    detect:
+      server_version_min: "3.0.0"
+      config_probe: "dataCoord.targetVecIndexVersion=11,dataCoord.targetScalarIndexVersion=4"
+    unsupported_behavior: skip
+    requires_cluster_admin: true
