@@ -112,13 +112,11 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
-        "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "standalone-3-0-index-v10-v4-upgrade-rollback",
         "standalone-3-0-index-v11-v4-upgrade-rollback",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
-        "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
         "cluster-3-0-index-v10-v4-upgrade-rollback",
         "cluster-3-0-index-v11-v4-upgrade-rollback",
@@ -127,13 +125,11 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
-        "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "standalone-3-0-index-v10-v4-upgrade-rollback",
         "standalone-3-0-index-v11-v4-upgrade-rollback",
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
-        "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
         "cluster-3-0-index-v10-v4-upgrade-rollback",
         "cluster-3-0-index-v11-v4-upgrade-rollback",
@@ -283,7 +279,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 11
+    assert len(cluster_scenarios) == 10
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-rollback-2-6-latest"]["deploy_profile"]
@@ -306,12 +302,6 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
             "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline"
         ]["deploy_profile"]
         == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-2cu.yaml"
-    )
-    assert (
-        by_id[
-            "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline"
-        ]["deploy_profile"]
-        == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
     )
     assert (
         by_id["cluster-3-0-index-v10-v4-upgrade-rollback"]["deploy_profile"]
@@ -627,13 +617,15 @@ def test_cluster_target_only_feature_gate_contract():
     assert scenario["rollback_forward_validation_enabled"] is False
 
 
-def test_cluster_json_shredding_gate_writes_forward_data_after_config_toggle():
+def test_cluster_json_shredding_known_limitation_writes_forward_data_after_config_toggle():
     manifest = _manifest()
     scenario = resolve_gate_scenario(
         manifest,
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
     )
 
+    assert scenario["classification"] == "known_limitation"
+    assert scenario["support_status"] == "unsupported"
     assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
     assert scenario["base"]["json_shredding_enabled"] is False
     assert scenario["target"]["json_shredding_enabled"] is False
@@ -1078,14 +1070,15 @@ def test_index_v11_v4_scenarios_pin_runtime_versions_in_every_phase(scenario_id)
     assert parameters["rollback-target-scalar-index-version"] == "4"
 
 
-def test_standalone_json_shredding_gate_writes_forward_data_after_config_toggle():
+def test_standalone_json_shredding_known_limitation_writes_forward_data_after_config_toggle():
     manifest = _manifest()
     scenario = resolve_gate_scenario(
         manifest,
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
     )
 
-    assert scenario["classification"] == "gate"
+    assert scenario["classification"] == "known_limitation"
+    assert scenario["support_status"] == "unsupported"
     assert scenario["workflow_template"] == ("milvus-standalone-3-0-upgrade-rollback")
     assert scenario["base"]["json_shredding_enabled"] is False
     assert scenario["target"]["json_shredding_enabled"] is False

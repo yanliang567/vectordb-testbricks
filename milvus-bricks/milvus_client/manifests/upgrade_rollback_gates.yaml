@@ -278,10 +278,10 @@ scenarios:
       gate_allow_warning: false
 
   - id: standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline
-    description: "3.0 JSON Shredding gate: enable JSON Shredding after upgrade, write dedicated JSON-heavy forward data, then rollback with JSON Shredding enabled and validate that data."
+    description: "3.0 JSON Shredding gate: enable JSON Shredding after upgrade, write dedicated JSON-heavy forward data, then rollback with JSON Shredding enabled and validate that data. Known limitation: rollback to v3.0.0 fails for struct-array HYBRID scalar indexes (milvus-io/milvus#52768), so this scenario is not release-gate eligible."
     mode: standalone
-    classification: gate
-    support_status: supported
+    classification: known_limitation
+    support_status: unsupported
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
     schema_matrix_ref: rollback_safe_base
@@ -420,10 +420,10 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline
-    description: "Cluster-mode JSON Shredding gate: upgrade from the 3.0 baseline, enable JSON Shredding through a post-upgrade Helm rollout, write JSON-heavy forward data, then rollback to the baseline with JSON Shredding still enabled."
+    description: "Cluster-mode JSON Shredding gate: upgrade from the 3.0 baseline, enable JSON Shredding through a post-upgrade Helm rollout, write JSON-heavy forward data, then rollback to the baseline with JSON Shredding still enabled. Known limitation: rollback to v3.0.0 fails for struct-array HYBRID scalar indexes (milvus-io/milvus#52341), so this scenario is not release-gate eligible."
     mode: cluster
-    classification: gate
-    support_status: supported
+    classification: known_limitation
+    support_status: unsupported
     submit_generate_name: c30json-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
