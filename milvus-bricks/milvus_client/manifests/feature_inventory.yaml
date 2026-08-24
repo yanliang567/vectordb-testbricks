@@ -176,6 +176,15 @@ features:
       - validate_index_compatibility
       - validate_schema_features
 
+  - id: index_engine_v11_v4
+    domain: index
+    priority: P1
+    compat_mode: forward_only
+    required_capabilities: ["IndexEngineV11V4"]
+    bricks:
+      - validate_index_compatibility
+      - validate_schema_features
+
   - id: storage_v3
     domain: storage
     priority: P2

@@ -31,6 +31,7 @@ def test_schema_matrix_manifests_are_valid():
         "schema_matrix_3_0.yaml",
         "schema_matrix_3_0_storage_v3.yaml",
         "schema_matrix_3_0_index_v10_v4.yaml",
+        "schema_matrix_3_0_index_v11_v4.yaml",
         "schema_matrix_json_shredding.yaml",
     ]:
         specs = load_schema_matrix(ROOT / "manifests" / name)
@@ -390,12 +391,9 @@ def test_schema_matrix_3_0_covers_forward_schema_evolution_shapes():
     assert struct_indexes["attributes[tag_bitmap]"] == "BITMAP"
 
 
-def test_storage_v3_and_index_version_matrices_cover_promoted_features():
+def test_storage_v3_matrix_covers_text_lob_features():
     storage_specs = load_schema_matrix(
         ROOT / "manifests" / "schema_matrix_3_0_storage_v3.yaml"
-    )
-    index_specs = load_schema_matrix(
-        ROOT / "manifests" / "schema_matrix_3_0_index_v10_v4.yaml"
     )
 
     text_spec = storage_specs[0]
@@ -412,6 +410,17 @@ def test_storage_v3_and_index_version_matrices_cover_promoted_features():
         and index.metric_type == "BM25"
         for index in text_spec.indexes
     )
+
+
+@pytest.mark.parametrize(
+    "matrix",
+    [
+        "schema_matrix_3_0_index_v10_v4.yaml",
+        "schema_matrix_3_0_index_v11_v4.yaml",
+    ],
+)
+def test_index_version_matrices_cover_promoted_algorithms(matrix):
+    index_specs = load_schema_matrix(ROOT / "manifests" / matrix)
 
     index_types = {index.index_type for spec in index_specs for index in spec.indexes}
     algorithms = {
