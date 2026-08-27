@@ -729,8 +729,24 @@ spec:
                     --evolution-checkpoint-file /tmp/milvus-bricks/checkpoints/forward/schema_evolution.json
                     --function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}
 
-          - name: drop-forward-schema
+          - name: drop-phase-new-collections
             dependencies: [schema-evolution-forward, pressure-daemon]
+            when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.index-engine-contract-mode}} == target_only"
+            template: run-brick
+            arguments:
+              parameters:
+                - name: brick-name
+                  value: drop_phase_new_collections
+                - name: module
+                  value: milvus_client.requests.drop_schema_matrix
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}_after_upgrade"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+
+          - name: drop-forward-schema
+            dependencies: [drop-phase-new-collections, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
             template: optional-run-brick
             arguments:
@@ -941,6 +957,7 @@ spec:
                     --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
                     --phase-checkpoint-file /tmp/milvus-bricks/checkpoints/phase_dml_dql_after_upgrade.json
                     --validate-phase-checkpoint true
+                    --phase-checkpoint-new-collections-contract {{workflow.parameters.index-engine-contract-mode}}
                     --phase after-rollback
                     --new-collection-prefix {{workflow.parameters.collection-prefix}}_after_rollback
                     --carried-collection-prefix {{workflow.parameters.collection-prefix}}_after_upgrade

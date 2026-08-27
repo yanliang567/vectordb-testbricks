@@ -92,6 +92,54 @@ def test_upgrade_rollback_templates_report_index_engine_contract(filename):
         "cluster-upgrade-rollback.yaml",
     ],
 )
+def test_target_only_contract_removes_phase_new_collections_before_rollback(filename):
+    template = yaml.safe_load((ROOT / "argo" / filename).read_text())
+    main = next(
+        item for item in template["spec"]["templates"] if item["name"] == "main"
+    )
+    tasks = {task["name"]: task for task in main["dag"]["tasks"]}
+
+    drop_phase = tasks["drop-phase-new-collections"]
+    assert drop_phase["dependencies"] == ["schema-evolution-forward", "pressure-daemon"]
+    assert drop_phase["when"] == (
+        "{{workflow.parameters.rollback-enabled}} == true && "
+        "{{workflow.parameters.index-engine-contract-mode}} == target_only"
+    )
+    drop_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in drop_phase["arguments"]["parameters"]
+    }
+    assert drop_args["module"] == "milvus_client.requests.drop_schema_matrix"
+    assert (
+        drop_args["collection-prefix"]
+        == "{{workflow.parameters.collection-prefix}}_after_upgrade"
+    )
+    assert "--schema-matrix {{workflow.parameters.schema-matrix}}" in drop_args["args"]
+    assert tasks["drop-forward-schema"]["dependencies"] == [
+        "drop-phase-new-collections",
+        "pressure-daemon",
+    ]
+
+    rollback_args = {
+        parameter["name"]: parameter["value"]
+        for parameter in tasks["validate-phase-dml-dql-after-rollback"]["arguments"][
+            "parameters"
+        ]
+    }
+    assert (
+        "--phase-checkpoint-new-collections-contract "
+        "{{workflow.parameters.index-engine-contract-mode}}" in rollback_args["args"]
+    )
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
 def test_brick_templates_print_result_json_before_propagating_failure(filename):
     template = yaml.safe_load((ROOT / "argo" / filename).read_text())
     templates = {item["name"]: item for item in template["spec"]["templates"]}
@@ -2581,6 +2629,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "validate-forward-indexes-after-upgrade",
         "validate-forward-schema-features-after-upgrade",
         "schema-evolution-forward",
+        "drop-phase-new-collections",
         "observe-before-rollback",
         "strict-pressure-before-rollback",
         "patch-rollback",
@@ -2666,6 +2715,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "validate-forward-indexes-after-upgrade",
         "validate-forward-schema-features-after-upgrade",
         "schema-evolution-forward",
+        "drop-phase-new-collections",
         "observe-before-rollback",
         "patch-rollback",
         "wait-rollback-ready",
@@ -2721,7 +2771,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     ]
     assert tasks["schema-evolution-forward"]["template"] == "optional-run-brick"
     assert tasks["drop-forward-schema"]["dependencies"] == [
-        "schema-evolution-forward",
+        "drop-phase-new-collections",
         "pressure-daemon",
     ]
     assert tasks["drop-forward-schema"]["template"] == "optional-run-brick"
