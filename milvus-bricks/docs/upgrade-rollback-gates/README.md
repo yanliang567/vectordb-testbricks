@@ -5,10 +5,11 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 ## Current scenario set
 
-The manifest currently registers 24 scenarios:
+The manifest currently registers 26 scenarios:
 
 - 21 promoted gate scenarios
 - 2 pre-release candidate scenarios
+- 2 known-limitation scenarios
 - 1 negative coverage scenario
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
@@ -19,13 +20,15 @@ The manifest currently registers 24 scenarios:
 | `cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest + 3.0-only forward features -> 2.6 latest` | Forward 3.0 collections are required after upgrade but intentionally excluded from rollback validation. |
 | `standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
 | `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
-| `cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
+| `cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | cluster | known limitation | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
 | `cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` on Woodpecker 2CU | Proxy, QueryNode, DataNode, and StreamingNode must each keep at least two replicas. |
 | `standalone-3-0-vortex-candidate-upgrade-rollback` | standalone | candidate | `earlier reviewed 3.0 candidate -> newer reviewed candidate + LoonFFI/Vortex -> earlier candidate + LoonFFI/Vortex` | Pre-release evidence for the v3.0.1 contract; not a release gate. |
 | `cluster-3-0-vortex-candidate-upgrade-rollback` | cluster | candidate | `earlier reviewed 3.0 candidate -> newer reviewed candidate + LoonFFI/Vortex -> earlier candidate + LoonFFI/Vortex` | Distributed pre-release evidence; not a release gate. |
-| `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
-| `standalone-3-0-index-v10-v4-upgrade-rollback` | standalone | gate | `3.0 baseline + target 10/4 -> 3.0 latest + target 10/4 -> 3.0 baseline + target 10/4` | Runtime target config is checked and SINDI/Block-Max plus JSON scalar index families are executed. |
-| `cluster-3-0-index-v10-v4-upgrade-rollback` | cluster | gate | `3.0 baseline + target 10/4 -> 3.0 latest + target 10/4 -> 3.0 baseline + target 10/4` | Distributed equivalent of the target-version and algorithm-coverage gate. |
+| `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | standalone | known limitation | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
+| `standalone-3-0-index-v10-v4-upgrade-rollback` | standalone | gate | `3.0 baseline rollback-safe matrix -> 3.0 latest + target 10/4 -> 3.0 baseline rollback-safe matrix` | Target-only runtime config and SINDI/Block-Max plus JSON scalar index families are checked; forward collections are dropped before rollback. |
+| `cluster-3-0-index-v10-v4-upgrade-rollback` | cluster | gate | `3.0 baseline rollback-safe matrix -> 3.0 latest + target 10/4 -> 3.0 baseline rollback-safe matrix` | Distributed equivalent of the target-only index engine gate. |
+| `standalone-3-0-index-v11-v4-upgrade-rollback` | standalone | gate | `3.0 baseline rollback-safe matrix -> 3.0 latest + target 11/4 -> 3.0 baseline rollback-safe matrix` | Target-only v11/v4 index engine and algorithm coverage. |
+| `cluster-3-0-index-v11-v4-upgrade-rollback` | cluster | gate | `3.0 baseline rollback-safe matrix -> 3.0 latest + target 11/4 -> 3.0 baseline rollback-safe matrix` | Distributed equivalent of the target-only v11/v4 gate. |
 | `standalone-3-0-loon-vortex-to-2-6-negative` | standalone | negative | `2.6.18 -> 3.0 latest + LoonFFI/Vortex -> 2.6 latest` | Unsupported negative coverage only; not a promoted gate. |
 | `standalone-3-0-1-vortex-self-compat-upgrade-rollback` | standalone | gate | `3.0.1 Vortex -> 3.0.1 Vortex -> 3.0.1 Vortex` | LoonFFI/Vortex enabled in every phase; Vortex TEXT LOB baseline survives the round trip. |
 | `cluster-3-0-1-vortex-self-compat-upgrade-rollback` | cluster | gate | `3.0.1 Vortex -> 3.0.1 Vortex -> 3.0.1 Vortex` | Distributed Vortex baseline self-compatibility. |
@@ -60,6 +63,63 @@ search/query, and schema evolution checks on the target version. They are not
 part of the 2.6 rollback contract; requiring forward rollback validation for
 either gate is rejected by manifest validation.
 
+The v10/v4 and v11/v4 index engine gates follow the same target-only contract.
+Milvus v3.0.0 does not contain the fix tracked by
+[#52767](https://github.com/milvus-io/milvus/issues/52767), so it is not asked to
+create or validate those dedicated index matrices. Base and rollback use the
+rollback-safe matrix with default index engine selection; only the target phase
+sets `dataCoord.targetVecIndexVersion` / `targetScalarIndexVersion`, creates the
+dedicated forward collections, and runs strict index validation. The forward
+collections are dropped before rollback and are intentionally excluded from
+rollback validation, while the rollback-safe collections still validate the
+upgrade and rollback lifecycle.
+
+### Index engine compatibility contracts
+
+Manifest v2 expresses index-engine lifecycle policy with one structured
+`index_engine_contract` instead of independently maintained matrix, phase
+version, drop, and rollback-validation fields. The compiler owns those derived
+fields and rejects a scenario that also declares them directly.
+
+| Contract | Baseline/rollback matrix | Index version phases | Target data after rollback |
+| --- | --- | --- | --- |
+| `target_only` | `rollback_safe_matrix_ref` | target only | dropped before rollback; not required |
+| `round_trip` | `matrix_ref` | base, target, rollback | retained and strictly validated |
+
+Use `target_only` when the exact baseline image has not passed the capability.
+Use `round_trip` only after `capability_qualifications` records `status: passed`
+for the capability, the exact digest-pinned base/rollback image, and the
+scenario's standalone or cluster topology. Evidence must be a stable
+`argo://` workflow reference or `https://` run URL. The renderer fails closed
+if an image override does not match that evidence. A v10 qualification never
+authorizes v11.
+
+A target-only `rollback_safe_matrix_ref` must contain only
+`compat_mode: rollback_safe` schemas and must not require any `IndexEngine*`
+capability. This prevents a matrix for another engine version from being
+misclassified as baseline-safe.
+
+For a patch release, add a version-specific scenario, pin the baseline and
+rollback aliases to the previous supported release digest, qualify each
+capability/topology, and select the contract mode. Do not redefine the two
+contract modes or reuse evidence from another image. Cross-minor releases such
+as 3.0.x to 3.1.0 must additionally review schema/storage format, SDK/config,
+and WorkflowTemplate branch constraints; add a new matrix only when those
+capabilities change.
+
+The renderer always emits protected metadata:
+`index-engine-contract-mode`, `index-engine-capability`, and
+`index-engine-qualification-status`. Non-index scenarios use
+`none/none/not_applicable`. Environment snapshots, flow summaries, cleanup
+fallbacks, and final JSON/Markdown reports preserve these values without using
+them to alter the Argo DAG.
+
+Every registered upgrade/rollback workflow renders `log.level: debug` by
+default through the protected `milvus-log-level` parameter. Operator CR patches
+and Helm `user.yaml` rewrites preserve the value across base, target, optional
+config toggle, and rollback phases. Override it only for a deliberate diagnostic
+run; the code-managed scenario default remains `debug`.
+
 The standalone and cluster JSON Shredding gates both write JSON-heavy forward
 data only after the post-upgrade configuration rollout has enabled JSON
 Shredding. The rollback phase keeps the setting enabled and requires the
@@ -87,6 +147,8 @@ The regular matrices include the promoted type/index coverage:
   exact engine version selected by Milvus after its version resolution/clamp
   logic, so execution reports must preserve DataNode index-build logs as
   supplementary evidence rather than claim exact `10/4` builds automatically.
+- `schema_matrix_3_0_index_v11_v4.yaml`: the corresponding target-only v11/v4
+  matrix; it follows the same evidence and rollback-isolation policy.
 
 The Woodpecker 2CU gate reuses the cluster Helm rolling upgrade workflow with
 a multi-replica data plane. Its scenario contract rejects deploy-profile
@@ -103,7 +165,11 @@ For normal branch or version updates, start here:
    - `image_aliases`: concrete image tags and logical versions.
    - `scenarios`: path definitions, workflow template selection, deploy profile,
      schema matrix, storage feature flags, and validation policy.
-   - `defaults`: common workload sizes and validation toggles.
+   - `defaults`: common workload sizes, validation toggles, and the default
+     `milvus_log_level: debug` setting.
+   - `index_engine_contract`: capability lifecycle policy for an index scenario.
+   - `capability_qualifications`: immutable-image/topology evidence required by
+     `round_trip`.
 2. `milvus_client/manifests/deploy_profiles/*.yaml`
    - standalone or cluster deployment topology.
    - Helm chart repo/chart/version for cluster mode.
@@ -133,7 +199,9 @@ with Vortex 0.75.
 
 If you add a new branch family such as `3.1` or `4.0`, add an image alias,
 add or reuse a schema matrix, register the new scenario IDs, then update the
-manifest and renderer tests.
+manifest and renderer tests. Patch releases normally require manifest-only
+scenario data changes; changing Python or Argo is necessary only for a new
+compatibility semantic or workflow branch behavior.
 
 ## Rendering Argo submit parameters
 

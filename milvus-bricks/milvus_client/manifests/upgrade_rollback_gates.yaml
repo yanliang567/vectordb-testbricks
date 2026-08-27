@@ -1,8 +1,9 @@
-version: "1"
+version: "2"
 
 defaults:
   repo_url: https://github.com/yanliang567/vectordb-testbricks.git
   repo_revision: main
+  milvus_log_level: debug
   rows_per_collection: 5000
   batch_size: 100
   pressure_modules:
@@ -75,6 +76,11 @@ image_aliases:
   milvus-3-0-1:
     image: harbor.milvus.io/milvusdb/milvus:v3.0.1-placeholder
     version: "3.0.1"
+
+# Round-trip contracts must reference an immutable base/rollback image recorded
+# here with passed evidence for the scenario topology. A version number alone is
+# never treated as proof of index-engine compatibility.
+capability_qualifications: {}
 
 scenarios:
   - id: standalone-2-6-18-to-3-0-latest-rollback-2-6-latest
@@ -216,30 +222,31 @@ scenarios:
       gate_allow_warning: false
 
   - id: standalone-3-0-index-v10-v4-upgrade-rollback
-    description: "3.0 index engine gate with vector/scalar target versions 10/4 configured across all phases and the corresponding algorithms exercised."
+    description: "3.0 index engine gate: keep v3.0.0 base/rollback on the rollback-safe matrix and validate vector/scalar target versions 10/4 only on the target build."
     mode: standalone
     classification: gate
     support_status: supported
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
-    schema_matrix_ref: 3.0_index_v10_v4
+    index_engine_contract:
+      mode: target_only
+      capability: IndexEngineV10V4
+      matrix_ref: 3.0_index_v10_v4
+      rollback_safe_matrix_ref: rollback_safe_base
+      vector_version: 10
+      scalar_version: 4
+      rationale:
+        baseline_support: unsupported
+        issue: https://github.com/milvus-io/milvus/issues/52767
     collection_prefix: qa_gate_30_index_v10_v4
-    forward_workload_enabled: false
     schema_evolution_existing_enabled: false
     schema_evolution_forward_enabled: false
-    rollback_forward_validation_enabled: true
     base:
       image_ref: milvus-3-0-baseline
-      target_vec_index_version: 10
-      target_scalar_index_version: 4
     target:
       image_ref: milvus-3-0-latest
-      target_vec_index_version: 10
-      target_scalar_index_version: 4
     rollback:
       image_ref: milvus-3-0-baseline
-      target_vec_index_version: 10
-      target_scalar_index_version: 4
     validation_policy:
       data_integrity: strict
       serviceability: strict
@@ -247,30 +254,31 @@ scenarios:
       gate_allow_warning: false
 
   - id: standalone-3-0-index-v11-v4-upgrade-rollback
-    description: "3.0 index engine gate with vector/scalar target versions 11/4 configured across all phases and the corresponding algorithms exercised."
+    description: "3.0 index engine gate: keep v3.0.0 base/rollback on the rollback-safe matrix and validate vector/scalar target versions 11/4 only on the target build."
     mode: standalone
     classification: gate
     support_status: supported
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
-    schema_matrix_ref: 3.0_index_v11_v4
+    index_engine_contract:
+      mode: target_only
+      capability: IndexEngineV11V4
+      matrix_ref: 3.0_index_v11_v4
+      rollback_safe_matrix_ref: rollback_safe_base
+      vector_version: 11
+      scalar_version: 4
+      rationale:
+        baseline_support: unsupported
+        issue: https://github.com/milvus-io/milvus/issues/52767
     collection_prefix: qa_gate_30_index_v11_v4
-    forward_workload_enabled: false
     schema_evolution_existing_enabled: false
     schema_evolution_forward_enabled: false
-    rollback_forward_validation_enabled: true
     base:
       image_ref: milvus-3-0-baseline
-      target_vec_index_version: 11
-      target_scalar_index_version: 4
     target:
       image_ref: milvus-3-0-latest
-      target_vec_index_version: 11
-      target_scalar_index_version: 4
     rollback:
       image_ref: milvus-3-0-baseline
-      target_vec_index_version: 11
-      target_scalar_index_version: 4
     validation_policy:
       data_integrity: strict
       serviceability: strict
@@ -530,31 +538,32 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-3-0-index-v10-v4-upgrade-rollback
-    description: "Cluster 3.0 gate with vector/scalar target versions 10/4 configured across all phases and the corresponding algorithms exercised."
+    description: "Cluster 3.0 index engine gate: keep v3.0.0 base/rollback on the rollback-safe matrix and validate vector/scalar target versions 10/4 only on the target build."
     mode: cluster
     classification: gate
     support_status: supported
     submit_generate_name: c30-index-v10-v4-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
-    schema_matrix_ref: 3.0_index_v10_v4
+    index_engine_contract:
+      mode: target_only
+      capability: IndexEngineV10V4
+      matrix_ref: 3.0_index_v10_v4
+      rollback_safe_matrix_ref: rollback_safe_base
+      vector_version: 10
+      scalar_version: 4
+      rationale:
+        baseline_support: unsupported
+        issue: https://github.com/milvus-io/milvus/issues/52767
     collection_prefix: qa_gate_cluster_30_index_v10_v4
-    forward_workload_enabled: false
     schema_evolution_existing_enabled: false
     schema_evolution_forward_enabled: false
-    rollback_forward_validation_enabled: true
     base:
       image_ref: milvus-3-0-baseline
-      target_vec_index_version: 10
-      target_scalar_index_version: 4
     target:
       image_ref: milvus-3-0-latest
-      target_vec_index_version: 10
-      target_scalar_index_version: 4
     rollback:
       image_ref: milvus-3-0-baseline
-      target_vec_index_version: 10
-      target_scalar_index_version: 4
     validation_policy:
       data_integrity: strict
       serviceability: strict
@@ -562,31 +571,32 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-3-0-index-v11-v4-upgrade-rollback
-    description: "Cluster 3.0 gate with vector/scalar target versions 11/4 configured across all phases and the corresponding algorithms exercised."
+    description: "Cluster 3.0 index engine gate: keep v3.0.0 base/rollback on the rollback-safe matrix and validate vector/scalar target versions 11/4 only on the target build."
     mode: cluster
     classification: gate
     support_status: supported
     submit_generate_name: c30-index-v11-v4-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
-    schema_matrix_ref: 3.0_index_v11_v4
+    index_engine_contract:
+      mode: target_only
+      capability: IndexEngineV11V4
+      matrix_ref: 3.0_index_v11_v4
+      rollback_safe_matrix_ref: rollback_safe_base
+      vector_version: 11
+      scalar_version: 4
+      rationale:
+        baseline_support: unsupported
+        issue: https://github.com/milvus-io/milvus/issues/52767
     collection_prefix: qa_gate_cluster_30_index_v11_v4
-    forward_workload_enabled: false
     schema_evolution_existing_enabled: false
     schema_evolution_forward_enabled: false
-    rollback_forward_validation_enabled: true
     base:
       image_ref: milvus-3-0-baseline
-      target_vec_index_version: 11
-      target_scalar_index_version: 4
     target:
       image_ref: milvus-3-0-latest
-      target_vec_index_version: 11
-      target_scalar_index_version: 4
     rollback:
       image_ref: milvus-3-0-baseline
-      target_vec_index_version: 11
-      target_scalar_index_version: 4
     validation_policy:
       data_integrity: strict
       serviceability: strict

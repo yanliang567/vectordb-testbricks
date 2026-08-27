@@ -69,6 +69,7 @@ def validate_deploy_profile(profile: dict[str, Any], source: str = "<profile>") 
 
 def _storage_config(
     *,
+    log_level: str = "debug",
     json_shredding_enabled: bool,
     loon_ffi_enabled: bool,
     vortex_enabled: bool,
@@ -84,7 +85,10 @@ def _storage_config(
     }
     if loon_ffi_enabled:
         storage["useLoonFFI"] = True
-    config: dict[str, Any] = {"common": {"storage": storage}}
+    config: dict[str, Any] = {
+        "log": {"level": log_level},
+        "common": {"storage": storage},
+    }
     if vortex_enabled:
         config["dataNode"] = {"storage": {"format": "vortex"}}
     data_coord: dict[str, Any] = {}
@@ -136,6 +140,7 @@ _HELM_CHART_MANAGED_LABELS = {
 
 def _storage_user_yaml(
     *,
+    log_level: str = "debug",
     json_shredding_enabled: bool,
     loon_ffi_enabled: bool,
     vortex_enabled: bool,
@@ -143,6 +148,7 @@ def _storage_user_yaml(
     target_scalar_index_version: int = -1,
 ) -> str:
     config = _storage_config(
+        log_level=log_level,
         json_shredding_enabled=json_shredding_enabled,
         loon_ffi_enabled=loon_ffi_enabled,
         vortex_enabled=vortex_enabled,
@@ -169,6 +175,7 @@ def render_milvus_helm_values(
     image: str,
     version: str,
     image_pull_policy: str = "Always",
+    log_level: str = "debug",
     json_shredding_enabled: bool = False,
     loon_ffi_enabled: bool = False,
     vortex_enabled: bool = False,
@@ -195,6 +202,7 @@ def render_milvus_helm_values(
             },
             "extraConfigFiles": {
                 "user.yaml": _storage_user_yaml(
+                    log_level=log_level,
                     json_shredding_enabled=json_shredding_enabled,
                     loon_ffi_enabled=loon_ffi_enabled,
                     vortex_enabled=vortex_enabled,
@@ -222,6 +230,7 @@ def render_milvus_helm_values(
         values.get("extraConfigFiles", {}),
         {
             "user.yaml": _storage_user_yaml(
+                log_level=log_level,
                 json_shredding_enabled=json_shredding_enabled,
                 loon_ffi_enabled=loon_ffi_enabled,
                 vortex_enabled=vortex_enabled,
@@ -280,6 +289,7 @@ def render_milvus_cr(
     version: str,
     image_update_mode: str,
     image_pull_policy: str = "IfNotPresent",
+    log_level: str = "debug",
     json_shredding_enabled: bool = False,
     loon_ffi_enabled: bool = False,
     vortex_enabled: bool = False,
@@ -312,6 +322,7 @@ def render_milvus_cr(
         "spec": {
             "mode": profile["mode"],
             "config": _storage_config(
+                log_level=log_level,
                 json_shredding_enabled=json_shredding_enabled,
                 loon_ffi_enabled=loon_ffi_enabled,
                 vortex_enabled=vortex_enabled,

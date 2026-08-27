@@ -2,6 +2,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
+import yaml
 
 from milvus_client.common.gates import (
     load_gate_manifest,
@@ -14,6 +15,9 @@ from milvus_client.common.gates import (
 
 ROOT = Path(__file__).resolve().parents[1]
 GATES = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
+EXECUTION_PATH_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "upgrade_rollback_execution_paths_v1.yaml"
+)
 MILVUS_3_0_BASELINE_IMAGE = (
     "harbor.milvus.io/milvusdb/milvus:v3.0.0@"
     "sha256:49371c30af46b1013e4d3e0b980e691d81376d69cdbe1b372725baf1d7255862"
@@ -34,6 +38,31 @@ MILVUS_2_6_18_BASELINE_IMAGE = (
 
 def _manifest() -> dict:
     return load_gate_manifest(GATES)
+
+
+def _execution_path_signatures(manifest):
+    contract_metadata = {
+        "index-engine-contract-mode",
+        "index-engine-capability",
+        "index-engine-qualification-status",
+    }
+    signatures = {}
+    for raw in manifest["scenarios"]:
+        scenario = resolve_gate_scenario(manifest, raw["id"])
+        rendered = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+        signatures[raw["id"]] = {
+            name: value
+            for name, value in rendered.items()
+            if name not in contract_metadata
+        }
+    return signatures
+
+
+def test_manifest_v2_contract_migration_preserves_existing_execution_paths():
+    expected = yaml.safe_load(EXECUTION_PATH_FIXTURE.read_text())
+
+    assert len(expected) == 26
+    assert _execution_path_signatures(_manifest()) == expected
 
 
 @pytest.mark.parametrize(
@@ -65,6 +94,9 @@ def test_unregistered_scenario_accepts_only_safe_report_metadata():
         "scenario-classification": "unregistered",
         "scenario-support-status": "unknown",
         "release-gate-eligible": "false",
+        "index-engine-contract-mode": "none",
+        "index-engine-capability": "none",
+        "index-engine-qualification-status": "not_applicable",
     }
 
     resolved = validate_registered_scenario_parameters(
@@ -80,6 +112,9 @@ def test_unregistered_scenario_accepts_only_safe_report_metadata():
         ("scenario-classification", "gate"),
         ("scenario-support-status", "supported"),
         ("release-gate-eligible", "true"),
+        ("index-engine-contract-mode", "round_trip"),
+        ("index-engine-capability", "IndexEngineV10V4"),
+        ("index-engine-qualification-status", "passed"),
     ],
 )
 def test_unregistered_scenario_rejects_release_gate_metadata_claims(parameter, value):
@@ -87,6 +122,9 @@ def test_unregistered_scenario_rejects_release_gate_metadata_claims(parameter, v
         "scenario-classification": "unregistered",
         "scenario-support-status": "unknown",
         "release-gate-eligible": "false",
+        "index-engine-contract-mode": "none",
+        "index-engine-capability": "none",
+        "index-engine-qualification-status": "not_applicable",
     }
     runtime[parameter] = value
 
@@ -98,11 +136,13 @@ def test_unregistered_scenario_rejects_release_gate_metadata_claims(parameter, v
 
 def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
     manifest = _manifest()
+    assert manifest["version"] == "2"
     assert manifest["defaults"]["index_compatibility_validation_enabled"] is True
     assert manifest["defaults"]["phase_dml_dql_validation_enabled"] is True
     assert manifest["defaults"]["phase_new_collection_rows"] == 3000
     assert manifest["defaults"]["phase_existing_dml_rows"] == 1000
     assert manifest["defaults"]["phase_existing_delete_rows"] == 100
+    assert manifest["capability_qualifications"] == {}
     scenarios = {
         scenario["id"]: resolve_gate_scenario(manifest, scenario["id"])
         for scenario in manifest["scenarios"]
@@ -462,6 +502,9 @@ def test_registered_scenario_runtime_allows_operational_overrides():
         ("scenario-classification", "candidate"),
         ("scenario-support-status", "pre_release_candidate"),
         ("release-gate-eligible", "false"),
+        ("index-engine-contract-mode", "round_trip"),
+        ("index-engine-capability", "IndexEngineV10V4"),
+        ("index-engine-qualification-status", "passed"),
     ],
 )
 def test_registered_scenario_runtime_rejects_protected_parameter_drift(
@@ -1019,55 +1062,70 @@ def test_vortex_candidate_rejects_source_commit_that_does_not_match_image_tag():
 
 
 @pytest.mark.parametrize(
-    "scenario_id",
+    ("scenario_id", "target_vec_index_version", "forward_schema_matrix"),
     [
-        "standalone-3-0-index-v10-v4-upgrade-rollback",
-        "cluster-3-0-index-v10-v4-upgrade-rollback",
+        (
+            "standalone-3-0-index-v10-v4-upgrade-rollback",
+            10,
+            "milvus_client/manifests/schema_matrix_3_0_index_v10_v4.yaml",
+        ),
+        (
+            "cluster-3-0-index-v10-v4-upgrade-rollback",
+            10,
+            "milvus_client/manifests/schema_matrix_3_0_index_v10_v4.yaml",
+        ),
+        (
+            "standalone-3-0-index-v11-v4-upgrade-rollback",
+            11,
+            "milvus_client/manifests/schema_matrix_3_0_index_v11_v4.yaml",
+        ),
+        (
+            "cluster-3-0-index-v11-v4-upgrade-rollback",
+            11,
+            "milvus_client/manifests/schema_matrix_3_0_index_v11_v4.yaml",
+        ),
     ],
 )
-def test_index_v10_v4_scenarios_pin_runtime_versions_in_every_phase(scenario_id):
+def test_index_engine_scenarios_validate_index_matrix_on_target_only(
+    scenario_id, target_vec_index_version, forward_schema_matrix
+):
     manifest = _manifest()
     scenario = resolve_gate_scenario(manifest, scenario_id)
     parameters = render_argo_parameters(scenario, manifest, allow_placeholder=True)
 
     assert scenario["schema_matrix"] == (
-        "milvus_client/manifests/schema_matrix_3_0_index_v10_v4.yaml"
+        "milvus_client/manifests/schema_matrix_2_6.yaml"
     )
-    for phase in ("base", "target", "rollback"):
-        assert scenario[phase]["target_vec_index_version"] == 10
-        assert scenario[phase]["target_scalar_index_version"] == 4
-    assert parameters["base-target-vec-index-version"] == "10"
-    assert parameters["target-target-vec-index-version"] == "10"
-    assert parameters["rollback-target-vec-index-version"] == "10"
-    assert parameters["base-target-scalar-index-version"] == "4"
-    assert parameters["target-target-scalar-index-version"] == "4"
-    assert parameters["rollback-target-scalar-index-version"] == "4"
+    assert scenario["forward_schema_matrix"] == forward_schema_matrix
+    assert scenario["forward_workload_enabled"] is True
+    assert scenario["rollback_forward_validation_enabled"] is False
+    assert "target_vec_index_version" not in scenario["base"]
+    assert "target_scalar_index_version" not in scenario["base"]
+    assert scenario["target"]["target_vec_index_version"] == target_vec_index_version
+    assert scenario["target"]["target_scalar_index_version"] == 4
+    assert "target_vec_index_version" not in scenario["rollback"]
+    assert "target_scalar_index_version" not in scenario["rollback"]
 
-
-@pytest.mark.parametrize(
-    "scenario_id",
-    [
-        "standalone-3-0-index-v11-v4-upgrade-rollback",
-        "cluster-3-0-index-v11-v4-upgrade-rollback",
-    ],
-)
-def test_index_v11_v4_scenarios_pin_runtime_versions_in_every_phase(scenario_id):
-    manifest = _manifest()
-    scenario = resolve_gate_scenario(manifest, scenario_id)
-    parameters = render_argo_parameters(scenario, manifest, allow_placeholder=True)
-
-    assert scenario["schema_matrix"] == (
-        "milvus_client/manifests/schema_matrix_3_0_index_v11_v4.yaml"
+    assert parameters["schema-matrix"] == (
+        "milvus_client/manifests/schema_matrix_2_6.yaml"
     )
-    for phase in ("base", "target", "rollback"):
-        assert scenario[phase]["target_vec_index_version"] == 11
-        assert scenario[phase]["target_scalar_index_version"] == 4
-    assert parameters["base-target-vec-index-version"] == "11"
-    assert parameters["target-target-vec-index-version"] == "11"
-    assert parameters["rollback-target-vec-index-version"] == "11"
-    assert parameters["base-target-scalar-index-version"] == "4"
+    assert parameters["forward-schema-matrix"] == forward_schema_matrix
+    assert parameters["forward-workload-enabled"] == "true"
+    assert parameters["rollback-forward-validation-enabled"] == "false"
+    assert parameters["drop-forward-before-rollback-enabled"] == "true"
+    assert parameters["base-target-vec-index-version"] == "-1"
+    assert parameters["target-target-vec-index-version"] == str(
+        target_vec_index_version
+    )
+    assert parameters["rollback-target-vec-index-version"] == "-1"
+    assert parameters["base-target-scalar-index-version"] == "-1"
     assert parameters["target-target-scalar-index-version"] == "4"
-    assert parameters["rollback-target-scalar-index-version"] == "4"
+    assert parameters["rollback-target-scalar-index-version"] == "-1"
+    assert parameters["index-engine-contract-mode"] == "target_only"
+    assert parameters["index-engine-capability"] == (
+        f"IndexEngineV{target_vec_index_version}V4"
+    )
+    assert parameters["index-engine-qualification-status"] == "unsupported"
 
 
 def test_standalone_json_shredding_known_limitation_writes_forward_data_after_config_toggle():
@@ -1208,3 +1266,245 @@ def test_manifest_validator_rejects_unknown_refs():
 
     with pytest.raises(ValueError, match="missing-image-alias"):
         validate_gate_manifest(broken)
+
+
+INDEX_ENGINE_SCENARIOS = [
+    "standalone-3-0-index-v10-v4-upgrade-rollback",
+    "standalone-3-0-index-v11-v4-upgrade-rollback",
+    "cluster-3-0-index-v10-v4-upgrade-rollback",
+    "cluster-3-0-index-v11-v4-upgrade-rollback",
+]
+
+
+def _raw_scenario(manifest, scenario_id):
+    return next(item for item in manifest["scenarios"] if item["id"] == scenario_id)
+
+
+def _promote_contract_to_round_trip(manifest, scenario_id):
+    scenario = _raw_scenario(manifest, scenario_id)
+    contract = scenario["index_engine_contract"]
+    contract["mode"] = "round_trip"
+    contract.pop("rollback_safe_matrix_ref")
+    image_ref = scenario["base"]["image_ref"]
+    immutable_image = manifest["image_aliases"][image_ref]["image"]
+    manifest["capability_qualifications"][image_ref] = {
+        "immutable_image": immutable_image,
+        "capabilities": {
+            contract["capability"]: {
+                "status": "passed",
+                "evidence": {
+                    "standalone": "argo://qa/index-contract-standalone",
+                    "cluster": "argo://qa/index-contract-cluster",
+                },
+            }
+        },
+    }
+
+
+@pytest.mark.parametrize("scenario_id", INDEX_ENGINE_SCENARIOS)
+def test_target_only_contract_expands_expected_execution_flags(scenario_id):
+    manifest = _manifest()
+    raw = _raw_scenario(manifest, scenario_id)
+    contract = raw["index_engine_contract"]
+    resolved = resolve_gate_scenario(manifest, scenario_id)
+
+    assert not (
+        set(raw)
+        & {
+            "schema_matrix_ref",
+            "forward_schema_matrix_ref",
+            "forward_workload_enabled",
+            "rollback_forward_validation_enabled",
+            "drop_forward_before_rollback_enabled",
+        }
+    )
+    assert contract["mode"] == "target_only"
+    assert resolved["index_engine_contract"]["qualification_status"] == "unsupported"
+    assert resolved["forward_workload_enabled"] is True
+    assert resolved["rollback_enabled"] is True
+    assert resolved["rollback_forward_validation_enabled"] is False
+    assert resolved["drop_forward_before_rollback_enabled"] is True
+    assert resolved["base"].get("target_vec_index_version", -1) == -1
+    assert resolved["target"]["target_vec_index_version"] == contract["vector_version"]
+    assert resolved["rollback"].get("target_vec_index_version", -1) == -1
+
+
+def test_round_trip_contract_expands_expected_execution_flags():
+    manifest = deepcopy(_manifest())
+    scenario_id = "standalone-3-0-index-v10-v4-upgrade-rollback"
+    _promote_contract_to_round_trip(manifest, scenario_id)
+
+    resolved = resolve_gate_scenario(manifest, scenario_id)
+
+    assert resolved["schema_matrix"] == resolved["forward_schema_matrix"]
+    assert resolved["rollback_forward_validation_enabled"] is True
+    assert resolved["drop_forward_before_rollback_enabled"] is False
+    assert resolved["index_engine_contract"]["qualification_status"] == "passed"
+    for phase in ("base", "target", "rollback"):
+        assert resolved[phase]["target_vec_index_version"] == 10
+        assert resolved[phase]["target_scalar_index_version"] == 4
+
+
+def test_manifest_rejects_unknown_index_engine_contract_mode():
+    manifest = deepcopy(_manifest())
+    _raw_scenario(manifest, INDEX_ENGINE_SCENARIOS[0])["index_engine_contract"][
+        "mode"
+    ] = "auto"
+
+    with pytest.raises(ValueError, match="index_engine_contract.mode"):
+        validate_gate_manifest(manifest)
+
+
+def test_manifest_rejects_contract_and_derived_fields_together():
+    manifest = deepcopy(_manifest())
+    _raw_scenario(manifest, INDEX_ENGINE_SCENARIOS[0])["forward_workload_enabled"] = (
+        True
+    )
+
+    with pytest.raises(ValueError, match="owns derived fields"):
+        validate_gate_manifest(manifest)
+
+
+def test_manifest_rejects_matrix_capability_mismatch():
+    manifest = deepcopy(_manifest())
+    _raw_scenario(manifest, INDEX_ENGINE_SCENARIOS[0])["index_engine_contract"][
+        "capability"
+    ] = "IndexEngineV11V4"
+
+    with pytest.raises(ValueError, match="must all require IndexEngineV11V4"):
+        resolve_gate_scenario(manifest, INDEX_ENGINE_SCENARIOS[0])
+
+
+def test_manifest_rejects_matrix_validator_version_mismatch():
+    manifest = deepcopy(_manifest())
+    _raw_scenario(manifest, INDEX_ENGINE_SCENARIOS[0])["index_engine_contract"][
+        "vector_version"
+    ] = 11
+
+    with pytest.raises(ValueError, match="target_vec_index_version must be 11"):
+        resolve_gate_scenario(manifest, INDEX_ENGINE_SCENARIOS[0])
+
+
+def test_round_trip_contract_requires_qualified_base_image():
+    manifest = deepcopy(_manifest())
+    scenario_id = INDEX_ENGINE_SCENARIOS[0]
+    contract = _raw_scenario(manifest, scenario_id)["index_engine_contract"]
+    contract["mode"] = "round_trip"
+    contract.pop("rollback_safe_matrix_ref")
+
+    with pytest.raises(ValueError, match="requires capability qualification"):
+        resolve_gate_scenario(manifest, scenario_id)
+
+
+def test_round_trip_contract_requires_mode_specific_evidence():
+    manifest = deepcopy(_manifest())
+    scenario_id = INDEX_ENGINE_SCENARIOS[0]
+    _promote_contract_to_round_trip(manifest, scenario_id)
+    qualification = manifest["capability_qualifications"]["milvus-3-0-baseline"]
+    qualification["capabilities"]["IndexEngineV10V4"]["evidence"].pop("standalone")
+
+    with pytest.raises(ValueError, match="requires standalone evidence"):
+        resolve_gate_scenario(manifest, scenario_id)
+
+
+def test_manifest_rejects_qualification_for_different_image():
+    manifest = deepcopy(_manifest())
+    scenario_id = INDEX_ENGINE_SCENARIOS[0]
+    _promote_contract_to_round_trip(manifest, scenario_id)
+    qualification = manifest["capability_qualifications"]["milvus-3-0-baseline"]
+    qualification["immutable_image"] = (
+        "harbor.milvus.io/milvusdb/milvus:3.0-20260826-e47a679a"
+    )
+
+    with pytest.raises(
+        ValueError, match="must match its immutable image alias exactly"
+    ):
+        validate_gate_manifest(manifest)
+
+
+def test_manifest_rejects_tag_only_qualification_image():
+    manifest = deepcopy(_manifest())
+    scenario_id = INDEX_ENGINE_SCENARIOS[0]
+    _promote_contract_to_round_trip(manifest, scenario_id)
+    image_ref = "milvus-3-0-baseline"
+    tag_only_image = "harbor.milvus.io/milvusdb/milvus:v3.0.0"
+    manifest["image_aliases"][image_ref]["image"] = tag_only_image
+    manifest["capability_qualifications"][image_ref]["immutable_image"] = tag_only_image
+
+    with pytest.raises(ValueError, match="digest-pinned"):
+        validate_gate_manifest(manifest)
+
+
+def test_manifest_rejects_unstable_qualification_evidence():
+    manifest = deepcopy(_manifest())
+    scenario_id = INDEX_ENGINE_SCENARIOS[0]
+    _promote_contract_to_round_trip(manifest, scenario_id)
+    qualification = manifest["capability_qualifications"]["milvus-3-0-baseline"]
+    qualification["capabilities"]["IndexEngineV10V4"]["evidence"]["standalone"] = (
+        "not-even-a-url"
+    )
+
+    with pytest.raises(ValueError, match="stable argo:// or https:// URI"):
+        validate_gate_manifest(manifest)
+
+
+def test_target_only_contract_rejects_forward_only_rollback_safe_matrix():
+    manifest = deepcopy(_manifest())
+    scenario_id = INDEX_ENGINE_SCENARIOS[0]
+    _raw_scenario(manifest, scenario_id)["index_engine_contract"][
+        "rollback_safe_matrix_ref"
+    ] = "3.0_index_v11_v4"
+
+    with pytest.raises(ValueError, match="must contain only rollback_safe schemas"):
+        resolve_gate_scenario(manifest, scenario_id)
+
+
+def test_target_only_contract_rejects_other_index_engine_capability(tmp_path):
+    manifest = deepcopy(_manifest())
+    scenario_id = INDEX_ENGINE_SCENARIOS[0]
+    matrix = yaml.safe_load(
+        (ROOT / "manifests" / "schema_matrix_3_0_index_v11_v4.yaml").read_text()
+    )
+    for schema in matrix["schemas"]:
+        schema["compat_mode"] = "rollback_safe"
+    matrix_path = tmp_path / "rollback_safe_but_index_engine.yaml"
+    matrix_path.write_text(yaml.safe_dump(matrix))
+    manifest["schema_matrices"]["unsafe_other_index_engine"] = str(matrix_path)
+    _raw_scenario(manifest, scenario_id)["index_engine_contract"][
+        "rollback_safe_matrix_ref"
+    ] = "unsafe_other_index_engine"
+
+    with pytest.raises(ValueError, match="must not require index-engine capabilities"):
+        resolve_gate_scenario(manifest, scenario_id)
+
+
+def test_v10_qualification_does_not_authorize_v11():
+    manifest = deepcopy(_manifest())
+    v10_id = INDEX_ENGINE_SCENARIOS[0]
+    v11_id = INDEX_ENGINE_SCENARIOS[1]
+    _promote_contract_to_round_trip(manifest, v10_id)
+    v11_contract = _raw_scenario(manifest, v11_id)["index_engine_contract"]
+    v11_contract["mode"] = "round_trip"
+    v11_contract.pop("rollback_safe_matrix_ref")
+
+    with pytest.raises(
+        ValueError, match="no passed qualification for IndexEngineV11V4"
+    ):
+        resolve_gate_scenario(manifest, v11_id)
+
+
+def test_runtime_image_override_must_match_qualification():
+    manifest = deepcopy(_manifest())
+    scenario_id = INDEX_ENGINE_SCENARIOS[0]
+    _promote_contract_to_round_trip(manifest, scenario_id)
+
+    with pytest.raises(ValueError, match="does not match qualified immutable image"):
+        resolve_gate_scenario(
+            manifest,
+            scenario_id,
+            phase_overrides={
+                "base": {
+                    "image": "harbor.milvus.io/milvusdb/milvus:3.0-20260826-e47a679a"
+                }
+            },
+        )

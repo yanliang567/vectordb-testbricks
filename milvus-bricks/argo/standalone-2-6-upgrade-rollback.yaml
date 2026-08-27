@@ -25,8 +25,16 @@ spec:
         value: supported_with_config_constraints
       - name: release-gate-eligible
         value: "true"
+      - name: index-engine-contract-mode
+        value: none
+      - name: index-engine-capability
+        value: none
+      - name: index-engine-qualification-status
+        value: not_applicable
       - name: deploy-profile
         value: milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml
+      - name: milvus-log-level
+        value: debug
       - name: client-image
         value: harbor.milvus.io/qa/fouram:2.1
       - name: python-deps
@@ -1281,6 +1289,9 @@ spec:
               "scenario_classification": "{{workflow.parameters.scenario-classification}}",
               "scenario_support_status": "{{workflow.parameters.scenario-support-status}}",
               "release_gate_eligible": {{workflow.parameters.release-gate-eligible}},
+              "index_engine_contract_mode": "{{workflow.parameters.index-engine-contract-mode}}",
+              "index_engine_capability": "{{workflow.parameters.index-engine-capability}}",
+              "index_engine_qualification_status": "{{workflow.parameters.index-engine-qualification-status}}",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
               "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
@@ -1342,6 +1353,9 @@ spec:
               "scenario_classification": "{{workflow.parameters.scenario-classification}}",
               "scenario_support_status": "{{workflow.parameters.scenario-support-status}}",
               "release_gate_eligible": {{workflow.parameters.release-gate-eligible}},
+              "index_engine_contract_mode": "{{workflow.parameters.index-engine-contract-mode}}",
+              "index_engine_capability": "{{workflow.parameters.index-engine-capability}}",
+              "index_engine_qualification_status": "{{workflow.parameters.index-engine-qualification-status}}",
               "milvus_release_name": "{{workflow.name}}",
               "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
               "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
@@ -1438,7 +1452,11 @@ spec:
                 "scenario-classification": "{{workflow.parameters.scenario-classification}}",
                 "scenario-support-status": "{{workflow.parameters.scenario-support-status}}",
                 "release-gate-eligible": "{{workflow.parameters.release-gate-eligible}}",
+                "index-engine-contract-mode": "{{workflow.parameters.index-engine-contract-mode}}",
+                "index-engine-capability": "{{workflow.parameters.index-engine-capability}}",
+                "index-engine-qualification-status": "{{workflow.parameters.index-engine-qualification-status}}",
                 "deploy-profile": "{{workflow.parameters.deploy-profile}}",
+                "milvus-log-level": "{{workflow.parameters.milvus-log-level}}",
                 "base-milvus-image": "{{workflow.parameters.base-milvus-image}}",
                 "base-version": "{{workflow.parameters.base-version}}",
                 "target-milvus-image": "{{workflow.parameters.target-milvus-image}}",
@@ -1494,6 +1512,7 @@ spec:
             PY
             PYTHONPATH=. python3 -m milvus_client.requests.render_milvus_cr \
               --deploy-profile "{{workflow.parameters.deploy-profile}}" \
+              --log-level "{{workflow.parameters.milvus-log-level}}" \
               --name "{{workflow.name}}" \
               --namespace "{{workflow.parameters.milvus-namespace}}" \
               --image "{{workflow.parameters.base-milvus-image}}" \
@@ -1596,7 +1615,10 @@ spec:
                         "version": "{{inputs.parameters.version}}",
                         "imageUpdateMode": "{{inputs.parameters.image-update-mode}}",
                     },
-                    "config": {"common": {"storage": storage}},
+                    "config": {
+                        "log": {"level": "{{workflow.parameters.milvus-log-level}}"},
+                        "common": {"storage": storage},
+                    },
                 }
             }
             if vortex_enabled:
@@ -1649,7 +1671,14 @@ spec:
                 "jsonShreddingEnabled": json.loads("""{{inputs.parameters.json-shredding-enabled}}"""),
                 "useLoonFFI": loon_ffi_enabled,
             }
-            patch = {"spec": {"config": {"common": {"storage": storage}}}}
+            patch = {
+                "spec": {
+                    "config": {
+                        "log": {"level": "{{workflow.parameters.milvus-log-level}}"},
+                        "common": {"storage": storage},
+                    }
+                }
+            }
             if vortex_enabled:
                 patch["spec"]["config"]["dataNode"] = {"storage": {"format": "vortex"}}
             else:
@@ -2653,6 +2682,9 @@ spec:
               "scenario_classification": "{{workflow.parameters.scenario-classification}}",
               "scenario_support_status": "{{workflow.parameters.scenario-support-status}}",
               "release_gate_eligible": {{workflow.parameters.release-gate-eligible}},
+              "index_engine_contract_mode": "{{workflow.parameters.index-engine-contract-mode}}",
+              "index_engine_capability": "{{workflow.parameters.index-engine-capability}}",
+              "index_engine_qualification_status": "{{workflow.parameters.index-engine-qualification-status}}",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
               "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
@@ -2669,6 +2701,9 @@ spec:
               "scenario_classification": "{{workflow.parameters.scenario-classification}}",
               "scenario_support_status": "{{workflow.parameters.scenario-support-status}}",
               "release_gate_eligible": {{workflow.parameters.release-gate-eligible}},
+              "index_engine_contract_mode": "{{workflow.parameters.index-engine-contract-mode}}",
+              "index_engine_capability": "{{workflow.parameters.index-engine-capability}}",
+              "index_engine_qualification_status": "{{workflow.parameters.index-engine-qualification-status}}",
               "milvus_release_name": "{{workflow.name}}",
               "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
               "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
@@ -2705,6 +2740,9 @@ spec:
               --scenario-classification "{{workflow.parameters.scenario-classification}}" \
               --scenario-support-status "{{workflow.parameters.scenario-support-status}}" \
               --release-gate-eligible "{{workflow.parameters.release-gate-eligible}}" \
+              --index-engine-contract-mode "{{workflow.parameters.index-engine-contract-mode}}" \
+              --index-engine-capability "{{workflow.parameters.index-engine-capability}}" \
+              --index-engine-qualification-status "{{workflow.parameters.index-engine-qualification-status}}" \
               --deploy-profile "{{workflow.parameters.deploy-profile}}" \
               --deploy-topology /tmp/milvus-bricks/reports/deploy_topology.json \
               --schema-matrix "{{workflow.parameters.schema-matrix}}" \
@@ -2938,6 +2976,9 @@ spec:
               "scenario_classification": "{{workflow.parameters.scenario-classification}}",
               "scenario_support_status": "{{workflow.parameters.scenario-support-status}}",
               "release_gate_eligible": {{workflow.parameters.release-gate-eligible}},
+              "index_engine_contract_mode": "{{workflow.parameters.index-engine-contract-mode}}",
+              "index_engine_capability": "{{workflow.parameters.index-engine-capability}}",
+              "index_engine_qualification_status": "{{workflow.parameters.index-engine-qualification-status}}",
               "base_milvus_image": "{{workflow.parameters.base-milvus-image}}",
               "rollback_milvus_image": "{{workflow.parameters.rollback-milvus-image}}",
               "target_milvus_image": "{{workflow.parameters.target-milvus-image}}",
@@ -2981,6 +3022,9 @@ spec:
                     "scenario_classification": "{{workflow.parameters.scenario-classification}}",
                     "scenario_support_status": "{{workflow.parameters.scenario-support-status}}",
                     "release_gate_eligible": json.loads("""{{workflow.parameters.release-gate-eligible}}"""),
+                    "index_engine_contract_mode": "{{workflow.parameters.index-engine-contract-mode}}",
+                    "index_engine_capability": "{{workflow.parameters.index-engine-capability}}",
+                    "index_engine_qualification_status": "{{workflow.parameters.index-engine-qualification-status}}",
                     "milvus_release_name": "{{workflow.name}}",
                     "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
                     "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
@@ -3009,6 +3053,9 @@ spec:
               "scenario_classification": "{{workflow.parameters.scenario-classification}}",
               "scenario_support_status": "{{workflow.parameters.scenario-support-status}}",
               "release_gate_eligible": {{workflow.parameters.release-gate-eligible}},
+              "index_engine_contract_mode": "{{workflow.parameters.index-engine-contract-mode}}",
+              "index_engine_capability": "{{workflow.parameters.index-engine-capability}}",
+              "index_engine_qualification_status": "{{workflow.parameters.index-engine-qualification-status}}",
               "milvus_release_name": "{{workflow.name}}",
               "milvus_namespace": "{{workflow.parameters.milvus-namespace}}",
               "milvus_host": "{{workflow.name}}-milvus.{{workflow.parameters.milvus-namespace}}.svc",
@@ -3031,6 +3078,9 @@ spec:
                 printf '%s\n' '- scenario classification: `{{workflow.parameters.scenario-classification}}`'
                 printf '%s\n' '- scenario support status: `{{workflow.parameters.scenario-support-status}}`'
                 printf '%s\n' '- release gate eligible: `{{workflow.parameters.release-gate-eligible}}`'
+                printf '%s\n' '- index engine contract mode: `{{workflow.parameters.index-engine-contract-mode}}`'
+                printf '%s\n' '- index engine capability: `{{workflow.parameters.index-engine-capability}}`'
+                printf '%s\n' '- index engine qualification: `{{workflow.parameters.index-engine-qualification-status}}`'
                 printf '%s\n' '- collection prefix: `{{workflow.parameters.collection-prefix}}`'
                 printf '%s\n' '- forward collection prefix: `{{workflow.parameters.forward-collection-prefix}}`'
               } > /tmp/milvus-bricks/reports/final_report.md

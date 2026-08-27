@@ -55,6 +55,7 @@ def test_render_standalone_cr_from_profile():
     )
     assert cr["spec"]["components"]["version"] == "2.6.18"
     assert cr["spec"]["components"]["standalone"]["resources"]["requests"]["cpu"] == "2"
+    assert cr["spec"]["config"]["log"]["level"] == "debug"
     assert cr["spec"]["config"]["common"]["storage"]["jsonShreddingEnabled"] is True
     assert cr["spec"]["dependencies"]["msgStreamType"] == "rocksmq"
 
@@ -94,6 +95,7 @@ def test_render_cluster_helm_values_from_profile_omits_3_0_storage_fields_by_def
     assert values["image"]["all"]["repository"] == "harbor.milvus.io/milvusdb/milvus"
     assert values["image"]["all"]["tag"] == "3.0-latest"
     user_config = yaml.safe_load(values["extraConfigFiles"]["user.yaml"])
+    assert user_config["log"]["level"] == "debug"
     assert user_config["common"]["storage"]["jsonShreddingEnabled"] is False
     assert "useLoonFFI" not in user_config["common"]["storage"]
     assert "storageV3Enabled" not in user_config["common"]["storage"]
@@ -283,6 +285,7 @@ def test_render_milvus_cr_cli_writes_yaml_and_topology_summary(tmp_path):
     )
     assert summary["profile"] == "standalone-rocksmq"
     assert summary["mode"] == "standalone"
+    assert summary["config"]["log"]["level"] == "debug"
     assert summary["components"]["standalone"]["replicas"] == 1
 
 
@@ -332,6 +335,7 @@ def test_render_milvus_helm_values_cli_writes_yaml_and_topology_summary(tmp_path
     assert summary["profile"] == "cluster-woodpecker-1cu"
     assert summary["mode"] == "cluster"
     assert summary["deployer"] == "helm"
+    assert summary["config"]["log"]["level"] == "debug"
     assert summary["helm"]["chart"] == "zilliztech/milvus"
     assert summary["helm"]["chart_version"] == "5.0.24"
     assert summary["components"]["queryNode"]["replicas"] == 1

@@ -58,6 +58,30 @@ def test_all_gate_scenarios_render_parameters_declared_by_their_workflow():
         assert set(submission["parameters"]) <= declared, scenario["id"]
 
 
+def test_all_registered_scenarios_default_milvus_log_level_to_debug():
+    manifest = load_gate_manifest(GATES)
+
+    for item in manifest["scenarios"]:
+        scenario = resolve_gate_scenario(manifest, item["id"])
+        submission = render_submission(scenario, manifest, allow_placeholder=True)
+
+        assert submission["parameters"]["milvus-log-level"] == "debug", item["id"]
+
+
+def test_non_index_scenarios_render_safe_index_contract_metadata():
+    manifest = load_gate_manifest(GATES)
+    scenario = resolve_gate_scenario(
+        manifest,
+        "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
+    )
+
+    params = render_submission(scenario, manifest, allow_placeholder=True)["parameters"]
+
+    assert params["index-engine-contract-mode"] == "none"
+    assert params["index-engine-capability"] == "none"
+    assert params["index-engine-qualification-status"] == "not_applicable"
+
+
 def test_render_standalone_2_6_to_3_0_gate_parameters():
     manifest = load_gate_manifest(GATES)
     scenario = resolve_gate_scenario(
@@ -76,6 +100,7 @@ def test_render_standalone_2_6_to_3_0_gate_parameters():
         params["deploy-profile"]
         == "milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml"
     )
+    assert params["milvus-log-level"] == "debug"
     assert params["base-milvus-image"] == MILVUS_2_6_18_BASELINE_IMAGE
     assert (
         params["target-milvus-image"]

@@ -1326,4 +1326,48 @@ def test_generate_workflow_report_fails_when_validation_is_missing(tmp_path):
     report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
     assert rc == 1
     assert report["status"] == "failed"
+
+
+def test_generate_workflow_report_includes_index_engine_contract(tmp_path):
+    _write_json(tmp_path / "pressure-summary.json", {})
+    _write_json(tmp_path / "reports" / "env_snapshot.json", {})
+    _write_json(tmp_path / "reports" / "flow_summary.json", {})
+    _write_json(tmp_path / "reports" / "deploy_topology.json", {})
+    (tmp_path / "results").mkdir()
+    (tmp_path / "k8s").mkdir()
+    args = _base_args(tmp_path, pressure_fail_on_error="true")
+    args.extend(
+        [
+            "--index-engine-contract-mode",
+            "target_only",
+            "--index-engine-capability",
+            "IndexEngineV10V4",
+            "--index-engine-qualification-status",
+            "unsupported",
+            "--target-target-vec-index-version",
+            "10",
+            "--target-target-scalar-index-version",
+            "4",
+            "--soft-fail",
+        ]
+    )
+
+    assert generate_workflow_report.main(args) == 0
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    markdown = (tmp_path / "reports" / "final_report.md").read_text()
+    assert report["index_engine_contract"] == {
+        "mode": "target_only",
+        "capability": "IndexEngineV10V4",
+        "qualification_status": "unsupported",
+        "base_target_vec_index_version": -1,
+        "target_target_vec_index_version": 10,
+        "rollback_target_vec_index_version": -1,
+        "base_target_scalar_index_version": -1,
+        "target_target_scalar_index_version": 4,
+        "rollback_target_scalar_index_version": -1,
+        "target_created_data_required_after_rollback": False,
+    }
+    assert "## Index Engine Compatibility Contract" in markdown
+    assert "mode: `target_only`" in markdown
     assert report["validation"]["passed"] is False
