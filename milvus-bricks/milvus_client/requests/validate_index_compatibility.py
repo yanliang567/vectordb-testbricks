@@ -363,6 +363,14 @@ def _validate_resolved_index_types(
                 int(report.metrics.get("resolved_index_types_unobservable_total", 0))
                 + 1
             )
+            if (
+                source == "public_sdk_unavailable"
+                and str(index.index_type) == "AUTOINDEX"
+            ):
+                report.metrics[f"{metric_prefix}.validation"] = (
+                    "not_observable_via_public_sdk"
+                )
+                continue
             report.fail(
                 INDEX_METADATA_MISMATCH,
                 "resolved index type is required but unavailable",
