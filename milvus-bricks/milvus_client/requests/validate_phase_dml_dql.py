@@ -67,6 +67,9 @@ PHASE_UPSERT_NOT_APPLIED = "PHASE_UPSERT_NOT_APPLIED"
 PHASE_CHECKPOINT_RELOAD_FAILED = "PHASE_CHECKPOINT_RELOAD_FAILED"
 PHASE_COLLECTION_RELOAD_FAILED = "PHASE_COLLECTION_RELOAD_FAILED"
 PHASE_CHECKPOINT_INVALID = "PHASE_CHECKPOINT_INVALID"
+PHASE_CHECKPOINT_TARGET_ONLY_COLLECTION_PRESENT = (
+    "PHASE_CHECKPOINT_TARGET_ONLY_COLLECTION_PRESENT"
+)
 CHECKPOINT_NOT_FOUND = "CHECKPOINT_NOT_FOUND"
 PHASE_CHECKPOINT_NOT_FOUND = "PHASE_CHECKPOINT_NOT_FOUND"
 DEFAULT_RELOAD_TIMEOUT_SEC = 120.0
@@ -87,6 +90,11 @@ def add_args(parser):
     parser.add_argument("--new-start-id", type=int, default=60_000_000)
     parser.add_argument("--phase-checkpoint-file", default="")
     parser.add_argument("--validate-phase-checkpoint", type=parse_bool, default=False)
+    parser.add_argument(
+        "--phase-checkpoint-new-collections-contract",
+        choices=("none", "target_only", "round_trip"),
+        default="none",
+    )
     parser.add_argument("--visibility-timeout-sec", type=int, default=120)
     parser.add_argument("--visibility-interval-sec", type=float, default=2.0)
     parser.add_argument(
@@ -2185,14 +2193,18 @@ def _validate_phase_checkpoint_before_rollback(
     expected_existing_dml_rows: int,
     expected_existing_delete_rows: int,
     expected_new_collection_rows: int,
+    new_collections_contract: str = "none",
     reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
     server_version: str | None = None,
     diskann_max_sim_bug: bool = False,
 ) -> dict[str, Any]:
     metrics = {
         "phase_checkpoint_validated": False,
+        "phase_checkpoint_new_collections_contract": new_collections_contract,
         "phase_checkpoint_existing_collections_total": 0,
         "phase_checkpoint_new_collections_total": 0,
+        "phase_checkpoint_target_only_collections_absent_total": 0,
+        "phase_checkpoint_target_only_collections_present_total": 0,
         "phase_checkpoint_searches_total": 0,
         "phase_checkpoint_scalar_index_queries_total": 0,
         "phase_checkpoint_reload_collections_total": 0,
@@ -2281,6 +2293,32 @@ def _validate_phase_checkpoint_before_rollback(
             )
             continue
         metrics["phase_checkpoint_new_collections_total"] += 1
+        if new_collections_contract == "target_only":
+            collection = collection_checkpoint["collection"]
+            try:
+                present = client.has_collection(collection_name=collection)
+            except Exception as exc:
+                report.fail(
+                    PHASE_DQL_FAILED,
+                    "failed to verify target-only phase checkpoint collection absence",
+                    collection=collection,
+                    schema=collection_checkpoint["schema_name"],
+                    contract=new_collections_contract,
+                    error=str(exc),
+                )
+                continue
+            if present:
+                metrics["phase_checkpoint_target_only_collections_present_total"] += 1
+                report.fail(
+                    PHASE_CHECKPOINT_TARGET_ONLY_COLLECTION_PRESENT,
+                    "target-only phase checkpoint collection must be absent after rollback",
+                    collection=collection,
+                    schema=collection_checkpoint["schema_name"],
+                    contract=new_collections_contract,
+                )
+            else:
+                metrics["phase_checkpoint_target_only_collections_absent_total"] += 1
+            continue
         if not _reload_phase_checkpoint_collection(
             client,
             collection_checkpoint["collection"],
@@ -2383,6 +2421,7 @@ def main(argv: list[str] | None = None) -> int:
             "existing_deleted_total": 0,
             "existing_upsert_skipped_auto_id_total": 0,
             "carried_collections_total": 0,
+            "carried_collections_skipped_target_only_total": 0,
             "carried_inserted_total": 0,
             "carried_upserted_total": 0,
             "carried_deleted_total": 0,
@@ -2399,8 +2438,13 @@ def main(argv: list[str] | None = None) -> int:
             "new_collections": [],
             "phase_checkpoint_path": str(_phase_checkpoint_path(args)),
             "phase_checkpoint_validated": False,
+            "phase_checkpoint_new_collections_contract": (
+                args.phase_checkpoint_new_collections_contract
+            ),
             "phase_checkpoint_existing_collections_total": 0,
             "phase_checkpoint_new_collections_total": 0,
+            "phase_checkpoint_target_only_collections_absent_total": 0,
+            "phase_checkpoint_target_only_collections_present_total": 0,
             "phase_checkpoint_searches_total": 0,
             "phase_checkpoint_scalar_index_queries_total": 0,
             "phase_checkpoint_reload_collections_total": 0,
@@ -2425,6 +2469,9 @@ def main(argv: list[str] | None = None) -> int:
                     expected_existing_dml_rows=args.existing_dml_rows,
                     expected_existing_delete_rows=args.existing_delete_rows,
                     expected_new_collection_rows=args.new_collection_rows,
+                    new_collections_contract=(
+                        args.phase_checkpoint_new_collections_contract
+                    ),
                     reload_timeout_sec=args.reload_timeout_sec,
                     server_version=server_version,
                     diskann_max_sim_bug=diskann_max_sim_bug,
@@ -2477,7 +2524,10 @@ def main(argv: list[str] | None = None) -> int:
             if existing_metrics["upsert_skipped_auto_id"]:
                 metrics["existing_upsert_skipped_auto_id_total"] += 1
 
-        if args.carried_collection_prefix:
+        if (
+            args.carried_collection_prefix
+            and args.phase_checkpoint_new_collections_contract != "target_only"
+        ):
             carried_start_id = args.existing_start_id + 10_000_000
             for spec in specs.values():
                 carried_collection = collection_name(
@@ -2510,6 +2560,8 @@ def main(argv: list[str] | None = None) -> int:
                     "scalar_index_queries"
                 ]
                 _accumulate_phase_reload_metrics(metrics, carried_metrics)
+        elif args.carried_collection_prefix:
+            metrics["carried_collections_skipped_target_only_total"] = len(specs)
 
         for spec in specs.values():
             new_collection = collection_name(args.new_collection_prefix, spec)

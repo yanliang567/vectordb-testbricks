@@ -1121,10 +1121,12 @@ def test_phase_checkpoint_reloads_existing_and_target_written_collections(
         checkpoint,
         seed=7,
         report=report,
+        new_collections_contract="round_trip",
         **_phase_checkpoint_expectations(),
     )
 
     assert report.passed
+    assert metrics["phase_checkpoint_new_collections_contract"] == "round_trip"
     assert metrics["phase_checkpoint_reload_collections_total"] == 2
     assert metrics["phase_checkpoint_reload_failures_total"] == 0
     assert metrics["phase_checkpoint_searches_total"] == 2
@@ -1477,6 +1479,93 @@ def test_phase_checkpoint_contract_rejects_incomplete_auto_id_oracles():
         and failure.get("group") == "existing_collections"
         and failure.get("expected_count") == 4
         for failure in report.failures
+    )
+
+
+def test_phase_checkpoint_target_only_requires_target_written_collections_absent(
+    monkeypatch,
+    tmp_path,
+):
+    checkpoint = tmp_path / "phase.json"
+    checkpoint.write_text(json.dumps(_minimal_phase_checkpoint_payload()))
+    client = PhaseClient()
+    report = ValidationReport()
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "_validate_existing_phase_checkpoint_collection",
+        lambda *args, **kwargs: 1,
+    )
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "_validate_new_phase_checkpoint_collection",
+        lambda *args, **kwargs: 1,
+    )
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "_validate_phase_checkpoint_scalar_indexes",
+        lambda *args, **kwargs: 1,
+    )
+
+    metrics = validate_phase_dml_dql._validate_phase_checkpoint_before_rollback(
+        client,
+        {"dense": _dense_spec()},
+        checkpoint,
+        seed=7,
+        report=report,
+        new_collections_contract="target_only",
+        **_phase_checkpoint_expectations(),
+    )
+
+    assert report.passed
+    assert metrics["phase_checkpoint_new_collections_contract"] == "target_only"
+    assert metrics["phase_checkpoint_reload_collections_total"] == 1
+    assert metrics["phase_checkpoint_reload_failures_total"] == 0
+    assert metrics["phase_checkpoint_searches_total"] == 1
+    assert metrics["phase_checkpoint_target_only_collections_absent_total"] == 1
+    assert metrics["phase_checkpoint_target_only_collections_present_total"] == 0
+    assert not any(
+        call[0] in {"release_collection", "load_collection"}
+        and call[1].get("collection_name") == "qa_after_upgrade_dense"
+        for call in client.calls
+    )
+
+
+def test_phase_checkpoint_target_only_fails_when_target_written_collection_remains(
+    monkeypatch,
+    tmp_path,
+):
+    checkpoint = tmp_path / "phase.json"
+    checkpoint.write_text(json.dumps(_minimal_phase_checkpoint_payload()))
+    client = PhaseClient()
+    client.collections.add("qa_after_upgrade_dense")
+    report = ValidationReport()
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "_validate_existing_phase_checkpoint_collection",
+        lambda *args, **kwargs: 1,
+    )
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "_validate_phase_checkpoint_scalar_indexes",
+        lambda *args, **kwargs: 1,
+    )
+
+    metrics = validate_phase_dml_dql._validate_phase_checkpoint_before_rollback(
+        client,
+        {"dense": _dense_spec()},
+        checkpoint,
+        seed=7,
+        report=report,
+        new_collections_contract="target_only",
+        **_phase_checkpoint_expectations(),
+    )
+
+    assert not report.passed
+    assert metrics["phase_checkpoint_reload_collections_total"] == 1
+    assert metrics["phase_checkpoint_target_only_collections_absent_total"] == 0
+    assert metrics["phase_checkpoint_target_only_collections_present_total"] == 1
+    assert report.failures[-1]["type"] == (
+        validate_phase_dml_dql.PHASE_CHECKPOINT_TARGET_ONLY_COLLECTION_PRESENT
     )
 
 
@@ -1953,6 +2042,51 @@ def test_phase_dml_dql_mutates_carried_upgrade_collection_after_rollback(
     )
     assert any(
         call[0] == "search" and call[1]["collection_name"] == "qa_after_upgrade_dense"
+        for call in client.calls
+    )
+
+
+def test_phase_dml_dql_skips_carried_upgrade_collection_for_target_only_contract(
+    monkeypatch, tmp_path
+):
+    checkpoint = _checkpoint(tmp_path)
+    client = PhaseClient()
+    client.collections.add("qa_after_upgrade_dense")
+    _patch_schema_helpers(monkeypatch, _dense_spec())
+    monkeypatch.setattr(
+        validate_phase_dml_dql,
+        "create_client",
+        lambda *args, **kwargs: client,
+    )
+
+    code = validate_phase_dml_dql.main(
+        [
+            *_args(tmp_path, checkpoint),
+            "--phase",
+            "after-rollback",
+            "--new-collection-prefix",
+            "qa_after_rollback",
+            "--carried-collection-prefix",
+            "qa_after_upgrade",
+            "--phase-checkpoint-new-collections-contract",
+            "target_only",
+            "--existing-start-id",
+            "70000000",
+            "--new-start-id",
+            "80000000",
+        ]
+    )
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+    assert result["metrics"]["existing_collections_total"] == 1
+    assert result["metrics"]["carried_collections_total"] == 0
+    assert result["metrics"]["new_collections_total"] == 1
+    assert result["metrics"]["carried_collections_skipped_target_only_total"] == 1
+    assert not any(
+        call[0] in {"insert", "search"}
+        and call[1]["collection_name"] == "qa_after_upgrade_dense"
         for call in client.calls
     )
 

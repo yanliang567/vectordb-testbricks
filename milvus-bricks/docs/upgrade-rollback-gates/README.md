@@ -83,7 +83,7 @@ fields and rejects a scenario that also declares them directly.
 
 | Contract | Baseline/rollback matrix | Index version phases | Target data after rollback |
 | --- | --- | --- | --- |
-| `target_only` | `rollback_safe_matrix_ref` | target only | dropped before rollback; not required |
+| `target_only` | `rollback_safe_matrix_ref` | target only | dropped before rollback; absence enforced |
 | `round_trip` | `matrix_ref` | base, target, rollback | retained and strictly validated |
 
 Use `target_only` when the exact baseline image has not passed the capability.
@@ -99,6 +99,15 @@ A target-only `rollback_safe_matrix_ref` must contain only
 capability. This prevents a matrix for another engine version from being
 misclassified as baseline-safe.
 
+The lifecycle contract applies to both explicit forward-matrix collections and
+the base-matrix collections created by phase DML/DQL after upgrade. In
+`target_only`, both groups finish their target-phase validation and are deleted
+before rollback. The rollback phase still reloads and validates baseline
+collections, requires the phase-new checkpoint group to be absent, skips
+carried DML for that deleted group, and creates the normal after-rollback group.
+In `round_trip` and `none`, phase-new collections remain present and retain the
+existing reload/query and carried-DML validation path.
+
 For a patch release, add a version-specific scenario, pin the baseline and
 rollback aliases to the previous supported release digest, qualify each
 capability/topology, and select the contract mode. Do not redefine the two
@@ -111,8 +120,9 @@ The renderer always emits protected metadata:
 `index-engine-contract-mode`, `index-engine-capability`, and
 `index-engine-qualification-status`. Non-index scenarios use
 `none/none/not_applicable`. Environment snapshots, flow summaries, cleanup
-fallbacks, and final JSON/Markdown reports preserve these values without using
-them to alter the Argo DAG.
+fallbacks, and final JSON/Markdown reports preserve these values. The contract
+mode also controls the phase-new cleanup node and rollback checkpoint behavior;
+other DAG paths continue to use the compiled matrix and lifecycle parameters.
 
 Every registered upgrade/rollback workflow renders `log.level: debug` by
 default through the protected `milvus-log-level` parameter. Operator CR patches
