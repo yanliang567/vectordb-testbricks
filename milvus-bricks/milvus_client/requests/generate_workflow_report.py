@@ -216,6 +216,20 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     pressure_failed = int(pressure.get("failed", 0) or 0)
     pressure_fail_on_error = parse_bool(args.pressure_fail_on_error)
     release_gate_eligible = parse_bool(args.release_gate_eligible)
+    index_engine_contract = {
+        "mode": args.index_engine_contract_mode,
+        "capability": args.index_engine_capability,
+        "qualification_status": args.index_engine_qualification_status,
+        "base_target_vec_index_version": args.base_target_vec_index_version,
+        "target_target_vec_index_version": args.target_target_vec_index_version,
+        "rollback_target_vec_index_version": args.rollback_target_vec_index_version,
+        "base_target_scalar_index_version": args.base_target_scalar_index_version,
+        "target_target_scalar_index_version": args.target_target_scalar_index_version,
+        "rollback_target_scalar_index_version": args.rollback_target_scalar_index_version,
+        "target_created_data_required_after_rollback": (
+            args.index_engine_contract_mode == "round_trip"
+        ),
+    }
 
     status = "passed"
     if (
@@ -236,6 +250,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "scenario_classification": args.scenario_classification,
         "scenario_support_status": args.scenario_support_status,
         "release_gate_eligible": release_gate_eligible,
+        "index_engine_contract": index_engine_contract,
         "workflow": {
             "name": args.workflow_name,
             "uid": args.workflow_uid,
@@ -321,6 +336,7 @@ def build_markdown(report: dict[str, Any]) -> str:
     availability = pressure.get("availability", {})
     serviceability = report.get("serviceability", {}).get("results", {})
     config_matrix = params.get("config_matrix", {})
+    contract = report.get("index_engine_contract", {})
 
     validation_lines = [
         f"- `{name}`: {payload.get('status')}"
@@ -445,6 +461,15 @@ def build_markdown(report: dict[str, Any]) -> str:
         "## Config Matrix",
         *config_lines,
         "",
+        "## Index Engine Compatibility Contract",
+        f"- mode: `{contract.get('mode')}`",
+        f"- capability: `{contract.get('capability')}`",
+        f"- qualification status: `{contract.get('qualification_status')}`",
+        (
+            "- target-created data required after rollback: "
+            f"`{contract.get('target_created_data_required_after_rollback')}`"
+        ),
+        "",
         "## Validation",
         *validation_lines,
         "",
@@ -492,6 +517,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scenario-classification", required=True)
     parser.add_argument("--scenario-support-status", required=True)
     parser.add_argument("--release-gate-eligible", required=True)
+    parser.add_argument("--index-engine-contract-mode", default="none")
+    parser.add_argument("--index-engine-capability", default="none")
+    parser.add_argument("--index-engine-qualification-status", default="not_applicable")
     parser.add_argument("--deploy-profile", default="")
     parser.add_argument("--deploy-topology", default="")
     parser.add_argument("--schema-matrix", required=True)

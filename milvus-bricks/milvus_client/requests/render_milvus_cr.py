@@ -25,6 +25,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", required=True)
     parser.add_argument("--image-update-mode", default="all")
     parser.add_argument("--image-pull-policy", default="IfNotPresent")
+    parser.add_argument(
+        "--log-level", choices=("debug", "info", "warn", "error"), default="debug"
+    )
     parser.add_argument("--json-shredding-enabled", type=parse_bool, default=False)
     parser.add_argument("--loon-ffi-enabled", type=parse_bool, default=False)
     parser.add_argument("--vortex-enabled", type=parse_bool, default=False)
@@ -60,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         version=args.version,
         image_pull_policy=args.image_pull_policy,
         image_update_mode=args.image_update_mode,
+        log_level=args.log_level,
         json_shredding_enabled=args.json_shredding_enabled,
         loon_ffi_enabled=args.loon_ffi_enabled,
         vortex_enabled=args.vortex_enabled,

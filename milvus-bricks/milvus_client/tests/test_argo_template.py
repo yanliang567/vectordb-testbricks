@@ -32,6 +32,66 @@ ROOT = Path(__file__).resolve().parents[2]
         "cluster-upgrade-rollback.yaml",
     ],
 )
+def test_upgrade_rollback_templates_default_milvus_log_level_to_debug(filename):
+    template = yaml.safe_load((ROOT / "argo" / filename).read_text())
+    parameter_values = {
+        parameter["name"]: parameter["value"]
+        for parameter in template["spec"]["arguments"]["parameters"]
+    }
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+
+    assert parameter_values["milvus-log-level"] == "debug"
+    deploy_command = templates["deploy-milvus"]["container"]["args"][0]
+    assert '--log-level "{{workflow.parameters.milvus-log-level}}"' in deploy_command
+    assert (
+        '"milvus-log-level": "{{workflow.parameters.milvus-log-level}}"'
+        in deploy_command
+    )
+    for patch_template in ("patch-milvus-image", "patch-milvus-config"):
+        patch_command = templates[patch_template]["container"]["args"][0]
+        assert (
+            '"log": {"level": "{{workflow.parameters.milvus-log-level}}"}'
+            in patch_command
+        )
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
+def test_upgrade_rollback_templates_report_index_engine_contract(filename):
+    template = yaml.safe_load((ROOT / "argo" / filename).read_text())
+    parameter_values = {
+        parameter["name"]: parameter["value"]
+        for parameter in template["spec"]["arguments"]["parameters"]
+    }
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+
+    assert parameter_values["index-engine-contract-mode"] == "none"
+    assert parameter_values["index-engine-capability"] == "none"
+    assert parameter_values["index-engine-qualification-status"] == "not_applicable"
+    for template_name in ("deploy-milvus", "generate-final-report", "maybe-cleanup"):
+        command = templates[template_name]["container"]["args"][0]
+        for parameter in (
+            "index-engine-contract-mode",
+            "index-engine-capability",
+            "index-engine-qualification-status",
+        ):
+            assert f"{{{{workflow.parameters.{parameter}}}}}" in command
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
 def test_brick_templates_print_result_json_before_propagating_failure(filename):
     template = yaml.safe_load((ROOT / "argo" / filename).read_text())
     templates = {item["name"]: item for item in template["spec"]["templates"]}
