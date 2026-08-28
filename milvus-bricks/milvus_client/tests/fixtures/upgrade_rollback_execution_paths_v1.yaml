@@ -26,7 +26,7 @@ cluster-2-6-18-to-3-0-latest-rollback-2-6-latest:
   pressure-fail-on-error: 'true'
   pressure-modules: search_pressure query_pressure query_iterator_scan count_pressure
     upsert_pressure delete_pressure mixed_rw_pressure
-  release-gate-eligible: 'true'
+  release-gate-eligible: 'false'
   repo-revision: main
   repo-url: https://github.com/yanliang567/vectordb-testbricks.git
   rollback-enabled: 'true'
@@ -41,9 +41,9 @@ cluster-2-6-18-to-3-0-latest-rollback-2-6-latest:
   rollback-version: 2.6.0
   rollback-vortex-enabled: 'false'
   rows-per-collection: '5000'
-  scenario-classification: gate
+  scenario-classification: known_limitation
   scenario-id: cluster-2-6-18-to-3-0-latest-rollback-2-6-latest
-  scenario-support-status: supported_with_config_constraints
+  scenario-support-status: unsupported
   schema-evolution-existing-enabled: 'false'
   schema-evolution-forward-enabled: 'false'
   schema-matrix: milvus_client/manifests/schema_matrix_2_6.yaml
@@ -513,7 +513,7 @@ cluster-3-0-index-v10-v4-upgrade-rollback:
   base-vortex-enabled: 'false'
   batch-size: '100'
   collection-prefix: qa_gate_cluster_30_index_v10_v4
-  deploy-profile: milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml
+  deploy-profile: milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml
   drop-forward-before-rollback-enabled: 'true'
   forward-collection-prefix: qa_gate_cluster_30_index_v10_v4_forward
   forward-schema-matrix: milvus_client/manifests/schema_matrix_3_0_index_v10_v4.yaml
@@ -569,7 +569,7 @@ cluster-3-0-index-v11-v4-upgrade-rollback:
   base-vortex-enabled: 'false'
   batch-size: '100'
   collection-prefix: qa_gate_cluster_30_index_v11_v4
-  deploy-profile: milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml
+  deploy-profile: milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml
   drop-forward-before-rollback-enabled: 'true'
   forward-collection-prefix: qa_gate_cluster_30_index_v11_v4_forward
   forward-schema-matrix: milvus_client/manifests/schema_matrix_3_0_index_v11_v4.yaml
@@ -698,7 +698,7 @@ standalone-2-6-18-to-3-0-latest-rollback-2-6-latest:
   pressure-fail-on-error: 'true'
   pressure-modules: search_pressure query_pressure query_iterator_scan count_pressure
     upsert_pressure delete_pressure mixed_rw_pressure
-  release-gate-eligible: 'true'
+  release-gate-eligible: 'false'
   repo-revision: main
   repo-url: https://github.com/yanliang567/vectordb-testbricks.git
   rollback-enabled: 'true'
@@ -713,9 +713,9 @@ standalone-2-6-18-to-3-0-latest-rollback-2-6-latest:
   rollback-version: 2.6.0
   rollback-vortex-enabled: 'false'
   rows-per-collection: '5000'
-  scenario-classification: gate
+  scenario-classification: known_limitation
   scenario-id: standalone-2-6-18-to-3-0-latest-rollback-2-6-latest
-  scenario-support-status: supported_with_config_constraints
+  scenario-support-status: unsupported
   schema-evolution-existing-enabled: 'false'
   schema-evolution-forward-enabled: 'false'
   schema-matrix: milvus_client/manifests/schema_matrix_2_6.yaml

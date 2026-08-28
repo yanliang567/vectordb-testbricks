@@ -157,15 +157,17 @@ after rollback, and performs a final compat validation.
 
 See `docs/upgrade-rollback.md` for design details and
 `../docs/upgrade-rollback-gates/README.md` for the gate execution guide. The
-code-managed gate manifest currently contains 21 promoted gate scenarios, 2
-pre-release candidate scenarios, and 1 negative coverage scenario.
+code-managed gate manifest currently contains 19 promoted gate scenarios, 2
+pre-release candidate scenarios, 4 known-limitation scenarios, and 1 negative
+coverage scenario.
 Milvus v3.0.0 remains the non-Vortex baseline; Vortex rollback release gates
 start at v3.0.1, while reviewed 3.0 branch candidates provide interim evidence.
 
 ## 4am 2.6 Standalone Upgrade/Rollback
 
 `../argo/standalone-2-6-upgrade-rollback.yaml` is a concrete 4am Argo
-WorkflowTemplate for the rollback-safe 2.6 path:
+WorkflowTemplate used by the strict 2.6 round-trip known-limitation tracker and
+the separate target-only release gate:
 
 - run client/workflow pods in `qa` with scoped RBAC from
   `../argo/standalone-2-6-upgrade-rollback-rbac.yaml`;
@@ -177,7 +179,9 @@ WorkflowTemplate for the rollback-safe 2.6 path:
 - upgrade to a configured 3.0 target image with legacy storage format;
 - validate existing data after upgrade;
 - roll back to a latest 2.6 image that contains #50792;
-- validate existing data after rollback.
+- validate existing data after rollback. The full round-trip scenario retains
+  the nested scalar AutoIndex schemas that reproduce #52893 and is therefore
+  not release-gate eligible until Milvus fixes the incompatibility.
 
 It intentionally skips 3.0 schema and workload creation because new 3.0 data is
 not rollback compatible with 2.6. The default cleanup policy is
