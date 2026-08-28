@@ -35,7 +35,6 @@ deploy_profiles:
 
 schema_matrices:
   "2.6": milvus_client/manifests/schema_matrix_2_6.yaml
-  2.6_round_trip: milvus_client/manifests/schema_matrix_2_6_round_trip.yaml
   rollback_safe_base: milvus_client/manifests/schema_matrix_2_6.yaml
   "3.0": milvus_client/manifests/schema_matrix_3_0.yaml
   3.0_storage_v3: milvus_client/manifests/schema_matrix_3_0_storage_v3.yaml
@@ -85,15 +84,15 @@ capability_qualifications: {}
 
 scenarios:
   - id: standalone-2-6-18-to-3-0-latest-rollback-2-6-latest
-    description: "Officially supported 2.6.18 baseline to 3.0 latest then rollback to latest 2.6; storage v3/vortex must stay disabled."
+    description: "Known limitation tracker for milvus-io/milvus#52893: the strict full 2.6 schema matrix reproduces nested scalar index rollback incompatibility in 2.6.18 to 3.0 latest then rollback to latest 2.6, so this scenario is not release-gate eligible."
     mode: standalone
-    classification: gate
-    support_status: supported_with_config_constraints
+    classification: known_limitation
+    support_status: unsupported
     workflow_template_ref: standalone_2_6
     deploy_profile_ref: standalone
-    # Excludes target-built nested scalar indexes that the 2.6 reader cannot
-    # load; the full 2.6 matrix remains used by target-only feature gates.
-    schema_matrix_ref: 2.6_round_trip
+    # Keep both StructArray nested scalar AutoIndex schemas in this strict
+    # matrix so a green run proves #52893 is fixed instead of hiding it.
+    schema_matrix_ref: "2.6"
     collection_prefix: qa_gate_2618_to_30_rb_26latest
     forward_workload_enabled: false
     schema_evolution_existing_enabled: false
@@ -325,15 +324,15 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-2-6-18-to-3-0-latest-rollback-2-6-latest
-    description: "Cluster-mode coverage for the supported 2.6.18 to 3.0 latest then rollback to latest 2.6 path; storage v3/vortex must stay disabled."
+    description: "Cluster-mode known limitation tracker for milvus-io/milvus#52893: the strict full 2.6 schema matrix reproduces the MQ-independent nested scalar index rollback incompatibility, so this scenario is not release-gate eligible."
     mode: cluster
-    classification: gate
-    support_status: supported_with_config_constraints
+    classification: known_limitation
+    support_status: unsupported
     submit_generate_name: c26rb-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_pulsar_1cu
-    # Keep the cluster and standalone cross-2.6 round-trip contracts aligned.
-    schema_matrix_ref: 2.6_round_trip
+    # Keep cluster and standalone on the same complete failing contract.
+    schema_matrix_ref: "2.6"
     collection_prefix: qa_gate_cluster_2618_to_30_rb_26latest
     forward_workload_enabled: false
     schema_evolution_existing_enabled: false

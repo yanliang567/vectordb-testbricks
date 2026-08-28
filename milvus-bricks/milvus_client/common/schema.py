@@ -165,16 +165,7 @@ def _as_function_spec(payload: dict[str, Any]) -> FunctionSpec:
 
 
 def load_schema_matrix(path: str | Path) -> list[SchemaSpec]:
-    return _load_schema_matrix(Path(path), ())
-
-
-def _load_schema_matrix(
-    matrix_path: Path, inheritance_stack: tuple[Path, ...]
-) -> list[SchemaSpec]:
-    matrix_path = matrix_path.resolve()
-    if matrix_path in inheritance_stack:
-        cycle = " -> ".join(str(item) for item in (*inheritance_stack, matrix_path))
-        raise ValueError(f"schema matrix inheritance cycle: {cycle}")
+    matrix_path = Path(path)
     payload = yaml.safe_load(matrix_path.read_text()) or {}
     version = str(payload.get("version") or "").strip()
     try:
@@ -183,44 +174,6 @@ def _load_schema_matrix(
         raise ValueError(
             f"{matrix_path}: schema matrix requires a parseable major.minor version"
         ) from exc
-    parent = payload.get("extends")
-    if parent is not None:
-        if not isinstance(parent, str) or not parent.strip():
-            raise ValueError(f"{matrix_path}: extends must be a non-empty path")
-        if payload.get("schemas"):
-            raise ValueError(
-                f"{matrix_path}: derived schema matrix cannot also define schemas"
-            )
-        parent_path = Path(parent)
-        if not parent_path.is_absolute():
-            parent_path = matrix_path.parent / parent_path
-        specs = _load_schema_matrix(parent_path, (*inheritance_stack, matrix_path))
-        inherited_versions = {spec.version for spec in specs}
-        if inherited_versions != {version}:
-            actual = ", ".join(sorted(inherited_versions)) or "<empty>"
-            raise ValueError(
-                f"{matrix_path}: version {version} does not match inherited "
-                f"schema version(s): {actual}"
-            )
-        exclusions = payload.get("exclude_schemas", [])
-        if (
-            not isinstance(exclusions, list)
-            or any(not isinstance(name, str) or not name for name in exclusions)
-            or len(exclusions) != len(set(exclusions))
-        ):
-            raise ValueError(
-                f"{matrix_path}: exclude_schemas must contain unique non-empty names"
-            )
-        known_names = {spec.name for spec in specs}
-        unknown = sorted(set(exclusions) - known_names)
-        if unknown:
-            raise ValueError(
-                f"{matrix_path}: unknown excluded schemas: {', '.join(unknown)}"
-            )
-        excluded = set(exclusions)
-        return [spec for spec in specs if spec.name not in excluded]
-    if "exclude_schemas" in payload:
-        raise ValueError(f"{matrix_path}: exclude_schemas requires extends")
     specs = []
     for item in payload.get("schemas", []):
         specs.append(

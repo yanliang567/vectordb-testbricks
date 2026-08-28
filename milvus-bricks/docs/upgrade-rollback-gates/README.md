@@ -7,16 +7,16 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 The manifest currently registers 26 scenarios:
 
-- 21 promoted gate scenarios
+- 19 promoted gate scenarios
 - 2 pre-release candidate scenarios
-- 2 known-limitation scenarios
+- 4 known-limitation scenarios
 - 1 negative coverage scenario
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
 | --- | --- | --- | --- | --- |
-| `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest` | standalone | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | LoonFFI/storage v3 and Vortex stay disabled; the cross-version round-trip matrix excludes target-built StructArray scalar index formats that 2.6 cannot read. |
+| `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest` | standalone | known limitation | `2.6.18 -> 3.0 latest -> 2.6 latest` | Strict full-matrix tracker for #52893; target-built nested scalar STL_SORT cannot be read by 2.6, so this path is not release-gate eligible. |
 | `standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest` | standalone | gate | `2.6.18 -> 3.0 latest + 3.0-only forward features -> 2.6 latest` | Forward 3.0 collections are required after upgrade but intentionally excluded from rollback validation. |
-| `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | Uses the same cross-version round-trip matrix and storage constraints as standalone. |
+| `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest` | cluster | known limitation | `2.6.18 -> 3.0 latest -> 2.6 latest` | MQ-independent strict full-matrix tracker for #52893; not release-gate eligible. |
 | `cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest + 3.0-only forward features -> 2.6 latest` | Forward 3.0 collections are required after upgrade but intentionally excluded from rollback validation. |
 | `standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
 | `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
@@ -147,11 +147,10 @@ The regular matrices include the promoted type/index coverage:
 
 - `schema_matrix_2_6.yaml`: StructArray scalar round-trip and element search,
   all six nullable vector types, Geometry/RTREE, and explicit legacy indexes.
-- `schema_matrix_2_6_round_trip.yaml`: derives from the full 2.6 matrix and
-  excludes the VARCHAR and numeric StructArray scalar AutoIndex schemas for
-  `2.6 -> 3.0 -> 2.6`. A 3.0 target persists those nested indexes with
-  `is_nested=true`, which the 2.6 scalar/string SORT readers reject. The full
-  matrix remains active in upgrade-only and target-only gates.
+  The strict `2.6 -> 3.0 -> 2.6` known-limitation trackers intentionally keep
+  the VARCHAR and numeric StructArray scalar AutoIndex schemas that reproduce
+  #52893. A green run is accepted only after Milvus fixes that compatibility
+  boundary; no reduced matrix is treated as release-gate evidence.
 - `schema_matrix_3_0.yaml`: StructArray nested scalar indexes including
   `FLOAT + STL_SORT/INVERTED` and `VARCHAR + INVERTED/BITMAP`, EmbList DISKANN,
   FAISS, MinHash exact self-search with observational near-duplicate recall,
@@ -303,8 +302,9 @@ step executes the same reviewed test implementation.
 
 ## Safety rules
 
-- `2.6 -> 3.0 -> 2.6` promoted gates must keep LoonFFI/storage v3 and Vortex
-  disabled in every phase.
+- Every registered `2.6 -> 3.0 -> 2.6` path, including the #52893
+  known-limitation trackers, must keep LoonFFI/storage v3 and Vortex disabled
+  in every phase.
 - LoonFFI/storage v3 is represented by Milvus config key
   `common.storage.useLoonFFI`.
 - Vortex is represented by Milvus config key `dataNode.storage.format=vortex`.

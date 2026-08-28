@@ -12,7 +12,7 @@ cluster-2-6-18-to-3-0-latest-rollback-2-6-latest:
   deploy-profile: milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml
   drop-forward-before-rollback-enabled: 'false'
   forward-collection-prefix: qa_gate_cluster_2618_to_30_rb_26latest_forward
-  forward-schema-matrix: milvus_client/manifests/schema_matrix_2_6_round_trip.yaml
+  forward-schema-matrix: milvus_client/manifests/schema_matrix_2_6.yaml
   forward-workload-enabled: 'false'
   gate-allow-warning: 'false'
   index-compatibility-validation-enabled: 'true'
@@ -26,7 +26,7 @@ cluster-2-6-18-to-3-0-latest-rollback-2-6-latest:
   pressure-fail-on-error: 'true'
   pressure-modules: search_pressure query_pressure query_iterator_scan count_pressure
     upsert_pressure delete_pressure mixed_rw_pressure
-  release-gate-eligible: 'true'
+  release-gate-eligible: 'false'
   repo-revision: main
   repo-url: https://github.com/yanliang567/vectordb-testbricks.git
   rollback-enabled: 'true'
@@ -41,12 +41,12 @@ cluster-2-6-18-to-3-0-latest-rollback-2-6-latest:
   rollback-version: 2.6.0
   rollback-vortex-enabled: 'false'
   rows-per-collection: '5000'
-  scenario-classification: gate
+  scenario-classification: known_limitation
   scenario-id: cluster-2-6-18-to-3-0-latest-rollback-2-6-latest
-  scenario-support-status: supported_with_config_constraints
+  scenario-support-status: unsupported
   schema-evolution-existing-enabled: 'false'
   schema-evolution-forward-enabled: 'false'
-  schema-matrix: milvus_client/manifests/schema_matrix_2_6_round_trip.yaml
+  schema-matrix: milvus_client/manifests/schema_matrix_2_6.yaml
   target-json-shredding-enabled: 'false'
   target-loon-ffi-enabled: 'false'
   target-milvus-image: harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder
@@ -684,7 +684,7 @@ standalone-2-6-18-to-3-0-latest-rollback-2-6-latest:
   deploy-profile: milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml
   drop-forward-before-rollback-enabled: 'false'
   forward-collection-prefix: qa_gate_2618_to_30_rb_26latest_forward
-  forward-schema-matrix: milvus_client/manifests/schema_matrix_2_6_round_trip.yaml
+  forward-schema-matrix: milvus_client/manifests/schema_matrix_2_6.yaml
   forward-workload-enabled: 'false'
   gate-allow-warning: 'false'
   index-compatibility-validation-enabled: 'true'
@@ -698,7 +698,7 @@ standalone-2-6-18-to-3-0-latest-rollback-2-6-latest:
   pressure-fail-on-error: 'true'
   pressure-modules: search_pressure query_pressure query_iterator_scan count_pressure
     upsert_pressure delete_pressure mixed_rw_pressure
-  release-gate-eligible: 'true'
+  release-gate-eligible: 'false'
   repo-revision: main
   repo-url: https://github.com/yanliang567/vectordb-testbricks.git
   rollback-enabled: 'true'
@@ -713,12 +713,12 @@ standalone-2-6-18-to-3-0-latest-rollback-2-6-latest:
   rollback-version: 2.6.0
   rollback-vortex-enabled: 'false'
   rows-per-collection: '5000'
-  scenario-classification: gate
+  scenario-classification: known_limitation
   scenario-id: standalone-2-6-18-to-3-0-latest-rollback-2-6-latest
-  scenario-support-status: supported_with_config_constraints
+  scenario-support-status: unsupported
   schema-evolution-existing-enabled: 'false'
   schema-evolution-forward-enabled: 'false'
-  schema-matrix: milvus_client/manifests/schema_matrix_2_6_round_trip.yaml
+  schema-matrix: milvus_client/manifests/schema_matrix_2_6.yaml
   target-json-shredding-enabled: 'false'
   target-loon-ffi-enabled: 'false'
   target-milvus-image: harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder

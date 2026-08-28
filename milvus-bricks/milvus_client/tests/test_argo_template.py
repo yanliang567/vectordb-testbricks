@@ -3625,7 +3625,8 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     assert template["metadata"]["name"] == "milvus-cluster-upgrade-rollback"
     assert template["metadata"]["namespace"] == "qa"
     assert template["spec"]["serviceAccountName"] == "milvus-upgrade-rollback-runner"
-    assert template["spec"]["templateDefaults"]["retryStrategy"] == {
+    assert "templateDefaults" not in template["spec"]
+    infrastructure_retry = {
         "limit": "2",
         "retryPolicy": "OnError",
         "backoff": {"duration": "5s", "factor": "2", "maxDuration": "30s"},
@@ -3664,7 +3665,16 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
 
     templates = {item["name"]: item for item in template["spec"]["templates"]}
     main = templates["main"]
-    assert main["retryStrategy"]["limit"] == "0"
+    retryable_infrastructure_templates = {
+        "deploy-milvus",
+        "wait-milvus-ready",
+        "patch-milvus-image",
+        "patch-milvus-config",
+    }
+    for name in retryable_infrastructure_templates:
+        assert templates[name]["retryStrategy"] == infrastructure_retry
+    for name in set(templates) - retryable_infrastructure_templates:
+        assert "retryStrategy" not in templates[name], name
     tasks = {task["name"]: task for task in main["dag"]["tasks"]}
     assert {
         "deploy-base",
@@ -3713,13 +3723,16 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     assert "helm upgrade" in patch_command
     assert "--reuse-values" in patch_command
     assert "--set-file extraConfigFiles.user\\\\.yaml=/tmp/user.yaml" in patch_command
-    for command in (patch_command, templates["patch-milvus-config"]["container"]["args"][0]):
-        assert (
-            '"updateStrategy":{"type":"OnDelete","rollingUpdate":null}' in command
-        )
+    for command in (
+        patch_command,
+        templates["patch-milvus-config"]["container"]["args"][0],
+    ):
+        assert '"updateStrategy":{"type":"OnDelete","rollingUpdate":null}' in command
         assert "/tmp/woodpecker-pods-before" in command
         assert "/tmp/woodpecker-pods-after" in command
-        assert "diff -u /tmp/woodpecker-pods-before /tmp/woodpecker-pods-after" in command
+        assert (
+            "diff -u /tmp/woodpecker-pods-before /tmp/woodpecker-pods-after" in command
+        )
         assert command.index('patch statefulset "$woodpecker_sts"') < command.index(
             'helm upgrade "{{workflow.name}}" "$chart"'
         )

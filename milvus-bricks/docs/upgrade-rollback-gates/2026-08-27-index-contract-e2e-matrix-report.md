@@ -2,22 +2,23 @@
 
 ## 结论
 
-PR #43 合入后的优先验证矩阵已全部完成。standalone/cluster 的 v10/v4、
-v11/v4 `target_only` 合同，以及 standalone `2.6.18 -> 3.0 branch ->
-2.6 branch` 的 `none` 合同均通过最终 gate；5 条正式 workflow 的压力门禁
-`failed=0`，Milvus CR 和实例标签资源残留均为 0。
+PR #43 合入后的 index-engine 优先验证矩阵已完成：standalone/cluster 的
+v10/v4、v11/v4 四条 `target_only` release gate 均通过。完整 11-schema 的
+standalone `2.6.18 -> 3.0 branch -> 2.6 branch` 路径稳定复现 #52893，因此它和
+cluster 对应路径在 PR #44 review 后被明确降级为 `known_limitation + unsupported +
+release-gate-eligible=false`，不能以排除失败 schema 后的绿色结果证明完整支持合同。
 
 执行过程中发现并修正了三类测试基础设施/合同边界问题：
 
 1. cluster Helm patch 可能重建 Woodpecker Pod；模板现在用 `OnDelete` 并比较
-   patch 前后的 Pod `name=uid`，同时只对单节点基础设施错误重试，禁止整个 DAG
-   重跑。
+   patch 前后的 Pod `name=uid`。`OnError` retry 只配置在 deploy、ready wait 和
+   两个 Helm patch 幂等基础设施模板，绝不覆盖非幂等 DML brick。
 2. v3.0.0 携带的 Woodpecker client 无法读取较新 3.0 branch client 留下的
    reader 临时元数据。v10/v4、v11/v4 是 index-engine 专项合同，cluster 路径改用
    Pulsar 1CU 隔离消息存储兼容性；Woodpecker 仍由独立 gate 覆盖。
 3. 3.0 target 创建的两个 StructArray nested scalar AutoIndex 格式无法由 2.6
-   reader 加载。新增派生的 `2.6_round_trip` matrix，仅从跨版本 round-trip 排除
-   这两个格式；完整 2.6 matrix 和 target-only 覆盖保持不变。
+   reader 加载。最终 manifest 保留完整 matrix，并让严格失败路径持续跟踪
+   #52893；曾用于诊断的 9-schema 子集不进入最终合同。
 
 ## 输入与版本
 
@@ -40,8 +41,8 @@ v11/v4 `target_only` 合同，以及 standalone `2.6.18 -> 3.0 branch ->
 
 ## 最终 E2E 矩阵
 
-时间均为 UTC。`failed_all` 包含压力进程记录的预期/允许失败样本；最终严格门禁
-使用 `failed`，5 条路径均为 0。
+时间均为 UTC。`failed_all` 包含压力进程记录的预期/允许失败样本；四条正式
+index-engine gate 的最终严格压力 `failed` 均为 0。
 
 | 场景 | Workflow | 合同 / topology | 结果与时间 | 压力 `failed / failed_all / passed / total` |
 | --- | --- | --- | --- | --- |
@@ -49,12 +50,13 @@ v11/v4 `target_only` 合同，以及 standalone `2.6.18 -> 3.0 branch ->
 | standalone v11/v4 | `milvus-standalone-3-0-upgrade-rollback-frj7m` | `target_only`, Rocksmq | Succeeded `63/63`, 2026-08-27 16:08:05–17:13:24 | `0 / 21 / 210 / 231` |
 | cluster v10/v4 | `c30-index-v10-v4-6bp49` | `target_only`, Pulsar 1CU | Succeeded `63/63`, 2026-08-28 06:08:37–07:15:09 | `0 / 19 / 215 / 234` |
 | cluster v11/v4 | `c30-index-v11-v4-w7tm4` | `target_only`, Pulsar 1CU | Succeeded `63/63`, 2026-08-28 07:16:32–08:20:56 | `0 / 18 / 217 / 235` |
-| standalone 2.6 round-trip | `s2618-30-rb26-safe-7pplv` | `none`, Rocksmq, 9-schema derived matrix | Succeeded `58/58`, 2026-08-28 09:20:10–10:19:53 | `0 / 19 / 190 / 209` |
+| standalone 2.6 strict tracker | `s2618-30-rb26-none-8bx5f` | `known_limitation`, Rocksmq, full 11-schema matrix | #52893 reproduced at rollback serviceability; stopped `45/46`, 2026-08-28 08:22:42–09:07:47 | N/A |
+| standalone 2.6 diagnostic subset | `s2618-30-rb26-safe-7pplv` | diagnostic only, Rocksmq, reduced 9-schema matrix | Succeeded `58/58`, 2026-08-28 09:20:10–10:19:53 | `0 / 19 / 190 / 209` |
 
 前两条 standalone workflow 使用原始 e47 target 与 PR #43 revision。后两条
 cluster workflow 使用 digest-pinned f78 target；其运行时测试代码 revision 仍固定为
-PR #43，但提交的 WorkflowSpec 包含本轮 cluster 模板保护。2.6 round-trip 使用
-f78 target 和 `af1d259` revision。
+PR #43，但提交的 WorkflowSpec 包含本轮 cluster 模板保护。两次 2.6 运行使用
+f78 target；9-schema 成功运行仅用于隔离根因，不作为 release-gate 证据。
 
 ## 验证点
 
@@ -69,16 +71,16 @@ f78 target 和 `af1d259` revision。
   DML/DQL；严格压力窗口和最终 gate 均通过。
 - standalone 与 cluster 两种 topology 的 v10/v4、v11/v4 矩阵均已覆盖。
 
-### 2.6 none-contract round-trip
+### 2.6 known-limitation tracker
 
-- `schema_matrix_2_6_round_trip.yaml` 从完整 2.6 matrix 派生 9 个 schema；
-  target checkpoint 为 `existing=9, new=9, reload=18, failures=0`。
-- `none` 合同不执行 target-only drop；phase-new collections 在回滚后仍存在。
-- 回滚到 2.6 branch 后可服务性探测在 11 秒内通过；index/schema 校验通过。
-- rollback phase DML/DQL checkpoint 为
-  `existing=9, new=9, reload=18, failures=0`；9 个 carried collections 全部参与，
-  `inserted=9000, upserted=8000, deleted=900`，未发生 target-only skip。
-- phase 累计 reload 27 次、search 62 次、scalar index query 80 次，最终压力门禁通过。
+- 严格路径使用完整 11-schema `schema_matrix_2_6.yaml`，target phase 的
+  existing/new/reload 检查均通过，回滚到 2.6 后因 nested scalar STL_SORT
+  `is_nested=true` 无法加载而失去 serviceability，准确复现 #52893。
+- 诊断时排除两个 schema 后，9-schema 子集确实可以完成 rollback、DML/DQL 和
+  pressure；这只证明其余场景未受该根因影响，不证明完整 2.6 round-trip 支持。
+- 最终 manifest 恢复完整 matrix；standalone/cluster 均渲染为
+  `known_limitation + unsupported + release-gate-eligible=false`。只有包含两个
+  触发 schema 的严格运行转绿，才能把它重新提升为 release gate。
 
 ## 诊断过程与修正依据
 
@@ -116,55 +118,56 @@ Assert "!is_nested" => nested scalar sort index is not supported in 2.6
 
 受影响的是两个 target-built StructArray scalar AutoIndex schema。它不是简单的
 index version pin 问题：v2.6.18、2.6 branch、v3.0.0 和 3.0 branch 的默认 scalar
-engine version 均为 3，但 2.6 reader 不具备 nested 格式能力。因此采用显式派生
-matrix，而不是降低整条测试路径覆盖或隐藏回滚失败。
-
-loader 新增 `extends` 与 `exclude_schemas`，并对继承环、版本不一致、重复/空值、
-未知 exclusion、derived matrix 同时定义 schemas 等情况 fail closed。实现前的新增
-测试先稳定复现 2 个失败，随后修复至通过。
+engine version 均为 3，但 2.6 reader 不具备 nested 格式能力。最初的派生 matrix
+可帮助隔离根因，却会在 `release-gate-eligible=true` 下掩盖支持合同；PR #44 review
+后已删除派生 loader/matrix，恢复完整失败用例并将场景降级为 known limitation。
 
 ## 改动范围及对其他 path 的影响
 
 - `cluster-3-0-index-v10-v4-upgrade-rollback` 和
   `cluster-3-0-index-v11-v4-upgrade-rollback`：deploy profile 从 Woodpecker 1CU
   改为 Pulsar 1CU；合同和 schema 验证不变。
-- 所有 cluster upgrade/rollback workflow：获得 task 级基础设施错误重试和
-  Woodpecker Pod 不重建保护；业务断言失败不靠整 DAG 重试掩盖。
+- 所有 cluster upgrade/rollback workflow：获得 Woodpecker Pod 不重建保护；
+  retry 只作用于 `deploy-milvus`、`wait-milvus-ready`、`patch-milvus-image` 和
+  `patch-milvus-config`。`run-brick`、optional brick 和 pressure 等业务/DML 模板
+  没有 retry。
 - standalone 与 cluster 的通用
-  `2.6.18 -> 3.0 -> 2.6 latest` none-contract path：统一使用 9-schema
-  `2.6_round_trip` matrix，保持两种 topology 的合同定义一致。
+  `2.6.18 -> 3.0 -> 2.6 latest` path：统一恢复完整 11-schema matrix，并降级为
+  #52893 known limitation，不参与 release gate。
 - 2.6 target-only feature paths：继续使用完整 11-schema `schema_matrix_2_6.yaml`；
   这两个被排除的 nested scalar schema 仍在 upgrade/target-only 阶段覆盖。
 - 其他 3.0、Vortex、LoonFFI、JSON Shredding、Woodpecker 专项 path 的 manifest
   合同和 matrix 未改变。
 - 所有已注册升级/回滚场景仍由 manifest 统一默认 `milvus_log_level: debug`。
 
-本轮实际 E2E 运行 standalone 2.6 none-contract 作为控制路径；cluster 2.6
-对应场景已同步引用相同派生 matrix，并由 manifest/renderer 测试验证，但不把它
-误记为本轮已执行的第 6 条 E2E。
+本轮实际 E2E 运行 standalone 2.6 严格路径并复现 #52893；cluster 2.6 已保持
+相同完整合同和 non-eligible classification，但未在本轮再次执行。
 
 ## 本地回归与静态验证
 
-在 `af1d259` 上完成以下验证：
+在初始 `af1d259` 上的 pytest 和 E2E 结果如上；PR #44 review 发现当时只执行了
+`ruff check`，遗漏 CI 的 `ruff format --check`，后者准确发现
+`test_argo_template.py` 未格式化。review 修正后的最终验证为：
 
-- 完整 pytest：`605 passed in 47.53s`（报告落盘后的最终重跑）。
-- manifest/schema/render 定向测试：`180 passed`；新增/相关 manifest 场景测试
-  `25 passed`。
-- Ruff（本轮 Python 文件）：通过。
-- `argo lint`：cluster、standalone 2.6、standalone 3.0 三个模板全部通过。
-- 代表性 manifest 渲染断言：cluster v10/v11 均为
-  `target_only + Pulsar 1CU + debug`；standalone 2.6 为
-  `none + 2.6_round_trip + debug`，通过。
+- 完整 pytest：`603 passed in 50.06s`。测试数从 605 减少 2，是因为派生 matrix
+  loader 及其两个专用测试被删除。
+- manifest/schema/render/Argo template 相关测试：`298 passed`。
+- CI 固定版本 `ruff==0.15.22`：完整 23 文件 check 通过，format check 显示
+  `23 files already formatted`。
+- `argo lint --offline argo`：全目录通过。
+- 代表性 manifest 渲染：standalone/cluster 2.6 均为
+  `known_limitation + unsupported + release-gate-eligible=false + full 2.6 matrix +
+  debug`。
+- Retry 结构断言：只有 `deploy-milvus`、`wait-milvus-ready`、
+  `patch-milvus-image`、`patch-milvus-config` 四个模板含 retry；不存在全局
+  `templateDefaults` retry。
 - `git diff --check`：通过。
-
-仓库全量 Ruff 仍包含与本轮无关的历史问题，因此验收使用本轮改动 Python 文件的
-scoped Ruff；没有修改或掩盖历史失败。
 
 ## 清理与后续建议
 
-最终复核 5 条成功 workflow 均为 Succeeded；对应 Milvus CR 数量为 0、
-`app.kubernetes.io/instance=<workflow>` 标签资源数量为 0。最后一条 2.6 workflow
-的 onExit 也为 Succeeded，workflow 标签资源为 0。
+最终复核四条 index-engine gate 和一条诊断 subset workflow 均为 Succeeded；
+对应 Milvus CR 与实例标签资源数量为 0。完整 2.6 tracker 的失败是 #52893 的预期
+证据，不计入 release gate；其保留环境也已在诊断后清理。
 
 后续发布 3.0.2、3.0.5、3.0.8 或跨 minor 的 3.1.0 时，应在 manifest 中新增/更新
 不可变 baseline、target、rollback alias，并按 capability + exact image + topology

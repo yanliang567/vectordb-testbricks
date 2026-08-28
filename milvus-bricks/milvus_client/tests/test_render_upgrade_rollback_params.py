@@ -113,9 +113,10 @@ def test_render_standalone_2_6_to_3_0_gate_parameters():
     assert params["base-version"] == "2.6.18"
     assert params["target-version"] == "3.0.0"
     assert params["rollback-version"] == "2.6.0"
-    assert params["schema-matrix"] == (
-        "milvus_client/manifests/schema_matrix_2_6_round_trip.yaml"
-    )
+    assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
+    assert params["scenario-classification"] == "known_limitation"
+    assert params["scenario-support-status"] == "unsupported"
+    assert params["release-gate-eligible"] == "false"
     assert params["forward-workload-enabled"] == "false"
     assert params["rollback-forward-validation-enabled"] == "false"
     assert params["index-compatibility-validation-enabled"] == "true"
@@ -386,9 +387,10 @@ def test_render_cluster_2_6_to_3_0_gate_uses_pulsar_profile():
         params["deploy-profile"]
         == "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
     )
-    assert params["schema-matrix"] == (
-        "milvus_client/manifests/schema_matrix_2_6_round_trip.yaml"
-    )
+    assert params["schema-matrix"] == "milvus_client/manifests/schema_matrix_2_6.yaml"
+    assert params["scenario-classification"] == "known_limitation"
+    assert params["scenario-support-status"] == "unsupported"
+    assert params["release-gate-eligible"] == "false"
     assert params["index-compatibility-validation-enabled"] == "true"
     assert params["base-milvus-image"] == MILVUS_2_6_18_BASELINE_IMAGE
     assert (

@@ -163,12 +163,10 @@ def test_upgrade_rollback_gates_manifest_contains_required_gate_scenarios():
         "cluster-3-0-index-v11-v4-upgrade-rollback",
     } <= set(scenarios)
     for scenario_id in [
-        "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "standalone-3-0-index-v10-v4-upgrade-rollback",
         "standalone-3-0-index-v11-v4-upgrade-rollback",
-        "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
         "cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline",
@@ -223,22 +221,26 @@ def test_standalone_2_6_target_only_feature_gate_contract():
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
     ],
 )
-def test_2_6_round_trip_gates_exclude_target_nested_scalar_index_formats(
+def test_2_6_round_trip_known_limitations_preserve_full_regression_matrix(
     scenario_id,
 ):
     manifest = _manifest()
     scenario = resolve_gate_scenario(manifest, scenario_id)
+    params = render_argo_parameters(scenario, manifest, allow_placeholder=True)
 
     assert scenario["schema_matrix"] == (
-        "milvus_client/manifests/schema_matrix_2_6_round_trip.yaml"
+        "milvus_client/manifests/schema_matrix_2_6.yaml"
     )
+    assert scenario["classification"] == "known_limitation"
+    assert scenario["support_status"] == "unsupported"
+    assert params["release-gate-eligible"] == "false"
     specs = load_schema_matrix(ROOT.parent / scenario["schema_matrix"])
     names = {spec.name for spec in specs}
 
-    assert len(specs) == 9
+    assert len(specs) == 11
     assert "struct_array_element_rollback_safe" in names
-    assert "struct_array_varchar_autoindex_rollback_safe" not in names
-    assert "struct_array_numeric_autoindex_rollback_safe" not in names
+    assert "struct_array_varchar_autoindex_rollback_safe" in names
+    assert "struct_array_numeric_autoindex_rollback_safe" in names
 
 
 @pytest.mark.parametrize(
@@ -345,12 +347,8 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 10
+    assert len(cluster_scenarios) == 9
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
-    assert (
-        by_id["cluster-2-6-18-to-3-0-latest-rollback-2-6-latest"]["deploy_profile"]
-        == "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
-    )
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest"][
             "deploy_profile"
@@ -653,6 +651,7 @@ def test_cluster_2_6_gate_scenario_uses_pulsar_profile():
 
     assert {scenario["classification"] for scenario in cluster_2_6_scenarios} == {
         "gate",
+        "known_limitation",
     }
     expected_generate_names = {
         "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest": "c26rb-",
@@ -756,7 +755,8 @@ def test_2_6_to_3_0_rollback_gate_rejects_effective_storage_v3_or_vortex_in_any_
     scenario = next(
         item
         for item in unsafe["scenarios"]
-        if item["id"] == "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest"
+        if item["id"]
+        == "standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest"
     )
     scenario[phase][field] = True
 

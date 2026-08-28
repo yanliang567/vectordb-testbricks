@@ -272,7 +272,7 @@ index-engine-qualification-status
 
 ## 6. 对全部升级/回滚路径的影响审计
 
-当前 manifest 有 26 个场景：21 个 gate、2 个 candidate、2 个 known limitation、1 个 negative。
+当前 manifest 有 26 个场景：19 个 gate、2 个 candidate、4 个 known limitation、1 个 negative。PR #44 review 将两条完整 2.6 round-trip 路径降级为 #52893 known limitation；它们保留严格 matrix，但不再计入 release gate。
 
 ### 6.1 直接语义迁移：4 个 index 场景
 
@@ -291,7 +291,7 @@ cluster-3-0-index-v11-v4-upgrade-rollback
 
 | 场景组 | 数量 | 是否修改场景执行字段 | 一致性处理 |
 | --- | ---: | --- | --- |
-| 2.6 → 3.0 → 2.6 baseline/target-only（standalone + cluster） | 4 | 否 | 合同 metadata=`none/not_applicable` |
+| 2.6 → 3.0 → 2.6 baseline/target-only（standalone + cluster） | 4 | baseline 两条分类调整 | baseline round-trip 为 #52893 known limitation；target-only 仍为 gate；合同 metadata=`none/not_applicable` |
 | 3.0 baseline core gate（standalone + cluster） | 2 | 否 | 保持 3.0 matrix 与 forward rollback validation |
 | JSON Shredding known limitation（standalone + cluster） | 2 | 否 | 保持现有 JSON matrix 与 classification |
 | Woodpecker 2CU HA | 1 | 否 | 保持 topology、pressure、schema matrix |
