@@ -2487,6 +2487,36 @@ def test_upgrade_rollback_templates_retry_repo_checkout():
         assert len(checkout_commands) == expected_count
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+        "upgrade-rollback-compatibility.yaml",
+    ],
+)
+def test_upgrade_rollback_templates_retry_python_dependency_bootstrap(filename):
+    template = yaml.safe_load((ROOT / "argo" / filename).read_text())
+    dependency_commands = []
+
+    for template_item in template["spec"]["templates"]:
+        containers = []
+        if container := template_item.get("container"):
+            containers.append(container)
+        containers.extend(template_item.get("initContainers", []))
+        for container in containers:
+            command = "\n".join(str(arg) for arg in container.get("args", []))
+            if "python3 -m pip install --disable-pip-version-check" not in command:
+                continue
+            dependency_commands.append(command)
+            assert "for dependency_attempt in 1 2 3 4 5; do" in command
+            assert 'if [ "$dependency_attempt" = "5" ]; then' in command
+            assert "sleep $((dependency_attempt * 5))" in command
+
+    assert dependency_commands
+
+
 def test_upgrade_rollback_gate_docs_require_manual_argo_argument_paste():
     readme = (ROOT / "docs" / "upgrade-rollback-gates" / "README.md").read_text()
 

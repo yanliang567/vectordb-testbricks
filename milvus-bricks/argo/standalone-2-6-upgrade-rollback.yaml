@@ -1435,7 +1435,15 @@ spec:
         args:
           - |
             set -eux
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&
@@ -1727,7 +1735,15 @@ spec:
         args:
           - |
             set -eu
-            python3 -m pip install --disable-pip-version-check -q pyyaml
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q pyyaml; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             mkdir -p /tmp/milvus-bricks/k8s
             phase="{{inputs.parameters.phase}}"
             kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o json > "/tmp/milvus-bricks/k8s/milvus-${phase}.json"
@@ -1812,7 +1828,15 @@ spec:
         args:
           - |
             set -eu
-            python3 -m pip install --disable-pip-version-check -q pyyaml
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q pyyaml; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             mkdir -p /tmp/milvus-bricks/k8s
             phase="{{inputs.parameters.phase}}"
             kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o json > "/tmp/milvus-bricks/k8s/milvus-${phase}-storage-config-source.json"
@@ -2055,7 +2079,15 @@ spec:
               python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
               exit 0
             fi
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&
@@ -2116,7 +2148,15 @@ spec:
         args:
           - |
             set -eux
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&
@@ -2171,7 +2211,15 @@ spec:
           - |
             set -eu
             trap 'echo "stopping pressure daemon"; exit 0' TERM INT
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&
@@ -2293,7 +2341,15 @@ spec:
         args:
           - |
             set -eu
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&
@@ -2668,7 +2724,15 @@ spec:
         args:
           - |
             set -eux
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&

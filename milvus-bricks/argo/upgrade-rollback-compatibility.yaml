@@ -70,7 +70,15 @@ spec:
         args:
           - |
             mkdir -p /tmp/brick-result /tmp/milvus-bricks/checkpoints /tmp/milvus-bricks/results
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             cd /workspace/repo/milvus-bricks
             PYTHONPATH=. python3 -m {{inputs.parameters.module}} \
               --uri "{{workflow.parameters.uri}}" \
@@ -120,7 +128,15 @@ spec:
         args:
           - |
             mkdir -p /tmp/brick-result /tmp/milvus-bricks/checkpoints /tmp/milvus-bricks/results
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             cat >/tmp/milvus-bricks/scenario.yaml <<'EOF'
             name: upgrade_rollback_compatibility
             cycles: {{workflow.parameters.cycles}}
