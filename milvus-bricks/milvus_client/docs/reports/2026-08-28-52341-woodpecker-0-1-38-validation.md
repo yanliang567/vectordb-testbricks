@@ -36,13 +36,14 @@
 3. 更新 #52341 场景，使用专用 profile/matrix，明确与 #52768 隔离，保持非 release-gate tracker。
 4. 为四类升级/回滚模板的 Python dependency bootstrap 增加五次退避重试。重试仅发生在业务模块启动前。
 5. 为三个升级/回滚模板增加 `idempotent-run-brick` 与 `optional-idempotent-run-brick`：只读的 precheck、serviceability、data/index/schema validation 使用 `OnError`；create/seed/phase DML/schema evolution/drop 等写操作仍无 Argo retry。
-6. QA `milvus-cluster-upgrade-rollback` 最终为 generation 33；无 `templateDefaults`。有 retry 的 template 仅为：
+6. 两次最终有效验证使用 QA `milvus-cluster-upgrade-rollback` generation 33；无 `templateDefaults`。该验证版本有 retry 的 template 仅为：
    - `deploy-milvus`
    - `wait-milvus-ready`
    - `patch-milvus-image`
    - `patch-milvus-config`
    - `idempotent-run-brick`
    - `optional-idempotent-run-brick`
+7. 验证完成后，live WorkflowTemplate 已恢复到 `origin/main@4f2360d8589d43464888ed775f90a0cf570d6c8b`，generation 34；无 `templateDefaults`，仅已合并的 `deploy-milvus`、`wait-milvus-ready`、`patch-milvus-image`、`patch-milvus-config` 保留 retry，未留下未评审的集群漂移。
 
 最终静态验证：
 
@@ -125,4 +126,4 @@ Woodpecker StatefulSet 全程使用 `OnDelete`；每轮四个 Woodpecker Pod 的
 1. 以本报告作为 #52341 在 Woodpecker 0.1.38 上的关闭/解除限制证据。
 2. #52768 继续保留独立 known-limitation tracker；不要把两个 nested scalar AutoIndex schema 静默并回主 release gate。
 3. 合并本分支的 bootstrap 与只读幂等 retry 改动，使 cluster、standalone 2.6/3.0 和通用 compatibility 路径保持一致。
-4. 合并后再次应用代码管理的 WorkflowTemplate；不要直接保留 QA generation 33 作为长期不可追踪的集群漂移。
+4. 合并 retry hardening 后，再从合并 commit 应用代码管理的 WorkflowTemplate；当前 live template 已恢复为 `origin/main` generation 34。
