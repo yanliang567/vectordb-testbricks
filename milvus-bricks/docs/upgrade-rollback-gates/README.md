@@ -14,9 +14,9 @@ The manifest currently registers 26 scenarios:
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
 | --- | --- | --- | --- | --- |
-| `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest` | standalone | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | LoonFFI/storage v3 and Vortex must stay disabled. |
+| `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest` | standalone | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | LoonFFI/storage v3 and Vortex stay disabled; the cross-version round-trip matrix excludes target-built StructArray scalar index formats that 2.6 cannot read. |
 | `standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest` | standalone | gate | `2.6.18 -> 3.0 latest + 3.0-only forward features -> 2.6 latest` | Forward 3.0 collections are required after upgrade but intentionally excluded from rollback validation. |
-| `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | LoonFFI/storage v3 and Vortex must stay disabled. |
+| `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest -> 2.6 latest` | Uses the same cross-version round-trip matrix and storage constraints as standalone. |
 | `cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest + 3.0-only forward features -> 2.6 latest` | Forward 3.0 collections are required after upgrade but intentionally excluded from rollback validation. |
 | `standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
 | `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
@@ -26,9 +26,9 @@ The manifest currently registers 26 scenarios:
 | `cluster-3-0-vortex-candidate-upgrade-rollback` | cluster | candidate | `earlier reviewed 3.0 candidate -> newer reviewed candidate + LoonFFI/Vortex -> earlier candidate + LoonFFI/Vortex` | Distributed pre-release evidence; not a release gate. |
 | `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | standalone | known limitation | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
 | `standalone-3-0-index-v10-v4-upgrade-rollback` | standalone | gate | `3.0 baseline rollback-safe matrix -> 3.0 latest + target 10/4 -> 3.0 baseline rollback-safe matrix` | Target-only runtime config and SINDI/Block-Max plus JSON scalar index families are checked; forward collections are dropped before rollback. |
-| `cluster-3-0-index-v10-v4-upgrade-rollback` | cluster | gate | `3.0 baseline rollback-safe matrix -> 3.0 latest + target 10/4 -> 3.0 baseline rollback-safe matrix` | Distributed equivalent of the target-only index engine gate. |
+| `cluster-3-0-index-v10-v4-upgrade-rollback` | cluster | gate | `3.0 baseline rollback-safe matrix -> 3.0 latest + target 10/4 -> 3.0 baseline rollback-safe matrix` | Distributed equivalent of the target-only index engine gate; uses Pulsar so Woodpecker client metadata compatibility is gated independently. |
 | `standalone-3-0-index-v11-v4-upgrade-rollback` | standalone | gate | `3.0 baseline rollback-safe matrix -> 3.0 latest + target 11/4 -> 3.0 baseline rollback-safe matrix` | Target-only v11/v4 index engine and algorithm coverage. |
-| `cluster-3-0-index-v11-v4-upgrade-rollback` | cluster | gate | `3.0 baseline rollback-safe matrix -> 3.0 latest + target 11/4 -> 3.0 baseline rollback-safe matrix` | Distributed equivalent of the target-only v11/v4 gate. |
+| `cluster-3-0-index-v11-v4-upgrade-rollback` | cluster | gate | `3.0 baseline rollback-safe matrix -> 3.0 latest + target 11/4 -> 3.0 baseline rollback-safe matrix` | Distributed equivalent of the target-only v11/v4 gate; uses the same Pulsar isolation as v10/v4. |
 | `standalone-3-0-loon-vortex-to-2-6-negative` | standalone | negative | `2.6.18 -> 3.0 latest + LoonFFI/Vortex -> 2.6 latest` | Unsupported negative coverage only; not a promoted gate. |
 | `standalone-3-0-1-vortex-self-compat-upgrade-rollback` | standalone | gate | `3.0.1 Vortex -> 3.0.1 Vortex -> 3.0.1 Vortex` | LoonFFI/Vortex enabled in every phase; Vortex TEXT LOB baseline survives the round trip. |
 | `cluster-3-0-1-vortex-self-compat-upgrade-rollback` | cluster | gate | `3.0.1 Vortex -> 3.0.1 Vortex -> 3.0.1 Vortex` | Distributed Vortex baseline self-compatibility. |
@@ -147,6 +147,11 @@ The regular matrices include the promoted type/index coverage:
 
 - `schema_matrix_2_6.yaml`: StructArray scalar round-trip and element search,
   all six nullable vector types, Geometry/RTREE, and explicit legacy indexes.
+- `schema_matrix_2_6_round_trip.yaml`: derives from the full 2.6 matrix and
+  excludes the VARCHAR and numeric StructArray scalar AutoIndex schemas for
+  `2.6 -> 3.0 -> 2.6`. A 3.0 target persists those nested indexes with
+  `is_nested=true`, which the 2.6 scalar/string SORT readers reject. The full
+  matrix remains active in upgrade-only and target-only gates.
 - `schema_matrix_3_0.yaml`: StructArray nested scalar indexes including
   `FLOAT + STL_SORT/INVERTED` and `VARCHAR + INVERTED/BITMAP`, EmbList DISKANN,
   FAISS, MinHash exact self-search with observational near-duplicate recall,

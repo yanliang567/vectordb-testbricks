@@ -7,6 +7,14 @@ spec:
   serviceAccountName: milvus-upgrade-rollback-runner
   entrypoint: main
   onExit: maybe-cleanup
+  templateDefaults:
+    retryStrategy:
+      limit: "2"
+      retryPolicy: OnError
+      backoff:
+        duration: 5s
+        factor: "2"
+        maxDuration: 30s
   arguments:
     parameters:
       - name: client-namespace
@@ -171,6 +179,8 @@ spec:
             storage: 2Gi
   templates:
     - name: main
+      retryStrategy:
+        limit: "0"
       dag:
         tasks:
           - name: resolve-inputs
@@ -1720,6 +1730,19 @@ spec:
                 print(f"{key}={shlex.quote(str(helm[key]))}")
             PY
             . /tmp/helm-env
+            woodpecker_sts="{{workflow.name}}-woodpecker"
+            woodpecker_selector="app.kubernetes.io/instance={{workflow.name}},component=woodpecker"
+            preserve_woodpecker=false
+            if kubectl -n "{{workflow.parameters.milvus-namespace}}" get statefulset "$woodpecker_sts" >/dev/null 2>&1; then
+              kubectl -n "{{workflow.parameters.milvus-namespace}}" patch statefulset "$woodpecker_sts" \
+                --type merge -p '{"spec":{"updateStrategy":{"type":"OnDelete","rollingUpdate":null}}}'
+              test "$(kubectl -n "{{workflow.parameters.milvus-namespace}}" get statefulset "$woodpecker_sts" -o jsonpath='{.spec.updateStrategy.type}')" = OnDelete
+              kubectl -n "{{workflow.parameters.milvus-namespace}}" get pods \
+                -l "$woodpecker_selector" \
+                -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.uid}{"\n"}{end}' \
+                | sort > /tmp/woodpecker-pods-before
+              preserve_woodpecker=true
+            fi
             helm repo add "$repo_name" "$repo_url" || true
             helm repo update "$repo_name"
             helm upgrade "{{workflow.name}}" "$chart" \
@@ -1732,6 +1755,14 @@ spec:
               --set-file extraConfigFiles.user\\.yaml=/tmp/user.yaml \
               --wait \
               --timeout 15m
+            if [ "$preserve_woodpecker" = "true" ]; then
+              test "$(kubectl -n "{{workflow.parameters.milvus-namespace}}" get statefulset "$woodpecker_sts" -o jsonpath='{.spec.updateStrategy.type}')" = OnDelete
+              kubectl -n "{{workflow.parameters.milvus-namespace}}" get pods \
+                -l "$woodpecker_selector" \
+                -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.uid}{"\n"}{end}' \
+                | sort > /tmp/woodpecker-pods-after
+              diff -u /tmp/woodpecker-pods-before /tmp/woodpecker-pods-after
+            fi
             helm get values "{{workflow.name}}" -n "{{workflow.parameters.milvus-namespace}}" -a | sed -n '1,180p'
 
     - name: patch-milvus-config
@@ -1818,6 +1849,19 @@ spec:
                 print(f"{key}={shlex.quote(str(helm[key]))}")
             PY
             . /tmp/helm-env
+            woodpecker_sts="{{workflow.name}}-woodpecker"
+            woodpecker_selector="app.kubernetes.io/instance={{workflow.name}},component=woodpecker"
+            preserve_woodpecker=false
+            if kubectl -n "{{workflow.parameters.milvus-namespace}}" get statefulset "$woodpecker_sts" >/dev/null 2>&1; then
+              kubectl -n "{{workflow.parameters.milvus-namespace}}" patch statefulset "$woodpecker_sts" \
+                --type merge -p '{"spec":{"updateStrategy":{"type":"OnDelete","rollingUpdate":null}}}'
+              test "$(kubectl -n "{{workflow.parameters.milvus-namespace}}" get statefulset "$woodpecker_sts" -o jsonpath='{.spec.updateStrategy.type}')" = OnDelete
+              kubectl -n "{{workflow.parameters.milvus-namespace}}" get pods \
+                -l "$woodpecker_selector" \
+                -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.uid}{"\n"}{end}' \
+                | sort > /tmp/woodpecker-pods-before
+              preserve_woodpecker=true
+            fi
             helm repo add "$repo_name" "$repo_url" || true
             helm repo update "$repo_name"
             helm upgrade "{{workflow.name}}" "$chart" \
@@ -1827,6 +1871,14 @@ spec:
               --set-file extraConfigFiles.user\\.yaml=/tmp/user.yaml \
               --wait \
               --timeout 15m
+            if [ "$preserve_woodpecker" = "true" ]; then
+              test "$(kubectl -n "{{workflow.parameters.milvus-namespace}}" get statefulset "$woodpecker_sts" -o jsonpath='{.spec.updateStrategy.type}')" = OnDelete
+              kubectl -n "{{workflow.parameters.milvus-namespace}}" get pods \
+                -l "$woodpecker_selector" \
+                -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.uid}{"\n"}{end}' \
+                | sort > /tmp/woodpecker-pods-after
+              diff -u /tmp/woodpecker-pods-before /tmp/woodpecker-pods-after
+            fi
             helm get values "{{workflow.name}}" -n "{{workflow.parameters.milvus-namespace}}" -a | sed -n '1,180p'
 
     - name: snapshot-milvus-config

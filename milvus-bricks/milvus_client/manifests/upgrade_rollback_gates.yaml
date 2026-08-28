@@ -35,6 +35,7 @@ deploy_profiles:
 
 schema_matrices:
   "2.6": milvus_client/manifests/schema_matrix_2_6.yaml
+  2.6_round_trip: milvus_client/manifests/schema_matrix_2_6_round_trip.yaml
   rollback_safe_base: milvus_client/manifests/schema_matrix_2_6.yaml
   "3.0": milvus_client/manifests/schema_matrix_3_0.yaml
   3.0_storage_v3: milvus_client/manifests/schema_matrix_3_0_storage_v3.yaml
@@ -90,7 +91,9 @@ scenarios:
     support_status: supported_with_config_constraints
     workflow_template_ref: standalone_2_6
     deploy_profile_ref: standalone
-    schema_matrix_ref: "2.6"
+    # Excludes target-built nested scalar indexes that the 2.6 reader cannot
+    # load; the full 2.6 matrix remains used by target-only feature gates.
+    schema_matrix_ref: 2.6_round_trip
     collection_prefix: qa_gate_2618_to_30_rb_26latest
     forward_workload_enabled: false
     schema_evolution_existing_enabled: false
@@ -329,7 +332,8 @@ scenarios:
     submit_generate_name: c26rb-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_pulsar_1cu
-    schema_matrix_ref: "2.6"
+    # Keep the cluster and standalone cross-2.6 round-trip contracts aligned.
+    schema_matrix_ref: 2.6_round_trip
     collection_prefix: qa_gate_cluster_2618_to_30_rb_26latest
     forward_workload_enabled: false
     schema_evolution_existing_enabled: false
@@ -544,7 +548,12 @@ scenarios:
     support_status: supported
     submit_generate_name: c30-index-v10-v4-
     workflow_template_ref: cluster
-    deploy_profile_ref: cluster_woodpecker_1cu
+    # Keep this index-engine contract independent from Woodpecker client
+    # metadata compatibility. The v3.0.0 baseline uses Woodpecker v0.1.33,
+    # while 3.0 branch targets use v0.1.37+, which cannot round-trip reader
+    # temp metadata. Woodpecker compatibility remains covered by its dedicated
+    # cluster gates.
+    deploy_profile_ref: cluster_pulsar_1cu
     index_engine_contract:
       mode: target_only
       capability: IndexEngineV10V4
@@ -577,7 +586,9 @@ scenarios:
     support_status: supported
     submit_generate_name: c30-index-v11-v4-
     workflow_template_ref: cluster
-    deploy_profile_ref: cluster_woodpecker_1cu
+    # Match the v10/v4 index contract topology: Pulsar isolates index-engine
+    # compatibility from the independently gated Woodpecker client contract.
+    deploy_profile_ref: cluster_pulsar_1cu
     index_engine_contract:
       mode: target_only
       capability: IndexEngineV11V4

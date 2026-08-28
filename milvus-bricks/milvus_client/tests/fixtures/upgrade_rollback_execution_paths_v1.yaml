@@ -12,7 +12,7 @@ cluster-2-6-18-to-3-0-latest-rollback-2-6-latest:
   deploy-profile: milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml
   drop-forward-before-rollback-enabled: 'false'
   forward-collection-prefix: qa_gate_cluster_2618_to_30_rb_26latest_forward
-  forward-schema-matrix: milvus_client/manifests/schema_matrix_2_6.yaml
+  forward-schema-matrix: milvus_client/manifests/schema_matrix_2_6_round_trip.yaml
   forward-workload-enabled: 'false'
   gate-allow-warning: 'false'
   index-compatibility-validation-enabled: 'true'
@@ -46,7 +46,7 @@ cluster-2-6-18-to-3-0-latest-rollback-2-6-latest:
   scenario-support-status: supported_with_config_constraints
   schema-evolution-existing-enabled: 'false'
   schema-evolution-forward-enabled: 'false'
-  schema-matrix: milvus_client/manifests/schema_matrix_2_6.yaml
+  schema-matrix: milvus_client/manifests/schema_matrix_2_6_round_trip.yaml
   target-json-shredding-enabled: 'false'
   target-loon-ffi-enabled: 'false'
   target-milvus-image: harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder
@@ -513,7 +513,7 @@ cluster-3-0-index-v10-v4-upgrade-rollback:
   base-vortex-enabled: 'false'
   batch-size: '100'
   collection-prefix: qa_gate_cluster_30_index_v10_v4
-  deploy-profile: milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml
+  deploy-profile: milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml
   drop-forward-before-rollback-enabled: 'true'
   forward-collection-prefix: qa_gate_cluster_30_index_v10_v4_forward
   forward-schema-matrix: milvus_client/manifests/schema_matrix_3_0_index_v10_v4.yaml
@@ -569,7 +569,7 @@ cluster-3-0-index-v11-v4-upgrade-rollback:
   base-vortex-enabled: 'false'
   batch-size: '100'
   collection-prefix: qa_gate_cluster_30_index_v11_v4
-  deploy-profile: milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml
+  deploy-profile: milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml
   drop-forward-before-rollback-enabled: 'true'
   forward-collection-prefix: qa_gate_cluster_30_index_v11_v4_forward
   forward-schema-matrix: milvus_client/manifests/schema_matrix_3_0_index_v11_v4.yaml
@@ -684,7 +684,7 @@ standalone-2-6-18-to-3-0-latest-rollback-2-6-latest:
   deploy-profile: milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml
   drop-forward-before-rollback-enabled: 'false'
   forward-collection-prefix: qa_gate_2618_to_30_rb_26latest_forward
-  forward-schema-matrix: milvus_client/manifests/schema_matrix_2_6.yaml
+  forward-schema-matrix: milvus_client/manifests/schema_matrix_2_6_round_trip.yaml
   forward-workload-enabled: 'false'
   gate-allow-warning: 'false'
   index-compatibility-validation-enabled: 'true'
@@ -718,7 +718,7 @@ standalone-2-6-18-to-3-0-latest-rollback-2-6-latest:
   scenario-support-status: supported_with_config_constraints
   schema-evolution-existing-enabled: 'false'
   schema-evolution-forward-enabled: 'false'
-  schema-matrix: milvus_client/manifests/schema_matrix_2_6.yaml
+  schema-matrix: milvus_client/manifests/schema_matrix_2_6_round_trip.yaml
   target-json-shredding-enabled: 'false'
   target-loon-ffi-enabled: 'false'
   target-milvus-image: harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder

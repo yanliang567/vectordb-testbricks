@@ -12,6 +12,7 @@ from milvus_client.common.gates import (
     validate_registered_scenario_parameters,
     validate_resolved_gate_scenario,
 )
+from milvus_client.common.schema import load_schema_matrix
 
 ROOT = Path(__file__).resolve().parents[1]
 GATES = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
@@ -218,6 +219,31 @@ def test_standalone_2_6_target_only_feature_gate_contract():
 @pytest.mark.parametrize(
     "scenario_id",
     [
+        "standalone-2-6-18-to-3-0-latest-rollback-2-6-latest",
+        "cluster-2-6-18-to-3-0-latest-rollback-2-6-latest",
+    ],
+)
+def test_2_6_round_trip_gates_exclude_target_nested_scalar_index_formats(
+    scenario_id,
+):
+    manifest = _manifest()
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+
+    assert scenario["schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_2_6_round_trip.yaml"
+    )
+    specs = load_schema_matrix(ROOT.parent / scenario["schema_matrix"])
+    names = {spec.name for spec in specs}
+
+    assert len(specs) == 9
+    assert "struct_array_element_rollback_safe" in names
+    assert "struct_array_varchar_autoindex_rollback_safe" not in names
+    assert "struct_array_numeric_autoindex_rollback_safe" not in names
+
+
+@pytest.mark.parametrize(
+    "scenario_id",
+    [
         "standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
         "cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline",
     ],
@@ -343,10 +369,13 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         ]["deploy_profile"]
         == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-2cu.yaml"
     )
-    assert (
-        by_id["cluster-3-0-index-v10-v4-upgrade-rollback"]["deploy_profile"]
-        == "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
-    )
+    for scenario_id in [
+        "cluster-3-0-index-v10-v4-upgrade-rollback",
+        "cluster-3-0-index-v11-v4-upgrade-rollback",
+    ]:
+        assert by_id[scenario_id]["deploy_profile"] == (
+            "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
+        )
     for scenario_id in [
         "cluster-3-0-1-vortex-self-compat-upgrade-rollback",
         "cluster-3-0-1-json-shredding-vortex-rollback",

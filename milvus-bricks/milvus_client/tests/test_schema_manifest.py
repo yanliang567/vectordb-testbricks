@@ -28,6 +28,7 @@ def test_schema_matrix_manifests_are_valid():
 
     for name in [
         "schema_matrix_2_6.yaml",
+        "schema_matrix_2_6_round_trip.yaml",
         "schema_matrix_3_0.yaml",
         "schema_matrix_3_0_storage_v3.yaml",
         "schema_matrix_3_0_index_v10_v4.yaml",
@@ -72,6 +73,58 @@ def test_load_schema_matrix_requires_parseable_version(tmp_path, version):
 
     with pytest.raises(ValueError, match="version"):
         load_schema_matrix(matrix)
+
+
+def test_load_schema_matrix_can_derive_a_named_exclusion_subset(tmp_path):
+    base = tmp_path / "base.yaml"
+    base.write_text(
+        """\
+version: "2.6"
+schemas:
+  - name: rollback_safe
+    fields:
+      - {name: id, dtype: INT64, primary: true}
+  - name: target_format_only
+    fields:
+      - {name: id, dtype: INT64, primary: true}
+"""
+    )
+    derived = tmp_path / "derived.yaml"
+    derived.write_text(
+        """\
+version: "2.6"
+extends: base.yaml
+exclude_schemas:
+  - target_format_only
+"""
+    )
+
+    assert [spec.name for spec in load_schema_matrix(derived)] == ["rollback_safe"]
+
+
+def test_load_schema_matrix_rejects_unknown_derived_exclusions(tmp_path):
+    base = tmp_path / "base.yaml"
+    base.write_text(
+        """\
+version: "2.6"
+schemas:
+  - name: rollback_safe
+    fields:
+      - {name: id, dtype: INT64, primary: true}
+"""
+    )
+    derived = tmp_path / "derived.yaml"
+    derived.write_text(
+        """\
+version: "2.6"
+extends: base.yaml
+exclude_schemas:
+  - typo
+"""
+    )
+
+    with pytest.raises(ValueError, match="unknown excluded schemas: typo"):
+        load_schema_matrix(derived)
 
 
 def test_rollback_compatibility_fails_closed_for_unknown_schema_version():
