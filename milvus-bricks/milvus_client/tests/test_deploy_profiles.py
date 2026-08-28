@@ -16,6 +16,7 @@ def test_deploy_profiles_are_valid_yaml():
         "standalone-rocksmq.yaml",
         "cluster-pulsar-1cu.yaml",
         "cluster-woodpecker-1cu.yaml",
+        "cluster-woodpecker-v0-1-38-1cu.yaml",
         "cluster-woodpecker-2cu.yaml",
     }
     assert profile_names <= {path.name for path in PROFILE_DIR.glob("*.yaml")}
@@ -111,6 +112,21 @@ def test_cluster_woodpecker_2cu_profile_declares_multi_replica_data_plane():
         "dataNode": 2,
         "streamingNode": 2,
     }
+
+
+def test_cluster_woodpecker_0_1_38_profile_pins_release_and_matches_1cu_topology():
+    baseline = _load_profile("cluster-woodpecker-1cu.yaml")
+    profile = _load_profile("cluster-woodpecker-v0-1-38-1cu.yaml")
+
+    assert profile["name"] == "cluster-woodpecker-v0-1-38-1cu"
+    assert profile["helm_values"]["woodpecker"]["image"] == {
+        "repository": "harbor.milvus.io/milvusdb/woodpecker",
+        "tag": "v0.1.38",
+        "pullPolicy": "Always",
+    }
+    assert profile["helm"] == baseline["helm"]
+    assert profile["components"] == baseline["components"]
+    assert profile["dependencies"] == baseline["dependencies"]
 
 
 def test_cluster_pulsar_profile_declares_2_6_compatible_message_queue():

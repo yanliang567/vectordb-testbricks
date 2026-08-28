@@ -697,7 +697,29 @@ def test_cluster_json_shredding_known_limitation_writes_forward_data_after_confi
 
     assert scenario["classification"] == "known_limitation"
     assert scenario["support_status"] == "unsupported"
+    assert "milvus-io/milvus#52341" in scenario["description"]
+    assert "milvus-io/milvus#52768" in scenario["description"]
     assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
+    assert scenario["deploy_profile"] == (
+        "milvus_client/manifests/deploy_profiles/cluster-woodpecker-v0-1-38-1cu.yaml"
+    )
+    assert scenario["schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_2_6_woodpecker_reader_recovery.yaml"
+    )
+    assert [
+        spec.name
+        for spec in load_schema_matrix(ROOT.parent / scenario["schema_matrix"])
+    ] == [
+        "scalar_dynamic_partition_key",
+        "scalar_autoindex_formats_rollback_safe",
+        "scalar_explicit_index_formats_rollback_safe",
+        "vector_autoid_bm25",
+        "explicit_partitions_nullable",
+        "struct_array_element_rollback_safe",
+        "nullable_vectors_all",
+        "geometry_rtree_rollback_safe",
+        "legacy_index_rollback_safe",
+    ]
     assert scenario["base"]["json_shredding_enabled"] is False
     assert scenario["target"]["json_shredding_enabled"] is False
     assert scenario["post_upgrade_config_toggle_enabled"] is True
@@ -1190,7 +1212,6 @@ def test_standalone_json_shredding_known_limitation_writes_forward_data_after_co
         "standalone-3-0-vortex-candidate-upgrade-rollback",
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-3-0-vortex-candidate-upgrade-rollback",
-        "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
     ],
 )
 def test_storage_feature_gates_use_stable_rollback_safe_base_matrix(scenario_id):

@@ -174,6 +174,50 @@ def load_schema_matrix(path: str | Path) -> list[SchemaSpec]:
         raise ValueError(
             f"{matrix_path}: schema matrix requires a parseable major.minor version"
         ) from exc
+    source_matrix = payload.get("source_matrix")
+    if source_matrix is not None:
+        if payload.get("schemas") is not None:
+            raise ValueError(
+                f"{matrix_path}: source matrix subset must not define schemas"
+            )
+        include_schemas = payload.get("include_schemas")
+        if (
+            not isinstance(include_schemas, list)
+            or not include_schemas
+            or any(not isinstance(name, str) or not name for name in include_schemas)
+        ):
+            raise ValueError(
+                f"{matrix_path}: include_schemas must be a non-empty string list"
+            )
+        if len(include_schemas) != len(set(include_schemas)):
+            raise ValueError(f"{matrix_path}: include_schemas contains duplicate names")
+        if not isinstance(source_matrix, str) or not source_matrix:
+            raise ValueError(f"{matrix_path}: source_matrix must be a relative path")
+        source_path = Path(source_matrix)
+        if source_path.is_absolute() or ".." in source_path.parts:
+            raise ValueError(f"{matrix_path}: source_matrix must be a relative path")
+        source_path = matrix_path.parent / source_path
+        source_payload = yaml.safe_load(source_path.read_text()) or {}
+        if source_payload.get("source_matrix") is not None:
+            raise ValueError(f"{matrix_path}: nested source_matrix is not supported")
+        source_version = str(source_payload.get("version") or "").strip()
+        if source_version != version:
+            raise ValueError(
+                f"{matrix_path}: source matrix version {source_version!r} "
+                f"does not match {version!r}"
+            )
+        source_specs = load_schema_matrix(source_path)
+        source_names = {spec.name for spec in source_specs}
+        unknown = sorted(set(include_schemas) - source_names)
+        if unknown:
+            raise ValueError(
+                f"{matrix_path}: include_schemas contains unknown schema names: "
+                f"{', '.join(unknown)}"
+            )
+        selected = set(include_schemas)
+        return [spec for spec in source_specs if spec.name in selected]
+    if payload.get("include_schemas") is not None:
+        raise ValueError(f"{matrix_path}: include_schemas requires source_matrix")
     specs = []
     for item in payload.get("schemas", []):
         specs.append(

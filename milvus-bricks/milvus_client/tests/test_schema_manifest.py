@@ -28,6 +28,7 @@ def test_schema_matrix_manifests_are_valid():
 
     for name in [
         "schema_matrix_2_6.yaml",
+        "schema_matrix_2_6_woodpecker_reader_recovery.yaml",
         "schema_matrix_3_0.yaml",
         "schema_matrix_3_0_storage_v3.yaml",
         "schema_matrix_3_0_index_v10_v4.yaml",
@@ -37,6 +38,62 @@ def test_schema_matrix_manifests_are_valid():
         specs = load_schema_matrix(ROOT / "manifests" / name)
         errors = validate_schema_matrix(specs, features, set(capabilities))
         assert errors == []
+
+
+def test_load_schema_matrix_supports_an_ordered_source_subset(tmp_path):
+    source = tmp_path / "source.yaml"
+    source.write_text(
+        """\
+version: "2.6"
+schemas:
+  - name: first
+    fields: [{name: id, dtype: INT64, primary: true}]
+  - name: second
+    fields: [{name: id, dtype: INT64, primary: true}]
+  - name: third
+    fields: [{name: id, dtype: INT64, primary: true}]
+"""
+    )
+    subset = tmp_path / "subset.yaml"
+    subset.write_text(
+        """\
+version: "2.6"
+source_matrix: source.yaml
+include_schemas: [third, first]
+"""
+    )
+
+    assert [spec.name for spec in load_schema_matrix(subset)] == ["first", "third"]
+
+
+@pytest.mark.parametrize(
+    ("subset_payload", "error"),
+    [
+        ("include_schemas: [first, first]", "duplicate"),
+        ("include_schemas: [missing]", "unknown schema"),
+        ("include_schemas: []", "non-empty"),
+        (
+            "include_schemas: [first]\nschemas:\n  - name: local",
+            "must not define schemas",
+        ),
+    ],
+)
+def test_load_schema_matrix_rejects_invalid_source_subsets(
+    tmp_path, subset_payload, error
+):
+    (tmp_path / "source.yaml").write_text(
+        """\
+version: "2.6"
+schemas:
+  - name: first
+    fields: [{name: id, dtype: INT64, primary: true}]
+"""
+    )
+    subset = tmp_path / "subset.yaml"
+    subset.write_text(f'version: "2.6"\nsource_matrix: source.yaml\n{subset_payload}\n')
+
+    with pytest.raises(ValueError, match=error):
+        load_schema_matrix(subset)
 
 
 def test_minhash_inventory_marks_approximate_recall_as_observational():

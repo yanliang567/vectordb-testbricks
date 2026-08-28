@@ -1,0 +1,107 @@
+name: cluster-woodpecker-v0-1-38-1cu
+mode: cluster
+deployer: helm
+description: "1CU Milvus cluster pinned to Woodpecker v0.1.38 for QA upgrade/rollback compatibility tests."
+helm:
+  repo_name: zilliztech
+  repo_url: https://zilliztech.github.io/milvus-helm/
+  chart: zilliztech/milvus
+  chart_version: 5.0.24
+helm_values:
+  cluster:
+    enabled: true
+  woodpecker:
+    enabled: true
+    image:
+      repository: harbor.milvus.io/milvusdb/woodpecker
+      tag: v0.1.38
+      pullPolicy: Always
+    nodeSelector:
+      kubernetes.io/arch: amd64
+  streaming:
+    enabled: true
+    woodpecker:
+      embedded: false
+  indexNode:
+    enabled: false
+  kafka:
+    enabled: false
+  pulsar:
+    enabled: false
+  pulsarv3:
+    enabled: false
+  service:
+    type: ClusterIP
+  metrics:
+    serviceMonitor:
+      enabled: false
+components:
+  mixCoord:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+  proxy:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+  queryNode:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+  dataNode:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+  streamingNode:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+dependencies:
+  msgStreamType: woodpecker
+  etcd:
+    inCluster:
+      deletionPolicy: Delete
+      pvcDeletion: true
+      values:
+        replicaCount: 1
+        metrics:
+          enabled: false
+        persistence:
+          size: 10Gi
+        persistentVolumeClaimRetentionPolicy:
+          enabled: true
+          whenDeleted: Delete
+          whenScaled: Delete
+  storage:
+    inCluster:
+      deletionPolicy: Delete
+      pvcDeletion: true
+      values:
+        mode: standalone
+        persistence:
+          size: 50Gi
