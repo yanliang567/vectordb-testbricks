@@ -17,7 +17,7 @@
 - 测试时段：2026-08-29，Asia/Shanghai；最后一个 Workflow 于 19:05:39 结束
 - 初始代码基线：`origin/main@df4b74257130884d480385b3ef2760dfa9a76ad0`
 - 最终 E2E revision：`8400590bc20df4754fdf7237155d549654acb4fb`
-- post-E2E review 功能修复 revision：`282ad187461cac5a7e765d87aa72780b93568a74`；该 revision 完成单测、Ruff、Argo lint 和 shell syntax 验证，但未重跑完整 20 条业务 Workflow 矩阵
+- post-E2E review 功能修复 revision：`25582ec932d6d51b8e7be33b79f9a2a6cbd13a2b`；该 revision 完成单测、Ruff、Argo lint 和 shell syntax 验证，但未重跑完整 20 条业务 Workflow 矩阵
 - 3.0/3.0.1 candidate：`harbor.milvus.io/milvusdb/milvus:3.0-20260829-257a535b@sha256:d3a0d1d64368139ab59a28989392bcffdefaaa0f724596b870ed7c0b16d15c20`
 - 2.6 latest rollback：`harbor.milvus.io/milvusdb/milvus:2.6-20260829-3b859656@sha256:989e085e45c44f513387f361c0c6b326a434a0828964798a459728460ebe04b6`
 - 2.6.18 baseline：`harbor.milvus.io/milvusdb/milvus:v2.6.18@sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6`
@@ -110,8 +110,9 @@
 | `240fff3` | standalone Pod delete 使用 kubectl 默认超长同步等待 | 改为异步删除，由后续新 UID/Ready 收敛检查负责；post-E2E 静态验证 |
 | `b946b5e` | schema evolution flush/load 和 phase best-effort load 仍可能无界等待 | 增加客户端 timeout 且禁止无 timeout fallback；post-E2E 静态验证 |
 | `282ad18` | standalone RBAC 缺少 Pod delete、Ready 轮询聚合上界接近 30 分钟、新集合 load 超时后立即验证可能假失败 | 增加最小 `pods/delete` 权限；用统一 600 秒 wall-clock deadline 和非阻塞 Ready 查询；新集合复用有界 visibility retry；完整回归 628 passed |
+| `25582ec` | standalone Pod recycle 的旧 UID snapshot 和异步 delete 请求仍可能因 apiserver/网络异常无界等待 | 两个 standalone 模板的 image/config 四条路径均增加 `--request-timeout=5s`，并补充回归断言；完整回归 628 passed |
 
-截至 `8400590` 的测试框架修复都从固定 SHA 推送后完成业务 Workflow 重跑；旧 SHA 卡住的临时 workflow 被显式 terminate，不计为产品结果。`240fff3`、`b946b5e` 和 `282ad18` 是最终业务矩阵之后的 review 修复，本报告不声称 20 条 Workflow 已在这些 revision 上重跑；它们的证据范围是定向回归、完整 pytest、Ruff、Argo lint 和 shell syntax。后续如果把当前 PR head 应用到 live WorkflowTemplate，应先做一条 same-image standalone config rollout 和一条 phase DML/DQL 新集合路径的代表性 E2E。
+截至 `8400590` 的测试框架修复都从固定 SHA 推送后完成业务 Workflow 重跑；旧 SHA 卡住的临时 workflow 被显式 terminate，不计为产品结果。`240fff3`、`b946b5e`、`282ad18` 和 `25582ec` 是最终业务矩阵之后的 review 修复，本报告不声称 20 条 Workflow 已在这些 revision 上重跑；它们的证据范围是定向回归、完整 pytest、Ruff、Argo lint 和 shell syntax。后续如果把当前 PR head 应用到 live WorkflowTemplate，应先做一条 same-image standalone config rollout 和一条 phase DML/DQL 新集合路径的代表性 E2E。
 
 ### QA 控制面无效轮次
 
@@ -136,7 +137,7 @@
 
 ## 静态验证
 
-- `PYTHONPATH=. python3 -m pytest milvus_client/tests -q`：`628 passed in 52.86s`（post-E2E review 功能 revision `282ad18`）
+- `PYTHONPATH=. python3 -m pytest milvus_client/tests -q`：`628 passed in 53.12s`（post-E2E review 功能 revision `25582ec`）
 - 修改文件 Ruff check：通过
 - 修改文件 Ruff format check：通过
 - `git diff --check`：通过
