@@ -1621,6 +1621,13 @@ spec:
         args:
           - |
             set -eux
+            milvus_selector='app.kubernetes.io/instance={{workflow.name}},app.kubernetes.io/name=milvus,app.kubernetes.io/managed-by=milvus-operator'
+            current_image="$(kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o jsonpath='{.spec.components.image}')"
+            recycle_same_image=false
+            if [ "$current_image" = "{{inputs.parameters.image}}" ]; then
+              recycle_same_image=true
+              kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l "$milvus_selector" -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' > /tmp/old-milvus-pod-uids
+            fi
             python3 - <<'PY'
             import json
             from pathlib import Path
@@ -1660,6 +1667,23 @@ spec:
             print(json.dumps(patch, indent=2, sort_keys=True))
             PY
             kubectl -n {{workflow.parameters.milvus-namespace}} patch mi {{workflow.name}} --type merge --patch-file /tmp/milvus-patch.json
+            if [ "$recycle_same_image" = "true" ]; then
+              kubectl -n {{workflow.parameters.milvus-namespace}} delete pods -l "$milvus_selector" --wait=true
+              for i in $(seq 1 120); do
+                new_uid="$(kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l "$milvus_selector" -o jsonpath='{.items[0].metadata.uid}' 2>/dev/null || true)"
+                if [ -n "$new_uid" ] && ! grep -Fxq "$new_uid" /tmp/old-milvus-pod-uids; then
+                  if kubectl -n {{workflow.parameters.milvus-namespace}} wait --for=condition=Ready pod -l "$milvus_selector" --timeout=10s; then
+                    echo "same-image config rollout converged on new Milvus pod UID $new_uid"
+                    break
+                  fi
+                fi
+                if [ "$i" = "120" ]; then
+                  echo "timed out waiting for same-image Milvus pod recycle" >&2
+                  exit 1
+                fi
+                sleep 5
+              done
+            fi
             kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o yaml | sed -n '1,180p'
 
     - name: patch-milvus-config
@@ -1712,6 +1736,23 @@ spec:
             print(json.dumps(patch, indent=2, sort_keys=True))
             PY
             kubectl -n {{workflow.parameters.milvus-namespace}} patch mi {{workflow.name}} --type merge --patch-file /tmp/milvus-config-patch.json
+            milvus_selector='app.kubernetes.io/instance={{workflow.name}},app.kubernetes.io/name=milvus,app.kubernetes.io/managed-by=milvus-operator'
+            kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l "$milvus_selector" -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' > /tmp/old-milvus-pod-uids
+            kubectl -n {{workflow.parameters.milvus-namespace}} delete pods -l "$milvus_selector" --wait=true
+            for i in $(seq 1 120); do
+              new_uid="$(kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l "$milvus_selector" -o jsonpath='{.items[0].metadata.uid}' 2>/dev/null || true)"
+              if [ -n "$new_uid" ] && ! grep -Fxq "$new_uid" /tmp/old-milvus-pod-uids; then
+                if kubectl -n {{workflow.parameters.milvus-namespace}} wait --for=condition=Ready pod -l "$milvus_selector" --timeout=10s; then
+                  echo "config rollout converged on new Milvus pod UID $new_uid"
+                  break
+                fi
+              fi
+              if [ "$i" = "120" ]; then
+                echo "timed out waiting for Milvus pod recycle after config patch" >&2
+                exit 1
+              fi
+              sleep 5
+            done
             kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o yaml | sed -n '1,180p'
 
     - name: snapshot-milvus-config

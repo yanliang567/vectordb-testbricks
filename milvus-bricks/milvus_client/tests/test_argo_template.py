@@ -3451,6 +3451,46 @@ def test_standalone_2_6_upgrade_rollback_template_patches_config_matrix():
     assert snapshot["container"]["volumeMounts"][0]["name"] == "milvus-test-state"
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+    ],
+)
+def test_standalone_templates_recycle_pods_for_same_image_config_rollouts(filename):
+    template = yaml.safe_load((ROOT / "argo" / filename).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    image_patch = templates["patch-milvus-image"]["container"]["args"][0]
+    config_patch = templates["patch-milvus-config"]["container"]["args"][0]
+    selector = (
+        "app.kubernetes.io/instance={{workflow.name}},"
+        "app.kubernetes.io/name=milvus,"
+        "app.kubernetes.io/managed-by=milvus-operator"
+    )
+
+    assert selector in image_patch
+    assert 'current_image="$(kubectl' in image_patch
+    assert (
+        'if [ "$current_image" = "{{inputs.parameters.image}}" ]; then' in image_patch
+    )
+    assert 'if [ "$recycle_same_image" = "true" ]; then' in image_patch
+    assert 'delete pods -l "$milvus_selector" --wait=true' in image_patch
+    assert 'grep -Fxq "$new_uid" /tmp/old-milvus-pod-uids' in image_patch
+    assert 'wait --for=condition=Ready pod -l "$milvus_selector"' in image_patch
+    assert image_patch.index("patch mi {{workflow.name}}") < image_patch.index(
+        'if [ "$recycle_same_image" = "true" ]; then'
+    )
+
+    assert selector in config_patch
+    assert 'delete pods -l "$milvus_selector" --wait=true' in config_patch
+    assert 'grep -Fxq "$new_uid" /tmp/old-milvus-pod-uids' in config_patch
+    assert 'wait --for=condition=Ready pod -l "$milvus_selector"' in config_patch
+    assert config_patch.index("patch mi {{workflow.name}}") < config_patch.index(
+        "delete pods -l"
+    )
+
+
 def test_standalone_3_0_upgrade_rollback_template_defaults_to_3_0_matrix():
     template = yaml.safe_load(
         (ROOT / "argo" / "standalone-3-0-upgrade-rollback.yaml").read_text()
