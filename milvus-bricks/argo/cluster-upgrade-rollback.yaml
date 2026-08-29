@@ -212,7 +212,7 @@ spec:
 
           - name: precheck-base
             dependencies: [assert-base-storage-config]
-            template: run-brick
+            template: idempotent-run-brick
             arguments:
               parameters:
                 - name: brick-name
@@ -267,7 +267,7 @@ spec:
 
           - name: validate-before-upgrade
             dependencies: [seed-compat-data]
-            template: run-brick
+            template: idempotent-run-brick
             arguments:
               parameters:
                 - name: brick-name
@@ -392,7 +392,7 @@ spec:
 
           - name: precheck-after-upgrade
             dependencies: [observe-after-upgrade, assert-after-upgrade-storage-config, pressure-daemon]
-            template: run-brick
+            template: idempotent-run-brick
             arguments:
               parameters:
                 - name: brick-name
@@ -409,7 +409,7 @@ spec:
 
           - name: wait-upgrade-serviceability
             dependencies: [precheck-after-upgrade, pressure-daemon]
-            template: run-brick
+            template: idempotent-run-brick
             arguments:
               parameters:
                 - name: brick-name
@@ -427,7 +427,7 @@ spec:
 
           - name: validate-after-upgrade
             dependencies: [wait-upgrade-serviceability, pressure-daemon]
-            template: run-brick
+            template: idempotent-run-brick
             arguments:
               parameters:
                 - name: brick-name
@@ -455,7 +455,7 @@ spec:
 
           - name: validate-index-compatibility-after-upgrade
             dependencies: [validate-after-upgrade, pressure-daemon]
-            template: optional-run-brick
+            template: optional-idempotent-run-brick
             arguments:
               parameters:
                 - name: enabled
@@ -647,7 +647,7 @@ spec:
 
           - name: validate-forward-after-upgrade
             dependencies: [seed-forward-data, pressure-daemon]
-            template: optional-run-brick
+            template: optional-idempotent-run-brick
             arguments:
               parameters:
                 - name: enabled
@@ -665,7 +665,7 @@ spec:
 
           - name: validate-forward-indexes-after-upgrade
             dependencies: [validate-forward-after-upgrade, pressure-daemon]
-            template: optional-run-brick
+            template: optional-idempotent-run-brick
             arguments:
               parameters:
                 - name: enabled
@@ -861,7 +861,7 @@ spec:
           - name: precheck-after-rollback
             dependencies: [assert-after-rollback-storage-config, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
-            template: run-brick
+            template: idempotent-run-brick
             arguments:
               parameters:
                 - name: brick-name
@@ -879,7 +879,7 @@ spec:
           - name: validate-after-rollback
             dependencies: [validate-phase-dml-dql-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
-            template: run-brick
+            template: idempotent-run-brick
             arguments:
               parameters:
                 - name: brick-name
@@ -896,7 +896,7 @@ spec:
           - name: validate-index-compatibility-after-rollback
             dependencies: [observe-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
-            template: optional-run-brick
+            template: optional-idempotent-run-brick
             arguments:
               parameters:
                 - name: enabled
@@ -999,7 +999,7 @@ spec:
           - name: wait-rollback-serviceability
             dependencies: [precheck-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
-            template: run-brick
+            template: idempotent-run-brick
             arguments:
               parameters:
                 - name: brick-name
@@ -1018,7 +1018,7 @@ spec:
           - name: validate-forward-after-rollback
             dependencies: [validate-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
-            template: optional-run-brick
+            template: optional-idempotent-run-brick
             arguments:
               parameters:
                 - name: enabled
@@ -1037,7 +1037,7 @@ spec:
           - name: validate-forward-indexes-after-rollback
             dependencies: [validate-forward-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
-            template: optional-run-brick
+            template: optional-idempotent-run-brick
             arguments:
               parameters:
                 - name: enabled
@@ -1087,7 +1087,7 @@ spec:
           - name: wait-forward-rollback-serviceability
             dependencies: [wait-rollback-serviceability, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
-            template: optional-run-brick
+            template: optional-idempotent-run-brick
             arguments:
               parameters:
                 - name: enabled
@@ -1446,7 +1446,15 @@ spec:
         args:
           - |
             set -eux
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&
@@ -1680,7 +1688,15 @@ spec:
         args:
           - |
             set -eux
-            python3 -m pip install --disable-pip-version-check -q pyyaml
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q pyyaml; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             image="{{inputs.parameters.image}}"
             repository="${image%:*}"
             tag="${image##*:}"
@@ -1809,7 +1825,15 @@ spec:
               echo "post-upgrade config toggle disabled"
               exit 0
             fi
-            python3 -m pip install --disable-pip-version-check -q pyyaml
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q pyyaml; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&
@@ -1920,7 +1944,15 @@ spec:
         args:
           - |
             set -eu
-            python3 -m pip install --disable-pip-version-check -q pyyaml
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q pyyaml; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             mkdir -p /tmp/milvus-bricks/k8s
             phase="{{inputs.parameters.phase}}"
             version="{{workflow.parameters.target-version}}"
@@ -1998,7 +2030,15 @@ spec:
         args:
           - |
             set -eu
-            python3 -m pip install --disable-pip-version-check -q pyyaml
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q pyyaml; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             mkdir -p /tmp/milvus-bricks/k8s
             phase="{{inputs.parameters.phase}}"
             helm get values "{{workflow.name}}" -n "{{workflow.parameters.milvus-namespace}}" -a -o yaml > "/tmp/milvus-bricks/k8s/helm-values-${phase}-storage-config-source.yaml"
@@ -2200,6 +2240,82 @@ spec:
           - name: milvus-test-state
             mountPath: /tmp/milvus-bricks
 
+    - name: idempotent-run-brick
+      retryStrategy:
+        limit: "2"
+        retryPolicy: OnError
+        backoff:
+          duration: 5s
+          factor: "2"
+          maxDuration: 30s
+      inputs:
+        parameters:
+          - name: brick-name
+          - name: module
+          - name: collection-prefix
+          - name: args
+      outputs:
+        artifacts:
+          - name: result-json
+            from: "{{steps.run.outputs.artifacts.result-json}}"
+          - name: checkpoints
+            from: "{{steps.run.outputs.artifacts.checkpoints}}"
+          - name: results
+            from: "{{steps.run.outputs.artifacts.results}}"
+      steps:
+        - - name: run
+            template: run-brick
+            arguments:
+              parameters:
+                - name: brick-name
+                  value: "{{inputs.parameters.brick-name}}"
+                - name: module
+                  value: "{{inputs.parameters.module}}"
+                - name: collection-prefix
+                  value: "{{inputs.parameters.collection-prefix}}"
+                - name: args
+                  value: "{{inputs.parameters.args}}"
+
+    - name: optional-idempotent-run-brick
+      retryStrategy:
+        limit: "2"
+        retryPolicy: OnError
+        backoff:
+          duration: 5s
+          factor: "2"
+          maxDuration: 30s
+      inputs:
+        parameters:
+          - name: enabled
+          - name: brick-name
+          - name: module
+          - name: collection-prefix
+          - name: args
+      outputs:
+        artifacts:
+          - name: result-json
+            from: "{{steps.run.outputs.artifacts.result-json}}"
+          - name: checkpoints
+            from: "{{steps.run.outputs.artifacts.checkpoints}}"
+          - name: results
+            from: "{{steps.run.outputs.artifacts.results}}"
+      steps:
+        - - name: run
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{inputs.parameters.enabled}}"
+                - name: brick-name
+                  value: "{{inputs.parameters.brick-name}}"
+                - name: module
+                  value: "{{inputs.parameters.module}}"
+                - name: collection-prefix
+                  value: "{{inputs.parameters.collection-prefix}}"
+                - name: args
+                  value: "{{inputs.parameters.args}}"
+
+
     - name: optional-run-brick
       inputs:
         parameters:
@@ -2241,7 +2357,15 @@ spec:
               python3 -m json.tool /tmp/milvus-bricks/results/{{inputs.parameters.brick-name}}.json
               exit 0
             fi
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&
@@ -2302,7 +2426,15 @@ spec:
         args:
           - |
             set -eux
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&
@@ -2357,7 +2489,15 @@ spec:
           - |
             set -eu
             trap 'echo "stopping pressure daemon"; exit 0' TERM INT
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&
@@ -2479,7 +2619,15 @@ spec:
         args:
           - |
             set -eu
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&
@@ -2855,7 +3003,15 @@ spec:
         args:
           - |
             set -eux
-            python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}
+            for dependency_attempt in 1 2 3 4 5; do
+              if python3 -m pip install --disable-pip-version-check -q {{workflow.parameters.python-deps}}; then
+                break
+              fi
+              if [ "$dependency_attempt" = "5" ]; then
+                exit 1
+              fi
+              sleep $((dependency_attempt * 5))
+            done
             rm -rf /tmp/repo
             for attempt in 1 2 3 4 5; do
             if git init /tmp/repo &&

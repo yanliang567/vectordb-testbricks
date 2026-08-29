@@ -1,0 +1,17 @@
+version: "2.6"
+description: >-
+  Milvus #52341 Woodpecker reader recovery regression subset. It retains nine
+  rollback-safe multi-channel schemas from schema_matrix_2_6.yaml and excludes
+  only the two nested scalar AutoIndex schemas that independently trigger
+  Milvus #52768 when rolling back to v3.0.0.
+source_matrix: schema_matrix_2_6.yaml
+include_schemas:
+  - scalar_dynamic_partition_key
+  - scalar_autoindex_formats_rollback_safe
+  - scalar_explicit_index_formats_rollback_safe
+  - vector_autoid_bm25
+  - explicit_partitions_nullable
+  - struct_array_element_rollback_safe
+  - nullable_vectors_all
+  - geometry_rtree_rollback_safe
+  - legacy_index_rollback_safe

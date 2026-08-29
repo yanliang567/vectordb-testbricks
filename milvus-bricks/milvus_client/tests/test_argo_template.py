@@ -2487,6 +2487,101 @@ def test_upgrade_rollback_templates_retry_repo_checkout():
         assert len(checkout_commands) == expected_count
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+        "upgrade-rollback-compatibility.yaml",
+    ],
+)
+def test_upgrade_rollback_templates_retry_python_dependency_bootstrap(filename):
+    template = yaml.safe_load((ROOT / "argo" / filename).read_text())
+    dependency_commands = []
+
+    for template_item in template["spec"]["templates"]:
+        containers = []
+        if container := template_item.get("container"):
+            containers.append(container)
+        containers.extend(template_item.get("initContainers", []))
+        for container in containers:
+            command = "\n".join(str(arg) for arg in container.get("args", []))
+            if "python3 -m pip install --disable-pip-version-check" not in command:
+                continue
+            dependency_commands.append(command)
+            assert "for dependency_attempt in 1 2 3 4 5; do" in command
+            assert 'if [ "$dependency_attempt" = "5" ]; then' in command
+            assert "sleep $((dependency_attempt * 5))" in command
+
+    assert dependency_commands
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "standalone-2-6-upgrade-rollback.yaml",
+        "standalone-3-0-upgrade-rollback.yaml",
+        "cluster-upgrade-rollback.yaml",
+    ],
+)
+def test_upgrade_rollback_templates_retry_only_idempotent_read_bricks(filename):
+    template = yaml.safe_load((ROOT / "argo" / filename).read_text())
+    templates = {item["name"]: item for item in template["spec"]["templates"]}
+    tasks = {task["name"]: task for task in templates["main"]["dag"]["tasks"]}
+    infrastructure_retry = {
+        "limit": "2",
+        "retryPolicy": "OnError",
+        "backoff": {"duration": "5s", "factor": "2", "maxDuration": "30s"},
+    }
+
+    assert templates["idempotent-run-brick"]["retryStrategy"] == infrastructure_retry
+    assert templates["optional-idempotent-run-brick"]["retryStrategy"] == (
+        infrastructure_retry
+    )
+
+    read_only_modules = {
+        "milvus_client.requests.precheck",
+        "milvus_client.requests.wait_data_serviceability",
+        "milvus_client.requests.validate_data_integrity",
+        "milvus_client.requests.validate_index_compatibility",
+    }
+    write_modules = {
+        "milvus_client.requests.create_schema_matrix",
+        "milvus_client.requests.seed_data",
+        "milvus_client.requests.validate_phase_dml_dql",
+        "milvus_client.requests.validate_schema_features",
+        "milvus_client.requests.schema_evolution_workload",
+        "milvus_client.requests.drop_schema_matrix",
+    }
+
+    for task in tasks.values():
+        if task.get("template") not in {
+            "run-brick",
+            "optional-run-brick",
+            "idempotent-run-brick",
+            "optional-idempotent-run-brick",
+        }:
+            continue
+        parameters = {
+            parameter["name"]: parameter["value"]
+            for parameter in task["arguments"]["parameters"]
+        }
+        module = parameters["module"]
+        if module in read_only_modules:
+            assert task["template"] in {
+                "idempotent-run-brick",
+                "optional-idempotent-run-brick",
+            }, task["name"]
+        elif module in write_modules:
+            assert task["template"] in {
+                "run-brick",
+                "optional-run-brick",
+            }, task["name"]
+        else:
+            raise AssertionError(f"unclassified brick module: {module}")
+
+
 def test_upgrade_rollback_gate_docs_require_manual_argo_argument_paste():
     readme = (ROOT / "docs" / "upgrade-rollback-gates" / "README.md").read_text()
 
@@ -2764,7 +2859,10 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
         "pressure-daemon",
     ]
     assert tasks["create-forward-schema"]["template"] == "optional-run-brick"
-    assert tasks["validate-forward-after-upgrade"]["template"] == "optional-run-brick"
+    assert (
+        tasks["validate-forward-after-upgrade"]["template"]
+        == "optional-idempotent-run-brick"
+    )
     assert tasks["schema-evolution-forward"]["dependencies"] == [
         "validate-forward-schema-features-after-upgrade",
         "pressure-daemon",
@@ -2817,7 +2915,7 @@ def test_standalone_2_6_upgrade_rollback_template_runs_full_closed_loop_with_pre
     ]
     assert (
         tasks["wait-forward-rollback-serviceability"]["template"]
-        == "optional-run-brick"
+        == "optional-idempotent-run-brick"
     )
     assert tasks["validate-forward-after-rollback"]["dependencies"] == [
         "validate-after-rollback",
@@ -3667,6 +3765,8 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     main = templates["main"]
     retryable_infrastructure_templates = {
         "deploy-milvus",
+        "idempotent-run-brick",
+        "optional-idempotent-run-brick",
         "wait-milvus-ready",
         "patch-milvus-image",
         "patch-milvus-config",

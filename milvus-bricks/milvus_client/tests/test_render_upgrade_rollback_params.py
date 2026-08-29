@@ -227,17 +227,22 @@ def test_render_cluster_json_shredding_gate_parameters():
     assert submission["workflow_template"] == "milvus-cluster-upgrade-rollback"
     assert submission["submit_generate_name"] == "c30json-"
     assert params["deploy-profile"] == (
-        "milvus_client/manifests/deploy_profiles/cluster-woodpecker-1cu.yaml"
+        "milvus_client/manifests/deploy_profiles/cluster-woodpecker-v0-1-38-1cu.yaml"
     )
     assert params["post-upgrade-config-toggle-enabled"] == "true"
     assert params["post-upgrade-json-shredding-enabled"] == "true"
     assert params["rollback-json-shredding-enabled"] == "true"
-    assert params["schema-matrix"] == ("milvus_client/manifests/schema_matrix_2_6.yaml")
+    assert params["schema-matrix"] == (
+        "milvus_client/manifests/schema_matrix_2_6_woodpecker_reader_recovery.yaml"
+    )
     assert params["forward-workload-enabled"] == "true"
     assert params["rollback-forward-validation-enabled"] == "true"
     assert params["forward-schema-matrix"] == (
         "milvus_client/manifests/schema_matrix_json_shredding.yaml"
     )
+    assert params["scenario-classification"] == "gate"
+    assert params["scenario-support-status"] == "supported_with_config_constraints"
+    assert params["release-gate-eligible"] == "true"
 
 
 def test_render_cluster_woodpecker_2cu_ha_gate_parameters():

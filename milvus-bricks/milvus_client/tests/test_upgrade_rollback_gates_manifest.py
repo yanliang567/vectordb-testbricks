@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from milvus_client.common.deploy import load_deploy_profile
 from milvus_client.common.gates import (
     load_gate_manifest,
     render_argo_parameters,
@@ -59,6 +60,15 @@ def _execution_path_signatures(manifest):
     return signatures
 
 
+def _explicit_dependency_images(value, path=()):
+    if not isinstance(value, dict):
+        return
+    if isinstance(value.get("repository"), str) and isinstance(value.get("tag"), str):
+        yield ".".join(path), f"{value['repository']}:{value['tag']}"
+    for key, child in value.items():
+        yield from _explicit_dependency_images(child, (*path, str(key)))
+
+
 def test_manifest_v2_contract_migration_preserves_existing_execution_paths():
     expected = yaml.safe_load(EXECUTION_PATH_FIXTURE.read_text())
 
@@ -88,6 +98,39 @@ def test_all_manifest_scenarios_render_expected_release_gate_eligibility(
     params = render_argo_parameters(scenario, manifest, allow_placeholder=True)
 
     assert params["release-gate-eligible"] == str(expected_eligible).lower()
+
+
+def test_release_gate_deploy_profiles_digest_pin_explicit_dependency_images():
+    manifest = _manifest()
+
+    for raw in manifest["scenarios"]:
+        if raw["classification"] != "gate":
+            continue
+        scenario = resolve_gate_scenario(manifest, raw["id"])
+        profile = load_deploy_profile(ROOT.parent / scenario["deploy_profile"])
+        for path, image in _explicit_dependency_images(
+            profile.get("helm_values", {}), ("helm_values",)
+        ):
+            assert "@sha256:" in image, f"{raw['id']}: {path}={image}"
+
+
+def test_release_gate_rejects_tag_only_dependency_image(tmp_path):
+    manifest = _manifest()
+    scenario_id = (
+        "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline"
+    )
+    scenario = resolve_gate_scenario(manifest, scenario_id)
+    profile = load_deploy_profile(ROOT.parent / scenario["deploy_profile"])
+    profile["helm_values"]["woodpecker"]["image"]["tag"] = "v0.1.38"
+    profile_path = tmp_path / "tag-only-profile.yaml"
+    profile_path.write_text(yaml.safe_dump(profile))
+
+    with pytest.raises(ValueError, match="dependency image.*digest-pinned"):
+        resolve_gate_scenario(
+            manifest,
+            scenario_id,
+            deploy_profile_override=str(profile_path),
+        )
 
 
 def test_unregistered_scenario_accepts_only_safe_report_metadata():
@@ -347,7 +390,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 9
+    assert len(cluster_scenarios) == 10
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest"][
@@ -688,16 +731,38 @@ def test_cluster_target_only_feature_gate_contract():
     assert scenario["rollback_forward_validation_enabled"] is False
 
 
-def test_cluster_json_shredding_known_limitation_writes_forward_data_after_config_toggle():
+def test_cluster_json_shredding_constrained_gate_writes_forward_data_after_config_toggle():
     manifest = _manifest()
     scenario = resolve_gate_scenario(
         manifest,
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
     )
 
-    assert scenario["classification"] == "known_limitation"
-    assert scenario["support_status"] == "unsupported"
+    assert scenario["classification"] == "gate"
+    assert scenario["support_status"] == "supported_with_config_constraints"
+    assert "milvus-io/milvus#52341" in scenario["description"]
+    assert "milvus-io/milvus#52768" in scenario["description"]
     assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
+    assert scenario["deploy_profile"] == (
+        "milvus_client/manifests/deploy_profiles/cluster-woodpecker-v0-1-38-1cu.yaml"
+    )
+    assert scenario["schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_2_6_woodpecker_reader_recovery.yaml"
+    )
+    assert [
+        spec.name
+        for spec in load_schema_matrix(ROOT.parent / scenario["schema_matrix"])
+    ] == [
+        "scalar_dynamic_partition_key",
+        "scalar_autoindex_formats_rollback_safe",
+        "scalar_explicit_index_formats_rollback_safe",
+        "vector_autoid_bm25",
+        "explicit_partitions_nullable",
+        "struct_array_element_rollback_safe",
+        "nullable_vectors_all",
+        "geometry_rtree_rollback_safe",
+        "legacy_index_rollback_safe",
+    ]
     assert scenario["base"]["json_shredding_enabled"] is False
     assert scenario["target"]["json_shredding_enabled"] is False
     assert scenario["post_upgrade_config_toggle_enabled"] is True
@@ -708,6 +773,8 @@ def test_cluster_json_shredding_known_limitation_writes_forward_data_after_confi
     assert scenario["forward_schema_matrix"] == (
         "milvus_client/manifests/schema_matrix_json_shredding.yaml"
     )
+    params = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+    assert params["release-gate-eligible"] == "true"
 
 
 def test_2_6_to_3_0_rollback_gate_scenarios_forbid_storage_v3_and_vortex():
@@ -1190,7 +1257,6 @@ def test_standalone_json_shredding_known_limitation_writes_forward_data_after_co
         "standalone-3-0-vortex-candidate-upgrade-rollback",
         "standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
         "cluster-3-0-vortex-candidate-upgrade-rollback",
-        "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
     ],
 )
 def test_storage_feature_gates_use_stable_rollback_safe_base_matrix(scenario_id):

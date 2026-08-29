@@ -5,6 +5,13 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE_DIR = ROOT / "manifests" / "deploy_profiles"
+WOODPECKER_MASTER_IMAGE_TAG = (
+    "master-e80f1ea-91-amd64@sha256:"
+    "3c2cabb07d2e14c57c70612845ff05451b893b2ad6215d69fd63a6f4c7ff8178"
+)
+WOODPECKER_V0_1_38_IMAGE_TAG = (
+    "v0.1.38@sha256:bdea08758377fea309c18087334c63d20e26ba0940a4d63369bf7794f5f2060e"
+)
 
 
 def _load_profile(name: str) -> dict:
@@ -16,6 +23,7 @@ def test_deploy_profiles_are_valid_yaml():
         "standalone-rocksmq.yaml",
         "cluster-pulsar-1cu.yaml",
         "cluster-woodpecker-1cu.yaml",
+        "cluster-woodpecker-v0-1-38-1cu.yaml",
         "cluster-woodpecker-2cu.yaml",
     }
     assert profile_names <= {path.name for path in PROFILE_DIR.glob("*.yaml")}
@@ -69,7 +77,7 @@ def test_cluster_profiles_declare_required_components_resources_and_woodpecker()
         )
         assert (
             profile["helm_values"]["woodpecker"]["image"]["tag"]
-            == "master-e80f1ea-91-amd64"
+            == WOODPECKER_MASTER_IMAGE_TAG
         )
         assert (
             profile["helm_values"]["woodpecker"]["nodeSelector"]["kubernetes.io/arch"]
@@ -111,6 +119,21 @@ def test_cluster_woodpecker_2cu_profile_declares_multi_replica_data_plane():
         "dataNode": 2,
         "streamingNode": 2,
     }
+
+
+def test_cluster_woodpecker_0_1_38_profile_pins_release_and_matches_1cu_topology():
+    baseline = _load_profile("cluster-woodpecker-1cu.yaml")
+    profile = _load_profile("cluster-woodpecker-v0-1-38-1cu.yaml")
+
+    assert profile["name"] == "cluster-woodpecker-v0-1-38-1cu"
+    assert profile["helm_values"]["woodpecker"]["image"] == {
+        "repository": "harbor.milvus.io/milvusdb/woodpecker",
+        "tag": WOODPECKER_V0_1_38_IMAGE_TAG,
+        "pullPolicy": "Always",
+    }
+    assert profile["helm"] == baseline["helm"]
+    assert profile["components"] == baseline["components"]
+    assert profile["dependencies"] == baseline["dependencies"]
 
 
 def test_cluster_pulsar_profile_declares_2_6_compatible_message_queue():
