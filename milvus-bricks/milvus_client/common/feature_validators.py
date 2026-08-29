@@ -654,6 +654,12 @@ def validate_text_match_phrase_match(
 ) -> None:
     primary = _primary_field(spec)
     data_min_pk, data_max_pk = _data_pk_range(meta)
+    checkpoint_min_pk = _actual_primary_value(spec, meta, data_min_pk)
+    checkpoint_max_pk = _actual_primary_value(spec, meta, data_max_pk)
+    checkpoint_filter = (
+        f"{primary.name} >= {format_filter_value(checkpoint_min_pk)} && "
+        f"{primary.name} <= {format_filter_value(checkpoint_max_pk)}"
+    )
     text_fields = [field for field in spec.fields if field.dtype == "TEXT"]
     bm25_outputs = [
         output
@@ -683,6 +689,7 @@ def validate_text_match_phrase_match(
             ),
         ]
         for filter_expr, matches in probes:
+            scoped_filter_expr = f"({filter_expr}) && ({checkpoint_filter})"
             expected_pks = {
                 _actual_primary_value(spec, meta, data_pk)
                 for data_pk in range(data_min_pk, data_max_pk + 1)
@@ -702,7 +709,7 @@ def validate_text_match_phrase_match(
                 actual_count = query_count(
                     client,
                     collection,
-                    filter_expr=filter_expr,
+                    filter_expr=scoped_filter_expr,
                 )
             except Exception as exc:
                 report.fail(
@@ -736,7 +743,7 @@ def validate_text_match_phrase_match(
             try:
                 rows = client.query(
                     collection_name=collection,
-                    filter=filter_expr,
+                    filter=scoped_filter_expr,
                     output_fields=[primary.name, field.name],
                     limit=expected_sample_count,
                 )
@@ -785,11 +792,12 @@ def validate_text_match_phrase_match(
                 continue
             _record_pass(report, collection, "text_match_phrase_match")
         negative_filter = f"TEXT_MATCH({field.name}, '{TEXT_MATCH_ABSENT_TOKEN}')"
+        scoped_negative_filter = f"({negative_filter}) && ({checkpoint_filter})"
         try:
             negative_count = query_count(
                 client,
                 collection,
-                filter_expr=negative_filter,
+                filter_expr=scoped_negative_filter,
             )
         except Exception as exc:
             report.fail(

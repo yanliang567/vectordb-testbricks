@@ -606,6 +606,49 @@ def test_text_feature_validator_accepts_complete_count_and_valid_samples():
     assert report.passed
 
 
+def test_text_feature_validator_scopes_queries_to_checkpoint_pk_range():
+    class Client:
+        filters = []
+
+        def query(self, **kwargs):
+            filter_expr = kwargs["filter"]
+            self.filters.append(filter_expr)
+            if kwargs["output_fields"] == ["count(*)"]:
+                if "zzzzqvnotpresenttokenzzzz" in filter_expr:
+                    return [{"count(*)": 0}]
+                return [{"count(*)": 3 if "PHRASE_MATCH" in filter_expr else 4}]
+            sample_pks = (7, 8, 9) if "PHRASE_MATCH" in filter_expr else (2, 7, 8, 9)
+            return [
+                {"id": pk, "text": generate_field_value(spec.fields[1], pk, 7)}
+                for pk in sample_pks
+            ]
+
+        def search(self, **kwargs):
+            return [[{"id": 7, "distance": 1.0}]]
+
+    spec = _text_lob_spec()
+    client = Client()
+    report = ValidationReport()
+
+    validate_text_match_phrase_match(
+        client,
+        "qa_text",
+        spec,
+        {"min_pk": 0, "max_pk": 9},
+        7,
+        report,
+    )
+
+    text_filters = [
+        filter_expr
+        for filter_expr in client.filters
+        if "TEXT_MATCH" in filter_expr or "PHRASE_MATCH" in filter_expr
+    ]
+    assert report.passed
+    assert text_filters
+    assert all("id >= 0 && id <= 9" in filter_expr for filter_expr in text_filters)
+
+
 def test_entity_ttl_uses_reserved_pk_namespace_outside_pressure_ranges():
     class Client:
         inserted = []
