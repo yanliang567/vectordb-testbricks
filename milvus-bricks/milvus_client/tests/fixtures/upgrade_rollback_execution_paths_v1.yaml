@@ -1020,7 +1020,7 @@ standalone-3-0-1-vortex-disable-rollback:
   deploy-profile: milvus_client/manifests/deploy_profiles/standalone-rocksmq.yaml
   drop-forward-before-rollback-enabled: 'false'
   forward-collection-prefix: qa_gate_301_vortex_off_rb_forward
-  forward-schema-matrix: milvus_client/manifests/schema_matrix_3_0_storage_v3.yaml
+  forward-schema-matrix: milvus_client/manifests/schema_matrix_2_6.yaml
   forward-workload-enabled: 'true'
   gate-allow-warning: 'false'
   index-compatibility-validation-enabled: 'true'

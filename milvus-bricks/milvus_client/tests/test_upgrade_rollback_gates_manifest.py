@@ -1040,11 +1040,28 @@ def test_3_0_1_vortex_disable_rollback_gate():
     assert scenario["classification"] == "gate"
     assert scenario["support_status"] == "supported"
     assert scenario["target"]["vortex_enabled"] is True
+    assert scenario["rollback"]["loon_ffi_enabled"] is False
     assert scenario["rollback"]["vortex_enabled"] is False
+    assert scenario["forward_schema_matrix"] == (
+        "milvus_client/manifests/schema_matrix_2_6.yaml"
+    )
     assert scenario["forward_workload_enabled"] is True
     assert scenario["rollback_forward_validation_enabled"] is True
     assert scenario["validation_policy"]["data_integrity"] == "strict"
     assert scenario["validation_policy"]["gate_allow_warning"] is False
+
+
+def test_gate_rejects_storage_v3_forward_validation_without_rollback_loon_ffi():
+    scenario = resolve_gate_scenario(
+        _manifest(), "standalone-3-0-1-vortex-disable-keep-loon-rollback"
+    )
+    scenario["rollback"]["loon_ffi_enabled"] = False
+
+    with pytest.raises(
+        ValueError,
+        match="forward schemas requiring StorageV3 cannot be required after rollback",
+    ):
+        validate_resolved_gate_scenario(scenario)
 
 
 def test_3_0_1_vortex_disable_keep_loon_rollback_gate():

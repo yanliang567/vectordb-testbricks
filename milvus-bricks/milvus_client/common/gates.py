@@ -944,8 +944,9 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
         forward_schema_matrix = _schema_matrix_path(
             str(scenario.get("forward_schema_matrix") or "")
         )
+        forward_specs = load_schema_matrix(forward_schema_matrix)
         incompatible_forward_specs = rollback_incompatible_specs(
-            load_schema_matrix(forward_schema_matrix),
+            forward_specs,
             rollback_version,
         )
         if incompatible_forward_specs:
@@ -954,6 +955,21 @@ def validate_resolved_gate_scenario(scenario: dict[str, Any]) -> None:
                 f"to {rollback_version}; incompatible schemas: "
                 f"{', '.join(spec.name for spec in incompatible_forward_specs)}"
             )
+        if (
+            scenario["rollback"].get("loon_ffi_enabled") is not True
+            and scenario["rollback"].get("vortex_enabled") is not True
+        ):
+            storage_v3_specs = [
+                spec.name
+                for spec in forward_specs
+                if "StorageV3" in spec.required_capabilities
+            ]
+            if storage_v3_specs:
+                raise ValueError(
+                    f"{scenario['id']}: forward schemas requiring StorageV3 cannot "
+                    "be required after rollback with LoonFFI disabled; incompatible "
+                    f"schemas: {', '.join(storage_v3_specs)}"
+                )
 
     is_2_6_to_3_0_to_2_6 = (
         base_version.startswith("2.6")

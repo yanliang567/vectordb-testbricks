@@ -931,14 +931,14 @@ scenarios:
       gate_allow_warning: false
 
   - id: standalone-3-0-1-vortex-disable-rollback
-    description: "3.0.1 Vortex enable then disable at rollback: validate that the 3.0.1 dual-format reader still reads Vortex segments after rolling back to legacy storage v2."
+    description: "3.0.1 Vortex enable then disable at rollback: write rollback-safe schemas as Vortex segments, then validate that the 3.0.1 legacy storage-v2 reader can still read those segments with LoonFFI disabled. StorageV3-only TEXT LOB coverage remains in the keep-Loon gate."
     mode: standalone
     classification: gate
     support_status: supported
     workflow_template_ref: standalone_3_0
     deploy_profile_ref: standalone
     schema_matrix_ref: rollback_safe_base
-    forward_schema_matrix_ref: 3.0_storage_v3
+    forward_schema_matrix_ref: rollback_safe_base
     collection_prefix: qa_gate_301_vortex_off_rb
     forward_workload_enabled: true
     rollback_forward_validation_enabled: true
