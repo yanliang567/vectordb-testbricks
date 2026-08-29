@@ -3475,7 +3475,14 @@ def test_standalone_templates_recycle_pods_for_same_image_config_rollouts(filena
         'if [ "$current_image" = "{{inputs.parameters.image}}" ]; then' in image_patch
     )
     assert 'if [ "$recycle_same_image" = "true" ]; then' in image_patch
-    assert 'delete pods -l "$milvus_selector" --wait=false' in image_patch
+    assert (
+        '--request-timeout=5s get pods -l "$milvus_selector" -o jsonpath='
+        in image_patch
+    )
+    assert (
+        '--request-timeout=5s delete pods -l "$milvus_selector" --wait=false'
+        in image_patch
+    )
     assert 'delete pods -l "$milvus_selector" --wait=true' not in image_patch
     assert "rollout_deadline_epoch=$(( $(date +%s) + 600 ))" in image_patch
     assert '--request-timeout=5s get pods -l "$milvus_selector" -o json' in image_patch
@@ -3488,7 +3495,14 @@ def test_standalone_templates_recycle_pods_for_same_image_config_rollouts(filena
     )
 
     assert selector in config_patch
-    assert 'delete pods -l "$milvus_selector" --wait=false' in config_patch
+    assert (
+        '--request-timeout=5s get pods -l "$milvus_selector" -o jsonpath='
+        in config_patch
+    )
+    assert (
+        '--request-timeout=5s delete pods -l "$milvus_selector" --wait=false'
+        in config_patch
+    )
     assert 'delete pods -l "$milvus_selector" --wait=true' not in config_patch
     assert "rollout_deadline_epoch=$(( $(date +%s) + 600 ))" in config_patch
     assert '--request-timeout=5s get pods -l "$milvus_selector" -o json' in config_patch

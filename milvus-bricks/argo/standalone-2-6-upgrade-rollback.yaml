@@ -1662,7 +1662,7 @@ spec:
             recycle_same_image=false
             if [ "$current_image" = "{{inputs.parameters.image}}" ]; then
               recycle_same_image=true
-              kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l "$milvus_selector" -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' > /tmp/old-milvus-pod-uids
+              kubectl -n {{workflow.parameters.milvus-namespace}} --request-timeout=5s get pods -l "$milvus_selector" -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' > /tmp/old-milvus-pod-uids
             fi
             python3 - <<'PY'
             import json
@@ -1704,7 +1704,7 @@ spec:
             PY
             kubectl -n {{workflow.parameters.milvus-namespace}} patch mi {{workflow.name}} --type merge --patch-file /tmp/milvus-patch.json
             if [ "$recycle_same_image" = "true" ]; then
-              kubectl -n {{workflow.parameters.milvus-namespace}} delete pods -l "$milvus_selector" --wait=false
+              kubectl -n {{workflow.parameters.milvus-namespace}} --request-timeout=5s delete pods -l "$milvus_selector" --wait=false
               wait_for_new_ready_milvus_pod /tmp/old-milvus-pod-uids
             fi
             kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o yaml | sed -n '1,180p'
@@ -1796,8 +1796,8 @@ spec:
               echo "timed out waiting for new Ready Milvus pod UID" >&2
               return 1
             }
-            kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l "$milvus_selector" -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' > /tmp/old-milvus-pod-uids
-            kubectl -n {{workflow.parameters.milvus-namespace}} delete pods -l "$milvus_selector" --wait=false
+            kubectl -n {{workflow.parameters.milvus-namespace}} --request-timeout=5s get pods -l "$milvus_selector" -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' > /tmp/old-milvus-pod-uids
+            kubectl -n {{workflow.parameters.milvus-namespace}} --request-timeout=5s delete pods -l "$milvus_selector" --wait=false
             wait_for_new_ready_milvus_pod /tmp/old-milvus-pod-uids
             kubectl -n {{workflow.parameters.milvus-namespace}} get mi {{workflow.name}} -o yaml | sed -n '1,180p'
 
