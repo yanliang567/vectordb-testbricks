@@ -58,8 +58,21 @@ def pk_range_filter(primary_field: str, min_pk: Any, max_pk: Any) -> str:
     return f"{primary_field} >= {format_filter_value(min_pk)} && {primary_field} <= {format_filter_value(max_pk)}"
 
 
-def query_count(client: Any, collection_name: str, filter_expr: str = "") -> int:
-    result = client.query(collection_name=collection_name, filter=filter_expr, output_fields=["count(*)"])
+def query_count(
+    client: Any,
+    collection_name: str,
+    filter_expr: str = "",
+    consistency_level: str | None = None,
+) -> int:
+    query_kwargs = {}
+    if consistency_level is not None:
+        query_kwargs["consistency_level"] = consistency_level
+    result = client.query(
+        collection_name=collection_name,
+        filter=filter_expr,
+        output_fields=["count(*)"],
+        **query_kwargs,
+    )
     if not result:
         return 0
     return int(result[0].get("count(*)", 0))

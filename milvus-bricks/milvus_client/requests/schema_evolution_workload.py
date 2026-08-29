@@ -56,6 +56,7 @@ EVOLUTION_DROP_FIELD = FieldSpec(
     nullable=True,
 )
 SCHEMA_EVOLUTION_CHECKPOINT_VERSION = 2
+VALIDATION_CONSISTENCY_LEVEL = "Strong"
 
 
 def add_args(parser):
@@ -591,6 +592,7 @@ def _validate_search_probe(
             "metric_type": metric_type,
             "params": search_params_for_field(spec, field_name),
         },
+        consistency_level=VALIDATION_CONSISTENCY_LEVEL,
     )
     if not isinstance(result, list) or len(result) != 1 or not result[0]:
         raise AssertionError(f"{collection}.{field_name}: search returned no hits")
@@ -658,6 +660,7 @@ def _read_validate(
                 filter_expr=_pk_values_filter(
                     primary_name, pk_values[offset : offset + 100]
                 ),
+                consistency_level=VALIDATION_CONSISTENCY_LEVEL,
             )
         min_pk = min(pk_values)
         max_pk = max(pk_values)
@@ -669,7 +672,12 @@ def _read_validate(
             generate_primary_key_value(primary, max_data_pk) if primary else max_data_pk
         )
         count_filter = pk_range_filter(primary_name, min_pk, max_pk)
-        count = query_count(client, collection, filter_expr=count_filter)
+        count = query_count(
+            client,
+            collection,
+            filter_expr=count_filter,
+            consistency_level=VALIDATION_CONSISTENCY_LEVEL,
+        )
     if count != rows_per_collection:
         raise AssertionError(
             f"{collection}: expected {rows_per_collection} evolved rows in "
@@ -702,6 +710,7 @@ def _read_validate(
             filter=f"{primary_name} == {format_filter_value(expected_pk)}",
             output_fields=validation_fields,
             limit=2,
+            consistency_level=VALIDATION_CONSISTENCY_LEVEL,
         )
         matching = [row for row in rows if row.get(primary_name) == expected_pk]
         if len(matching) != 1:

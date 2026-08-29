@@ -52,7 +52,7 @@ class FakeClient:
             ids.append(inserted_id)
         return {"ids": ids}
 
-    def query(self, collection_name, filter, output_fields, limit=None):
+    def query(self, collection_name, filter, output_fields, limit=None, **kwargs):
         self.calls.append(
             ("query", collection_name, filter, tuple(output_fields), limit)
         )
@@ -126,13 +126,34 @@ class FakeClient:
 
 
 class EmptyEvolutionReadClient(FakeClient):
-    def query(self, collection_name, filter, output_fields, limit=None):
+    def query(self, collection_name, filter, output_fields, limit=None, **kwargs):
         self.calls.append(
             ("query", collection_name, filter, tuple(output_fields), limit)
         )
         if output_fields == ["count(*)"]:
             return [{"count(*)": 0}]
         return []
+
+
+class StaleBoundedCountClient(FakeClient):
+    def __init__(self):
+        super().__init__()
+        self.query_consistency_levels = []
+        self.search_consistency_levels = []
+
+    def query(self, collection_name, filter, output_fields, limit=None, **kwargs):
+        consistency_level = kwargs.get("consistency_level")
+        self.query_consistency_levels.append(consistency_level)
+        result = super().query(collection_name, filter, output_fields, limit)
+        if output_fields != ["count(*)"]:
+            return result
+        if consistency_level != "Strong" and result:
+            return [{"count(*)": max(0, result[0]["count(*)"] - 1)}]
+        return result
+
+    def search(self, *args, **kwargs):
+        self.search_consistency_levels.append(kwargs.get("consistency_level"))
+        return super().search(*args, **kwargs)
 
 
 class IrrelevantSearchHitClient(FakeClient):
@@ -574,6 +595,24 @@ def test_schema_evolution_fails_when_evolved_rows_are_not_queryable():
 
     assert metrics["failed_total"] == 1
     assert "expected 2 evolved rows" in metrics["collections"][0]["error"]
+
+
+def test_schema_evolution_uses_strong_consistency_for_post_write_count():
+    client = StaleBoundedCountClient()
+
+    metrics = run_schema_evolution(
+        client,
+        [_baseline_bm25_spec()],
+        collection_prefix="qa",
+        rows_per_collection=2,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    assert metrics["failed_total"] == 0
+    assert set(client.query_consistency_levels) == {"Strong"}
+    assert set(client.search_consistency_levels) == {"Strong"}
 
 
 def test_schema_evolution_fails_when_search_returns_unrelated_primary_key():
