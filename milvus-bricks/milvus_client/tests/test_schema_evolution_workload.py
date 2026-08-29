@@ -1,6 +1,8 @@
 import json
 import re
 
+import pytest
+
 from milvus_client.common.schema import (
     FieldSpec,
     FunctionSpec,
@@ -8,7 +10,79 @@ from milvus_client.common.schema import (
     SchemaSpec,
     StructArraySpec,
 )
+from milvus_client.requests import schema_evolution_workload
 from milvus_client.requests.schema_evolution_workload import run_schema_evolution
+
+
+def test_prepare_collection_for_read_uses_bounded_timeouts():
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def flush(self, *args, **kwargs):
+            self.calls.append(("flush", args, kwargs))
+
+        def load_collection(self, *args, **kwargs):
+            self.calls.append(("load_collection", args, kwargs))
+
+    client = Client()
+
+    schema_evolution_workload._prepare_collection_for_read(
+        client, "qa_schema", flush=True
+    )
+
+    assert client.calls == [
+        (
+            "flush",
+            (),
+            {
+                "collection_name": "qa_schema",
+                "timeout": schema_evolution_workload.DEFAULT_PREPARE_TIMEOUT_SEC,
+            },
+        ),
+        (
+            "load_collection",
+            (),
+            {
+                "collection_name": "qa_schema",
+                "timeout": schema_evolution_workload.DEFAULT_PREPARE_TIMEOUT_SEC,
+            },
+        ),
+    ]
+
+
+@pytest.mark.parametrize("flush", [True, False])
+def test_prepare_collection_for_read_does_not_fallback_to_unbounded_call(flush):
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def flush(self, *args, **kwargs):
+            self.calls.append(("flush", args, kwargs))
+            raise TypeError("unsupported timeout")
+
+        def load_collection(self, *args, **kwargs):
+            self.calls.append(("load_collection", args, kwargs))
+            raise TypeError("unsupported timeout")
+
+    client = Client()
+
+    with pytest.raises(TypeError, match="unsupported timeout"):
+        schema_evolution_workload._prepare_collection_for_read(
+            client, "qa_schema", flush=flush
+        )
+
+    expected_operation = "flush" if flush else "load_collection"
+    assert client.calls == [
+        (
+            expected_operation,
+            (),
+            {
+                "collection_name": "qa_schema",
+                "timeout": schema_evolution_workload.DEFAULT_PREPARE_TIMEOUT_SEC,
+            },
+        )
+    ]
 
 
 class FakeClient:

@@ -74,6 +74,7 @@ CHECKPOINT_NOT_FOUND = "CHECKPOINT_NOT_FOUND"
 PHASE_CHECKPOINT_NOT_FOUND = "PHASE_CHECKPOINT_NOT_FOUND"
 DEFAULT_RELOAD_TIMEOUT_SEC = 120.0
 DEFAULT_FLUSH_TIMEOUT_SEC = 10.0
+DEFAULT_LOAD_TIMEOUT_SEC = 10.0
 _EXPECTED_PK_UNSET = object()
 
 
@@ -256,12 +257,21 @@ def _flush_and_load_best_effort(client: Any, target_collection: str) -> dict[str
             # best-effort flush must therefore have a hard client-side deadline;
             # visibility and reload checks below remain the actual assertions.
             flush_result = f"failed: {exc}"
+    load = getattr(client, "load_collection", None)
+    if load is None:
+        load_result = "not_available"
+    else:
+        try:
+            load(target_collection, timeout=DEFAULT_LOAD_TIMEOUT_SEC)
+            load_result = "done"
+        except Exception as exc:
+            # PyMilvus waits for loading to reach 100%; timeout=None loops without
+            # a deadline. Keep this best-effort preparation bounded and let the
+            # visibility and strict reload validators determine pass/fail.
+            load_result = f"failed: {exc}"
     return {
         "flush": flush_result,
-        "load": _call_best_effort(
-            getattr(client, "load_collection", None),
-            target_collection,
-        ),
+        "load": load_result,
     }
 
 

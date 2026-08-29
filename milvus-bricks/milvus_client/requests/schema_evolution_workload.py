@@ -57,6 +57,7 @@ EVOLUTION_DROP_FIELD = FieldSpec(
 )
 SCHEMA_EVOLUTION_CHECKPOINT_VERSION = 2
 VALIDATION_CONSISTENCY_LEVEL = "Strong"
+DEFAULT_PREPARE_TIMEOUT_SEC = 120.0
 
 
 def add_args(parser):
@@ -344,15 +345,15 @@ def _prepare_collection_for_read(
     flush: bool,
 ) -> None:
     if flush and hasattr(client, "flush"):
-        try:
-            client.flush(collection_name=collection)
-        except TypeError:
-            client.flush(collection)
+        client.flush(
+            collection_name=collection,
+            timeout=DEFAULT_PREPARE_TIMEOUT_SEC,
+        )
     if hasattr(client, "load_collection"):
-        try:
-            client.load_collection(collection_name=collection)
-        except TypeError:
-            client.load_collection(collection)
+        client.load_collection(
+            collection_name=collection,
+            timeout=DEFAULT_PREPARE_TIMEOUT_SEC,
+        )
 
 
 def _expected_evolution_row(
