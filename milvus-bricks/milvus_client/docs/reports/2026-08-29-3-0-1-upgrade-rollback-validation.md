@@ -17,6 +17,7 @@
 - 测试时段：2026-08-29，Asia/Shanghai；最后一个 Workflow 于 19:05:39 结束
 - 初始代码基线：`origin/main@df4b74257130884d480385b3ef2760dfa9a76ad0`
 - 最终 E2E revision：`8400590bc20df4754fdf7237155d549654acb4fb`
+- post-E2E review 功能修复 revision：`282ad187461cac5a7e765d87aa72780b93568a74`；该 revision 完成单测、Ruff、Argo lint 和 shell syntax 验证，但未重跑完整 20 条业务 Workflow 矩阵
 - 3.0/3.0.1 candidate：`harbor.milvus.io/milvusdb/milvus:3.0-20260829-257a535b@sha256:d3a0d1d64368139ab59a28989392bcffdefaaa0f724596b870ed7c0b16d15c20`
 - 2.6 latest rollback：`harbor.milvus.io/milvusdb/milvus:2.6-20260829-3b859656@sha256:989e085e45c44f513387f361c0c6b326a434a0828964798a459728460ebe04b6`
 - 2.6.18 baseline：`harbor.milvus.io/milvusdb/milvus:v2.6.18@sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6`
@@ -25,7 +26,7 @@
 - 镜像检查：上述 Milvus/Woodpecker 引用均为 `tag@manifest-list-digest`，Harbor 可拉取且包含测试所需架构。
 - 压力模块：`search_pressure query_pressure query_iterator_scan count_pressure upsert_pressure delete_pressure mixed_rw_pressure`
 - 并发上限：standalone 3，cluster 2；执行记录中没有超过上限。
-- 正式运行统一使用 `keep-milvus=true`；成功和测试框架无效轮次取证后按 Workflow UID 精确清理。最终仍保留 4 套具有独立产品失败证据的环境；两条最早 formal #52893 gate 当前只保留 Argo 历史，由 strict tracker 环境提供等价复现现场。
+- 除 `milvus-standalone-3-0-upgrade-rollback-v4rzd` 未显式覆盖、使用模板默认 `keep-milvus=false` 外，其余正式运行使用 `keep-milvus=true`；成功和测试框架无效轮次取证后按 Workflow UID 精确清理。最终仍保留 4 套具有独立产品失败证据的环境；两条最早 formal #52893 gate 当前只保留 Argo 历史，由 strict tracker 环境提供等价复现现场。
 
 ## 合同与验证点
 
@@ -106,8 +107,11 @@
 | `c1a0170` | 无 Loon 的 Vortex-disable gate 使用 StorageV3 TEXT forward matrix | 改为 rollback-safe 2.6 matrix；manifest validation 阻止同类非法合同 |
 | `eef8eb7` | read-only index compatibility 在持续写压力下重复 flush，可等待 900 秒/collection | `rebuild_index=false` 时跳过 flush，并增加 collection progress 日志 |
 | `8400590` | phase DML/DQL 的 best-effort flush 在持续写压力下无 deadline | 增加 10 秒客户端 deadline；禁止 TypeError 后退回无 timeout；visibility/search/query/reload 仍为最终断言；完整回归 624 passed |
+| `240fff3` | standalone Pod delete 使用 kubectl 默认超长同步等待 | 改为异步删除，由后续新 UID/Ready 收敛检查负责；post-E2E 静态验证 |
+| `b946b5e` | schema evolution flush/load 和 phase best-effort load 仍可能无界等待 | 增加客户端 timeout 且禁止无 timeout fallback；post-E2E 静态验证 |
+| `282ad18` | standalone RBAC 缺少 Pod delete、Ready 轮询聚合上界接近 30 分钟、新集合 load 超时后立即验证可能假失败 | 增加最小 `pods/delete` 权限；用统一 600 秒 wall-clock deadline 和非阻塞 Ready 查询；新集合复用有界 visibility retry；完整回归 628 passed |
 
-所有测试框架修复都从固定 SHA 推送后重跑；旧 SHA 卡住的临时 workflow 被显式 terminate，不计为产品结果。
+截至 `8400590` 的测试框架修复都从固定 SHA 推送后完成业务 Workflow 重跑；旧 SHA 卡住的临时 workflow 被显式 terminate，不计为产品结果。`240fff3`、`b946b5e` 和 `282ad18` 是最终业务矩阵之后的 review 修复，本报告不声称 20 条 Workflow 已在这些 revision 上重跑；它们的证据范围是定向回归、完整 pytest、Ruff、Argo lint 和 shell syntax。后续如果把当前 PR head 应用到 live WorkflowTemplate，应先做一条 same-image standalone config rollout 和一条 phase DML/DQL 新集合路径的代表性 E2E。
 
 ### QA 控制面无效轮次
 
@@ -132,7 +136,7 @@
 
 ## 静态验证
 
-- `python3 -m pytest -q`：`624 passed in 49.99s`
+- `PYTHONPATH=. python3 -m pytest milvus_client/tests -q`：`628 passed in 52.86s`（post-E2E review 功能 revision `282ad18`）
 - 修改文件 Ruff check：通过
 - 修改文件 Ruff format check：通过
 - `git diff --check`：通过

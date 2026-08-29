@@ -162,7 +162,7 @@ git diff --check
 
 - `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest`（#52893）
 - `cluster-2-6-18-to-3-0-latest-rollback-2-6-latest`（#52893）
-- `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline`（#52341 standalone 限制）
+- `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline`（#52768 standalone JSON Shredding rollback 限制）
 
 预期：这些结果单独记录，不参与 release-gate 绿色率；保留原始失败点，不通过删 schema 或放宽断言制造绿灯。
 
