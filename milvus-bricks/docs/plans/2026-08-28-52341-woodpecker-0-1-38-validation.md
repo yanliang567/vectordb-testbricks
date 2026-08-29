@@ -2,9 +2,11 @@
 
 **目标：** 用显式锁定的 Woodpecker server 0.1.38 和包含 Woodpecker client 0.1.38 的最新 Milvus 3.0 分支镜像，验证 `v3.0.0 -> 最新 3.0 -> v3.0.0` 在持续 DML 下不再发生 channel tSafe 永久停滞。
 
-**架构：** 复用现有 cluster JSON Shredding full-DML known-limitation 场景，新增版本化 1CU Woodpecker deploy profile，并为该场景提供一个从 `schema_matrix_2_6.yaml` 精确选取的回归矩阵。回归矩阵保留原问题中出现过的普通 collection 和多 channel 压力，只排除会独立触发 #52768 的两个 nested scalar AutoIndex schema。工作流继续保持非 release-gate，并在失败时保留 Milvus 环境。
+**架构：** 复用现有 cluster JSON Shredding full-DML known-limitation 场景，新增版本化 1CU Woodpecker deploy profile，并为该场景提供一个从 `schema_matrix_2_6.yaml` 精确选取的回归矩阵。回归矩阵保留原问题中出现过的普通 collection 和多 channel 压力，只排除会独立触发 #52768 的两个 nested scalar AutoIndex schema。验证执行期间保持非 release-gate，并在失败时保留 Milvus 环境；验证通过后将该受限九 schema 合同提升为 release gate。
 
 **技术栈：** Python、PyYAML、pytest、Ruff、Argo Workflows、Helm、Milvus cluster、Woodpecker 0.1.38。
+
+**验证后状态：** 三次完整 workflow 均通过，#52341 已关闭；manifest 已提升为 `gate / supported_with_config_constraints / release-gate-eligible=true`，#52768 继续由独立限制场景跟踪。
 
 ---
 
@@ -76,7 +78,7 @@ python3 -m pytest milvus_client/tests/test_schema_manifest.py -q
 
 **步骤 1：写失败测试**
 
-- 场景保持 `known_limitation / unsupported / release-gate-eligible=false`。
+- 验证执行前，场景保持 `known_limitation / unsupported / release-gate-eligible=false`；三次验证通过并关闭 #52341 后，提升为 `gate / supported_with_config_constraints / release-gate-eligible=true`。
 - 场景必须使用 WP 0.1.38 版本化 profile。
 - 场景必须使用 #52341 专用 9-schema 矩阵。
 - 描述必须分别准确引用 #52341 和被隔离的 #52768。

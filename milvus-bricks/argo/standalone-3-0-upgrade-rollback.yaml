@@ -283,7 +283,7 @@ spec:
 
           - name: validate-schema-features-base
             dependencies: [validate-before-upgrade]
-            template: idempotent-run-brick
+            template: run-brick
             arguments:
               parameters:
                 - name: brick-name
@@ -480,7 +480,7 @@ spec:
 
           - name: validate-schema-features-after-upgrade
             dependencies: [validate-index-compatibility-after-upgrade, pressure-daemon]
-            template: idempotent-run-brick
+            template: run-brick
             arguments:
               parameters:
                 - name: brick-name
@@ -686,7 +686,7 @@ spec:
 
           - name: validate-forward-schema-features-after-upgrade
             dependencies: [validate-forward-indexes-after-upgrade, pressure-daemon]
-            template: optional-idempotent-run-brick
+            template: optional-run-brick
             arguments:
               parameters:
                 - name: enabled
@@ -918,7 +918,7 @@ spec:
           - name: validate-schema-features-after-rollback
             dependencies: [validate-index-compatibility-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true"
-            template: idempotent-run-brick
+            template: run-brick
             arguments:
               parameters:
                 - name: brick-name
@@ -1059,7 +1059,7 @@ spec:
           - name: validate-forward-schema-features-after-rollback
             dependencies: [validate-forward-indexes-after-rollback, pressure-daemon]
             when: "{{workflow.parameters.rollback-enabled}} == true && {{workflow.parameters.forward-workload-enabled}} == true"
-            template: optional-idempotent-run-brick
+            template: optional-run-brick
             arguments:
               parameters:
                 - name: enabled

@@ -240,6 +240,9 @@ def test_render_cluster_json_shredding_gate_parameters():
     assert params["forward-schema-matrix"] == (
         "milvus_client/manifests/schema_matrix_json_shredding.yaml"
     )
+    assert params["scenario-classification"] == "gate"
+    assert params["scenario-support-status"] == "supported_with_config_constraints"
+    assert params["release-gate-eligible"] == "true"
 
 
 def test_render_cluster_woodpecker_2cu_ha_gate_parameters():

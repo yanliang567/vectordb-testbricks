@@ -10,7 +10,7 @@
 
 因此，在本报告限定的镜像、Woodpecker 版本、九个 rollback-safe 2.6 schema 和压力模型下，**#52341 未复现，Woodpecker 0.1.38 reader-recovery 修复验证通过**。本次未保留 Milvus 环境；Argo workflow 历史和 artifacts 保留。
 
-当前 manifest 仍将该 tracker 标为 `known_limitation`、`release-gate-eligible=false`。本报告提供将 #52341 从限制列表移除的证据，但不自动把整个场景提升为 release gate，因为两个受独立问题 #52768 影响的 nested scalar AutoIndex schema 仍由专门矩阵隔离。
+基于该证据，manifest 将限定为 Woodpecker v0.1.38 与九 schema 矩阵的 #52341 合同提升为 `gate / supported_with_config_constraints / release-gate-eligible=true`。两个受独立问题 #52768 影响的 nested scalar AutoIndex schema 不属于该受支持合同，继续由专门限制场景跟踪。
 
 ## 固定输入
 
@@ -29,13 +29,13 @@
 
 验证分支：`test/validate-52341-wp-0-1-38`
 
-最终 revision：`c862c881708466c065eefd03938909ec85a1b81c`
+最终 E2E revision：`c862c881708466c065eefd03938909ec85a1b81c`
 
 1. 增加固定 Woodpecker server `v0.1.38` 的 cluster deploy profile。
 2. 增加由 2.6 source matrix 组合出的九 schema reader-recovery matrix，并为 schema loader 增加严格的 `source_matrix` / `include_schemas` 支持。
-3. 更新 #52341 场景，使用专用 profile/matrix，明确与 #52768 隔离，保持非 release-gate tracker。
+3. 更新 #52341 场景，使用专用 profile/matrix，明确与 #52768 隔离；三次验证通过后将该受限合同提升为 release gate。
 4. 为四类升级/回滚模板的 Python dependency bootstrap 增加五次退避重试。重试仅发生在业务模块启动前。
-5. 为三个升级/回滚模板增加 `idempotent-run-brick` 与 `optional-idempotent-run-brick`：只读的 precheck、serviceability、data/index/schema validation 使用 `OnError`；create/seed/phase DML/schema evolution/drop 等写操作仍无 Argo retry。
+5. 为三个升级/回滚模板增加 `idempotent-run-brick` 与 `optional-idempotent-run-brick`：只读的 precheck、serviceability、data/index validation 使用 `OnError`；create/seed/phase DML/schema feature/schema evolution/drop 等可能写入的操作无 Argo retry。`validate_schema_features` 包含 `entity_ttl` insert/flush/delete，因此在 review 修正后明确使用非重试 wrapper。
 6. 两次最终有效验证使用 QA `milvus-cluster-upgrade-rollback` generation 33；无 `templateDefaults`。该验证版本有 retry 的 template 仅为：
    - `deploy-milvus`
    - `wait-milvus-ready`
@@ -63,6 +63,8 @@
 | 3 | [c30json-lzq4c](https://argo-workflows.zilliz.cc/workflows/qa/c30json-lzq4c) | `c862c881708466c065eefd03938909ec85a1b81c` / gen 33 | 17:49:29–18:58:28 | 21s | 21s | Succeeded 63/63 |
 
 gen 33 的两次有效 workflow 中，所有 retry wrapper 均只有一个 attempt；没有用重试掩盖业务失败。
+
+gen 33 验证时 schema feature task 曾通过 retry wrapper 调度，但所有 task 都只有一个 attempt，未发生重复 DML。PR review 后三个升级/回滚模板中的全部 schema feature task 已改回非重试 wrapper，并由静态分类测试保护。
 
 ## 压力结果
 
@@ -125,5 +127,5 @@ Woodpecker StatefulSet 全程使用 `OnDelete`；每轮四个 Woodpecker Pod 的
 
 1. 以本报告作为 #52341 在 Woodpecker 0.1.38 上的关闭/解除限制证据。
 2. #52768 继续保留独立 known-limitation tracker；不要把两个 nested scalar AutoIndex schema 静默并回主 release gate。
-3. 合并本分支的 bootstrap 与只读幂等 retry 改动，使 cluster、standalone 2.6/3.0 和通用 compatibility 路径保持一致。
+3. 合并本分支的 bootstrap 与只读幂等 retry 改动，使 cluster、standalone 2.6/3.0 和通用 compatibility 路径保持一致；schema feature brick 因包含 `entity_ttl` DML，不使用 Argo retry。
 4. 合并 retry hardening 后，再从合并 commit 应用代码管理的 WorkflowTemplate；当前 live template 已恢复为 `origin/main` generation 34。

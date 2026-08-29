@@ -362,7 +362,7 @@ cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline:
   pressure-fail-on-error: 'true'
   pressure-modules: search_pressure query_pressure query_iterator_scan count_pressure
     upsert_pressure delete_pressure mixed_rw_pressure
-  release-gate-eligible: 'false'
+  release-gate-eligible: 'true'
   repo-revision: main
   repo-url: https://github.com/yanliang567/vectordb-testbricks.git
   rollback-enabled: 'true'
@@ -377,9 +377,9 @@ cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline:
   rollback-version: 3.0.0
   rollback-vortex-enabled: 'false'
   rows-per-collection: '5000'
-  scenario-classification: known_limitation
+  scenario-classification: gate
   scenario-id: cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline
-  scenario-support-status: unsupported
+  scenario-support-status: supported_with_config_constraints
   schema-evolution-existing-enabled: 'false'
   schema-evolution-forward-enabled: 'false'
   schema-matrix: milvus_client/manifests/schema_matrix_2_6_woodpecker_reader_recovery.yaml

@@ -7,9 +7,9 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 The manifest currently registers 26 scenarios:
 
-- 19 promoted gate scenarios
+- 20 promoted gate scenarios
 - 2 pre-release candidate scenarios
-- 4 known-limitation scenarios
+- 3 known-limitation scenarios
 - 1 negative coverage scenario
 
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
@@ -20,7 +20,7 @@ The manifest currently registers 26 scenarios:
 | `cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest` | cluster | gate | `2.6.18 -> 3.0 latest + 3.0-only forward features -> 2.6 latest` | Forward 3.0 collections are required after upgrade but intentionally excluded from rollback validation. |
 | `standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | standalone | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
 | `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
-| `cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | cluster | known limitation | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |
+| `cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | #52341 reader recovery is gated with Woodpecker v0.1.38 and the nine-schema constrained matrix; the two #52768 nested scalar AutoIndex schemas remain isolated in their own tracker. |
 | `cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` on Woodpecker 2CU | Proxy, QueryNode, DataNode, and StreamingNode must each keep at least two replicas. |
 | `standalone-3-0-vortex-candidate-upgrade-rollback` | standalone | candidate | `earlier reviewed 3.0 candidate -> newer reviewed candidate + LoonFFI/Vortex -> earlier candidate + LoonFFI/Vortex` | Pre-release evidence for the v3.0.1 contract; not a release gate. |
 | `cluster-3-0-vortex-candidate-upgrade-rollback` | cluster | candidate | `earlier reviewed 3.0 candidate -> newer reviewed candidate + LoonFFI/Vortex -> earlier candidate + LoonFFI/Vortex` | Distributed pre-release evidence; not a release gate. |

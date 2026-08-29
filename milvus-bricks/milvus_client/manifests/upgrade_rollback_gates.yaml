@@ -433,10 +433,10 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline
-    description: "Milvus #52341 Woodpecker reader-recovery regression: keep full DML active while upgrading from the 3.0 baseline, enabling JSON Shredding through a post-upgrade Helm rollout, and rolling back to the baseline. The dedicated baseline matrix excludes only the two nested scalar AutoIndex schemas affected by independent limitation milvus-io/milvus#52768; this tracker remains non-release-gate until milvus-io/milvus#52341 is verified."
+    description: "Release gate for the verified milvus-io/milvus#52341 Woodpecker reader-recovery contract: keep full DML active while upgrading from the 3.0 baseline, enabling JSON Shredding through a post-upgrade Helm rollout, and rolling back to the baseline. The supported configuration uses Woodpecker v0.1.38 and a dedicated nine-schema baseline matrix that excludes only the two nested scalar AutoIndex schemas tracked independently by milvus-io/milvus#52768."
     mode: cluster
-    classification: known_limitation
-    support_status: unsupported
+    classification: gate
+    support_status: supported_with_config_constraints
     submit_generate_name: c30json-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_v0_1_38_1cu

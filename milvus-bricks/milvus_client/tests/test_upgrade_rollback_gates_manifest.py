@@ -347,7 +347,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 9
+    assert len(cluster_scenarios) == 10
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest"][
@@ -688,15 +688,15 @@ def test_cluster_target_only_feature_gate_contract():
     assert scenario["rollback_forward_validation_enabled"] is False
 
 
-def test_cluster_json_shredding_known_limitation_writes_forward_data_after_config_toggle():
+def test_cluster_json_shredding_constrained_gate_writes_forward_data_after_config_toggle():
     manifest = _manifest()
     scenario = resolve_gate_scenario(
         manifest,
         "cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline",
     )
 
-    assert scenario["classification"] == "known_limitation"
-    assert scenario["support_status"] == "unsupported"
+    assert scenario["classification"] == "gate"
+    assert scenario["support_status"] == "supported_with_config_constraints"
     assert "milvus-io/milvus#52341" in scenario["description"]
     assert "milvus-io/milvus#52768" in scenario["description"]
     assert scenario["workflow_template"] == "milvus-cluster-upgrade-rollback"
@@ -730,6 +730,8 @@ def test_cluster_json_shredding_known_limitation_writes_forward_data_after_confi
     assert scenario["forward_schema_matrix"] == (
         "milvus_client/manifests/schema_matrix_json_shredding.yaml"
     )
+    params = render_argo_parameters(scenario, manifest, allow_placeholder=True)
+    assert params["release-gate-eligible"] == "true"
 
 
 def test_2_6_to_3_0_rollback_gate_scenarios_forbid_storage_v3_and_vortex():

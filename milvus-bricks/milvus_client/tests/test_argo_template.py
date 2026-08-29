@@ -2545,12 +2545,12 @@ def test_upgrade_rollback_templates_retry_only_idempotent_read_bricks(filename):
         "milvus_client.requests.wait_data_serviceability",
         "milvus_client.requests.validate_data_integrity",
         "milvus_client.requests.validate_index_compatibility",
-        "milvus_client.requests.validate_schema_features",
     }
     write_modules = {
         "milvus_client.requests.create_schema_matrix",
         "milvus_client.requests.seed_data",
         "milvus_client.requests.validate_phase_dml_dql",
+        "milvus_client.requests.validate_schema_features",
         "milvus_client.requests.schema_evolution_workload",
         "milvus_client.requests.drop_schema_matrix",
     }
