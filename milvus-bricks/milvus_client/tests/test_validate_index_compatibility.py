@@ -664,6 +664,7 @@ def test_after_upgrade_rebuilds_indexes_and_writes_index_checkpoint(
     call_names = [name for name, _ in client.calls]
     assert code == 0
     assert result["status"] == "passed"
+    assert "flush" in call_names
     assert call_names.index("release_collection") < call_names.index("drop_index")
     assert call_names.index("drop_index") < call_names.index("create_index")
     assert call_names.index("create_index") < call_names.index("load_collection")
@@ -729,6 +730,7 @@ def test_index_validation_rechecks_query_and_search_after_release_reload(
     release_position = call_names.index("release_collection")
     assert code == 0
     assert result["status"] == "passed"
+    assert "flush" not in call_names
     assert result["metrics"]["reload_cycles_total"] == 1
     assert result["metrics"]["reload_searches_total"] == 1
     assert result["metrics"]["reload_scalar_index_queries_total"] == 1
