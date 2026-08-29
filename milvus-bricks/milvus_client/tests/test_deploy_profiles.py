@@ -5,10 +5,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE_DIR = ROOT / "manifests" / "deploy_profiles"
-WOODPECKER_MASTER_IMAGE_TAG = (
-    "master-e80f1ea-91-amd64@sha256:"
-    "3c2cabb07d2e14c57c70612845ff05451b893b2ad6215d69fd63a6f4c7ff8178"
-)
 WOODPECKER_V0_1_38_IMAGE_TAG = (
     "v0.1.38@sha256:bdea08758377fea309c18087334c63d20e26ba0940a4d63369bf7794f5f2060e"
 )
@@ -77,7 +73,7 @@ def test_cluster_profiles_declare_required_components_resources_and_woodpecker()
         )
         assert (
             profile["helm_values"]["woodpecker"]["image"]["tag"]
-            == WOODPECKER_MASTER_IMAGE_TAG
+            == WOODPECKER_V0_1_38_IMAGE_TAG
         )
         assert (
             profile["helm_values"]["woodpecker"]["nodeSelector"]["kubernetes.io/arch"]
