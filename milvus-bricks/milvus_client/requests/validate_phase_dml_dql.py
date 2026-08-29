@@ -1215,6 +1215,8 @@ def _run_new_collection_dml_dql(
     drop_if_exists: bool,
     report: ValidationReport,
     *,
+    visibility_timeout_sec: int = 120,
+    visibility_interval_sec: float = 2.0,
     reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
     reload_maintenance_label: str = "phase-dml-dql-reload",
     server_version: str | None = None,
@@ -1243,6 +1245,7 @@ def _run_new_collection_dml_dql(
         "search_probe_data_pk": None,
         "search_probe_pk": None,
         "search_probe_seed": None,
+        "visibility_attempts": 0,
     }
     inserted_ids: list[Any] = []
     try:
@@ -1275,40 +1278,63 @@ def _run_new_collection_dml_dql(
         )
         return metrics
 
-    validation_failures_before = len(report.failures)
     if auto_id_enabled(spec):
-        validate_collection_count(
-            client,
-            target_collection,
-            rows,
-            report,
-            metric_suffix="phase_new_collection_count",
-        )
-        _validate_pk_values_present_strict(
-            client, target_collection, primary_name, inserted_ids, report
-        )
         metrics["sample_values"] = list(inserted_ids[:3])
     else:
         min_pk = generate_primary_key_value(primary, start_id)
         max_pk = generate_primary_key_value(primary, start_id + rows - 1)
         metrics["min_pk"] = min_pk
         metrics["max_pk"] = max_pk
+        metrics["sample_values"] = [
+            generate_primary_key_value(primary, start_id),
+            generate_primary_key_value(primary, start_id + rows - 1),
+        ]
+
+    def validate_visibility(current: ValidationReport) -> None:
         validate_collection_count(
             client,
             target_collection,
             rows,
-            report,
-            filter_expr=pk_range_filter(primary_name, min_pk, max_pk),
+            current,
+            filter_expr=(
+                ""
+                if auto_id_enabled(spec)
+                else pk_range_filter(
+                    primary_name,
+                    metrics["min_pk"],
+                    metrics["max_pk"],
+                )
+            ),
             metric_suffix="phase_new_collection_count",
         )
-        sample_values = [
-            generate_primary_key_value(primary, start_id),
-            generate_primary_key_value(primary, start_id + rows - 1),
-        ]
-        metrics["sample_values"] = sample_values
-        validate_pk_samples(
-            client, target_collection, primary_name, sample_values, report
-        )
+        if auto_id_enabled(spec):
+            _validate_pk_values_present_strict(
+                client,
+                target_collection,
+                primary_name,
+                inserted_ids,
+                current,
+            )
+        else:
+            validate_pk_samples(
+                client,
+                target_collection,
+                primary_name,
+                metrics["sample_values"],
+                current,
+            )
+
+    validation_failures_before = len(report.failures)
+    visibility_report, visibility_attempts = _wait_for_validation(
+        validate_visibility,
+        visibility_timeout_sec,
+        visibility_interval_sec,
+    )
+    metrics["visibility_attempts"] = visibility_attempts
+    report.metrics.update(visibility_report.metrics)
+    if not visibility_report.passed:
+        report.passed = False
+        report.failures.extend(visibility_report.failures)
     if rows <= 0:
         return metrics
     search_probe_seed = seed
@@ -2599,6 +2625,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.seed + 17,
                 args.drop_new_collections_if_exist,
                 report,
+                visibility_timeout_sec=args.visibility_timeout_sec,
+                visibility_interval_sec=args.visibility_interval_sec,
                 reload_timeout_sec=args.reload_timeout_sec,
                 reload_maintenance_label=f"phase-dml-dql-reload-{args.phase}",
                 server_version=server_version,

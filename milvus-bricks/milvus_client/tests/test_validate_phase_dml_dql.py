@@ -241,6 +241,33 @@ class CorruptAfterReloadPhaseClient(PhaseClient):
         return super().search(**kwargs)
 
 
+class DelayedNewCollectionVisibilityPhaseClient(PhaseClient):
+    def __init__(self):
+        super().__init__()
+        self.best_effort_load_failures = 2
+        self.visibility_failures = 1
+
+    def load_collection(self, *args, **kwargs):
+        self.calls.append(("load_collection", {"args": args, **kwargs}))
+        if (
+            kwargs.get("timeout") == validate_phase_dml_dql.DEFAULT_LOAD_TIMEOUT_SEC
+            and self.best_effort_load_failures > 0
+        ):
+            self.best_effort_load_failures -= 1
+            raise TimeoutError("collection is still loading")
+
+    def query(self, **kwargs):
+        if (
+            kwargs.get("collection_name") == "qa_after_upgrade_dense"
+            and kwargs.get("output_fields") == ["count(*)"]
+            and self.visibility_failures > 0
+        ):
+            self.calls.append(("query", kwargs))
+            self.visibility_failures -= 1
+            raise RuntimeError("collection is not loaded yet")
+        return super().query(**kwargs)
+
+
 def test_best_effort_flush_and_load_use_bounded_timeouts_without_fallback():
     class RejectTimeoutClient:
         def __init__(self):
@@ -651,6 +678,29 @@ def test_new_phase_strict_reload_load_failure_fails_closed():
         and failure["operation"] == "load_collection"
         for failure in report.failures
     )
+
+
+def test_new_phase_retries_visibility_after_best_effort_load_timeout():
+    client = DelayedNewCollectionVisibilityPhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_new_collection_dml_dql(
+        client,
+        _dense_spec(),
+        "qa_after_upgrade_dense",
+        rows=4,
+        batch_size=2,
+        start_id=60_000_000,
+        seed=24,
+        drop_if_exists=False,
+        report=report,
+        visibility_timeout_sec=1,
+        visibility_interval_sec=0,
+    )
+
+    assert report.passed
+    assert metrics["visibility_attempts"] == 2
+    assert metrics["reload_succeeded"]
 
 
 def test_existing_phase_reload_revalidates_vector_search():

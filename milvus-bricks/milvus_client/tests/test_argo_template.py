@@ -3477,8 +3477,12 @@ def test_standalone_templates_recycle_pods_for_same_image_config_rollouts(filena
     assert 'if [ "$recycle_same_image" = "true" ]; then' in image_patch
     assert 'delete pods -l "$milvus_selector" --wait=false' in image_patch
     assert 'delete pods -l "$milvus_selector" --wait=true' not in image_patch
-    assert 'grep -Fxq "$new_uid" /tmp/old-milvus-pod-uids' in image_patch
-    assert 'wait --for=condition=Ready pod -l "$milvus_selector"' in image_patch
+    assert "rollout_deadline_epoch=$(( $(date +%s) + 600 ))" in image_patch
+    assert '--request-timeout=5s get pods -l "$milvus_selector" -o json' in image_patch
+    assert 'condition.get("type") == "Ready"' in image_patch
+    assert 'condition.get("status") == "True"' in image_patch
+    assert 'wait --for=condition=Ready pod -l "$milvus_selector"' not in image_patch
+    assert "for i in $(seq 1 120)" not in image_patch
     assert image_patch.index("patch mi {{workflow.name}}") < image_patch.index(
         'if [ "$recycle_same_image" = "true" ]; then'
     )
@@ -3486,8 +3490,12 @@ def test_standalone_templates_recycle_pods_for_same_image_config_rollouts(filena
     assert selector in config_patch
     assert 'delete pods -l "$milvus_selector" --wait=false' in config_patch
     assert 'delete pods -l "$milvus_selector" --wait=true' not in config_patch
-    assert 'grep -Fxq "$new_uid" /tmp/old-milvus-pod-uids' in config_patch
-    assert 'wait --for=condition=Ready pod -l "$milvus_selector"' in config_patch
+    assert "rollout_deadline_epoch=$(( $(date +%s) + 600 ))" in config_patch
+    assert '--request-timeout=5s get pods -l "$milvus_selector" -o json' in config_patch
+    assert 'condition.get("type") == "Ready"' in config_patch
+    assert 'condition.get("status") == "True"' in config_patch
+    assert 'wait --for=condition=Ready pod -l "$milvus_selector"' not in config_patch
+    assert "for i in $(seq 1 120)" not in config_patch
     assert config_patch.index("patch mi {{workflow.name}}") < config_patch.index(
         "delete pods -l"
     )
@@ -4192,6 +4200,17 @@ def test_standalone_2_6_upgrade_rollback_rbac_is_namespace_scoped():
     assert "workflowtaskresults" in qa_resources
     assert "workflows" in qa_resources
     assert "pod logs" not in milvus_resources
+    assert any(
+        rule["apiGroups"] == [""]
+        and rule["resources"] == ["pods"]
+        and set(rule["verbs"]) == {"delete"}
+        for rule in milvus_role["rules"]
+    )
+    assert all(
+        "delete" not in rule["verbs"]
+        for rule in milvus_role["rules"]
+        if {"pods/log", "events"} & set(rule["resources"])
+    )
     assert any(
         "" in rule["apiGroups"]
         and "pods/exec" in rule["resources"]
