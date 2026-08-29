@@ -241,6 +241,31 @@ class CorruptAfterReloadPhaseClient(PhaseClient):
         return super().search(**kwargs)
 
 
+def test_best_effort_flush_uses_bounded_timeout_without_unbounded_fallback():
+    class RejectTimeoutClient:
+        def __init__(self):
+            self.flush_calls = []
+            self.load_calls = []
+
+        def flush(self, *args, **kwargs):
+            self.flush_calls.append((args, kwargs))
+            raise TypeError("timeout is unsupported")
+
+        def load_collection(self, *args, **kwargs):
+            self.load_calls.append((args, kwargs))
+
+    client = RejectTimeoutClient()
+
+    operations = validate_phase_dml_dql._flush_and_load_best_effort(client, "qa_dense")
+
+    assert operations["flush"].startswith("failed:")
+    assert operations["load"] == "done"
+    assert client.flush_calls == [
+        (("qa_dense",), {"timeout": validate_phase_dml_dql.DEFAULT_FLUSH_TIMEOUT_SEC})
+    ]
+    assert client.load_calls == [(("qa_dense",), {})]
+
+
 def _dense_spec(auto_id: bool = False, dim: int = 4) -> SchemaSpec:
     return SchemaSpec(
         name="dense",
