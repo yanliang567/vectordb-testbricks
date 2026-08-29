@@ -12,6 +12,10 @@ The manifest currently registers 26 scenarios:
 - 3 known-limitation scenarios
 - 1 negative coverage scenario
 
+Every explicit dependency image in a release-gate deploy profile is pinned by
+digest. Mutable dependency tags are rejected when the scenario is resolved, so
+the rendered gate cannot silently consume different bits after review.
+
 | Scenario ID | Mode | Classification | Path | Storage feature policy |
 | --- | --- | --- | --- | --- |
 | `standalone-2-6-18-to-3-0-latest-rollback-2-6-latest` | standalone | known limitation | `2.6.18 -> 3.0 latest -> 2.6 latest` | Strict full-matrix tracker for #52893; target-built nested scalar STL_SORT cannot be read by 2.6, so this path is not release-gate eligible. |

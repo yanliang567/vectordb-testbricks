@@ -31,7 +31,7 @@
 
 最终 E2E revision：`c862c881708466c065eefd03938909ec85a1b81c`
 
-1. 增加固定 Woodpecker server `v0.1.38` 的 cluster deploy profile。
+1. 增加固定 Woodpecker server `v0.1.38@sha256:bdea08758377fea309c18087334c63d20e26ba0940a4d63369bf7794f5f2060e` 的 cluster deploy profile；release gate 解析会拒绝未固定 digest 的显式依赖镜像。
 2. 增加由 2.6 source matrix 组合出的九 schema reader-recovery matrix，并为 schema loader 增加严格的 `source_matrix` / `include_schemas` 支持。
 3. 更新 #52341 场景，使用专用 profile/matrix，明确与 #52768 隔离；三次验证通过后将该受限合同提升为 release gate。
 4. 为四类升级/回滚模板的 Python dependency bootstrap 增加五次退避重试。重试仅发生在业务模块启动前。

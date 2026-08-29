@@ -14,7 +14,7 @@ helm_values:
     enabled: true
     image:
       repository: harbor.milvus.io/milvusdb/woodpecker
-      tag: v0.1.38
+      tag: v0.1.38@sha256:bdea08758377fea309c18087334c63d20e26ba0940a4d63369bf7794f5f2060e
       pullPolicy: Always
     nodeSelector:
       kubernetes.io/arch: amd64

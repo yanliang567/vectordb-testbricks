@@ -58,7 +58,7 @@ python3 -m pytest milvus_client/tests/test_schema_manifest.py -q
 
 **步骤 1：写失败测试**
 
-- 验证新 profile 使用 `harbor.milvus.io/milvusdb/woodpecker:v0.1.38`。
+- 验证新 profile 使用 `harbor.milvus.io/milvusdb/woodpecker:v0.1.38@sha256:bdea08758377fea309c18087334c63d20e26ba0940a4d63369bf7794f5f2060e`，避免 release tag 被覆盖后改变 gate 输入。
 - 验证 topology、Helm chart 和依赖配置与现有 Woodpecker 1CU profile 一致。
 
 **步骤 2：创建版本化 profile**

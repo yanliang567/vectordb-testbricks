@@ -87,6 +87,21 @@ def _image_is_digest_pinned(image: str) -> bool:
     return DIGEST_PINNED_IMAGE.search(image) is not None
 
 
+def _explicit_profile_images(
+    value: Any, path: tuple[str, ...] = ()
+) -> list[tuple[str, str]]:
+    images: list[tuple[str, str]] = []
+    if not isinstance(value, dict):
+        return images
+    repository = value.get("repository")
+    tag = value.get("tag")
+    if isinstance(repository, str) and isinstance(tag, str):
+        images.append((".".join(path), f"{repository}:{tag}"))
+    for key, child in value.items():
+        images.extend(_explicit_profile_images(child, (*path, str(key))))
+    return images
+
+
 def _qualification_evidence_is_stable(value: Any) -> bool:
     return (
         isinstance(value, str)
@@ -1081,6 +1096,19 @@ def _validate_scenario_execution_mode(scenario: dict[str, Any]) -> None:
             f"{scenario_id}: mode {scenario_mode} does not match deploy profile "
             f"{profile_path} mode {profile_mode}"
         )
+    if scenario.get("classification") == "gate":
+        mutable_dependency_images = [
+            f"{path}={image}"
+            for path, image in _explicit_profile_images(
+                profile.get("helm_values", {}), ("helm_values",)
+            )
+            if not _image_is_digest_pinned(image)
+        ]
+        if mutable_dependency_images:
+            raise ValueError(
+                f"{scenario_id}: release gate deploy profile dependency image must be "
+                "digest-pinned: " + ", ".join(mutable_dependency_images)
+            )
 
     min_replicas = (scenario.get("topology_requirements") or {}).get(
         "min_replicas"
