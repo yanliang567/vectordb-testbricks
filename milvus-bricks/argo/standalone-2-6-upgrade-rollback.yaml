@@ -1668,7 +1668,7 @@ spec:
             PY
             kubectl -n {{workflow.parameters.milvus-namespace}} patch mi {{workflow.name}} --type merge --patch-file /tmp/milvus-patch.json
             if [ "$recycle_same_image" = "true" ]; then
-              kubectl -n {{workflow.parameters.milvus-namespace}} delete pods -l "$milvus_selector" --wait=true
+              kubectl -n {{workflow.parameters.milvus-namespace}} delete pods -l "$milvus_selector" --wait=false
               for i in $(seq 1 120); do
                 new_uid="$(kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l "$milvus_selector" -o jsonpath='{.items[0].metadata.uid}' 2>/dev/null || true)"
                 if [ -n "$new_uid" ] && ! grep -Fxq "$new_uid" /tmp/old-milvus-pod-uids; then
@@ -1738,7 +1738,7 @@ spec:
             kubectl -n {{workflow.parameters.milvus-namespace}} patch mi {{workflow.name}} --type merge --patch-file /tmp/milvus-config-patch.json
             milvus_selector='app.kubernetes.io/instance={{workflow.name}},app.kubernetes.io/name=milvus,app.kubernetes.io/managed-by=milvus-operator'
             kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l "$milvus_selector" -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' > /tmp/old-milvus-pod-uids
-            kubectl -n {{workflow.parameters.milvus-namespace}} delete pods -l "$milvus_selector" --wait=true
+            kubectl -n {{workflow.parameters.milvus-namespace}} delete pods -l "$milvus_selector" --wait=false
             for i in $(seq 1 120); do
               new_uid="$(kubectl -n {{workflow.parameters.milvus-namespace}} get pods -l "$milvus_selector" -o jsonpath='{.items[0].metadata.uid}' 2>/dev/null || true)"
               if [ -n "$new_uid" ] && ! grep -Fxq "$new_uid" /tmp/old-milvus-pod-uids; then

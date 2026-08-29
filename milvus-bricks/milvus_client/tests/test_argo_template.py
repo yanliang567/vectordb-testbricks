@@ -3475,7 +3475,8 @@ def test_standalone_templates_recycle_pods_for_same_image_config_rollouts(filena
         'if [ "$current_image" = "{{inputs.parameters.image}}" ]; then' in image_patch
     )
     assert 'if [ "$recycle_same_image" = "true" ]; then' in image_patch
-    assert 'delete pods -l "$milvus_selector" --wait=true' in image_patch
+    assert 'delete pods -l "$milvus_selector" --wait=false' in image_patch
+    assert 'delete pods -l "$milvus_selector" --wait=true' not in image_patch
     assert 'grep -Fxq "$new_uid" /tmp/old-milvus-pod-uids' in image_patch
     assert 'wait --for=condition=Ready pod -l "$milvus_selector"' in image_patch
     assert image_patch.index("patch mi {{workflow.name}}") < image_patch.index(
@@ -3483,7 +3484,8 @@ def test_standalone_templates_recycle_pods_for_same_image_config_rollouts(filena
     )
 
     assert selector in config_patch
-    assert 'delete pods -l "$milvus_selector" --wait=true' in config_patch
+    assert 'delete pods -l "$milvus_selector" --wait=false' in config_patch
+    assert 'delete pods -l "$milvus_selector" --wait=true' not in config_patch
     assert 'grep -Fxq "$new_uid" /tmp/old-milvus-pod-uids' in config_patch
     assert 'wait --for=condition=Ready pod -l "$milvus_selector"' in config_patch
     assert config_patch.index("patch mi {{workflow.name}}") < config_patch.index(
