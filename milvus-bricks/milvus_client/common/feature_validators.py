@@ -45,6 +45,7 @@ FEATURE_VALIDATORS = {
     "entity_ttl",
     "index_engine_version",
 }
+TEXT_MATCH_ABSENT_TOKEN = "zzzzqvnotpresenttokenzzzz"
 
 
 def known_validator_names() -> set[str]:
@@ -783,9 +784,7 @@ def validate_text_match_phrase_match(
                 )
                 continue
             _record_pass(report, collection, "text_match_phrase_match")
-        negative_filter = (
-            f"TEXT_MATCH({field.name}, 'definitely_absent_upgrade_gate_token')"
-        )
+        negative_filter = f"TEXT_MATCH({field.name}, '{TEXT_MATCH_ABSENT_TOKEN}')"
         try:
             negative_count = query_count(
                 client,

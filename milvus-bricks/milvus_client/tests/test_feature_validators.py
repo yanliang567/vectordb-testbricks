@@ -577,8 +577,10 @@ def test_text_feature_validator_accepts_complete_count_and_valid_samples():
         def query(self, **kwargs):
             filter_expr = kwargs["filter"]
             if kwargs["output_fields"] == ["count(*)"]:
-                if "definitely_absent" in filter_expr:
+                if "zzzzqvnotpresenttokenzzzz" in filter_expr:
                     return [{"count(*)": 0}]
+                if "definitely_absent_upgrade_gate_token" in filter_expr:
+                    return [{"count(*)": 3}]
                 return [{"count(*)": 3 if "PHRASE_MATCH" in filter_expr else 4}]
             sample_pks = (7, 8, 9) if "PHRASE_MATCH" in filter_expr else (2, 7, 8, 9)
             return [
