@@ -3476,16 +3476,17 @@ def test_standalone_templates_recycle_pods_for_same_image_config_rollouts(filena
     )
     assert 'if [ "$recycle_same_image" = "true" ]; then' in image_patch
     assert (
-        '--request-timeout=5s get pods -l "$milvus_selector" -o jsonpath='
-        in image_patch
+        "timeout 5s kubectl -n {{workflow.parameters.milvus-namespace}}" in image_patch
     )
-    assert (
-        '--request-timeout=5s delete pods -l "$milvus_selector" --wait=false'
-        in image_patch
-    )
+    assert 'get pods -l "$milvus_selector" -o jsonpath=' in image_patch
+    assert 'delete pods -l "$milvus_selector" --wait=false' in image_patch
+    assert "--request-timeout" not in image_patch
     assert 'delete pods -l "$milvus_selector" --wait=true' not in image_patch
     assert "rollout_deadline_epoch=$(( $(date +%s) + 600 ))" in image_patch
-    assert '--request-timeout=5s get pods -l "$milvus_selector" -o json' in image_patch
+    assert (
+        "timeout 5s kubectl -n {{workflow.parameters.milvus-namespace}} get pods"
+        in image_patch
+    )
     assert 'condition.get("type") == "Ready"' in image_patch
     assert 'condition.get("status") == "True"' in image_patch
     assert 'wait --for=condition=Ready pod -l "$milvus_selector"' not in image_patch
@@ -3496,16 +3497,17 @@ def test_standalone_templates_recycle_pods_for_same_image_config_rollouts(filena
 
     assert selector in config_patch
     assert (
-        '--request-timeout=5s get pods -l "$milvus_selector" -o jsonpath='
-        in config_patch
+        "timeout 5s kubectl -n {{workflow.parameters.milvus-namespace}}" in config_patch
     )
-    assert (
-        '--request-timeout=5s delete pods -l "$milvus_selector" --wait=false'
-        in config_patch
-    )
+    assert 'get pods -l "$milvus_selector" -o jsonpath=' in config_patch
+    assert 'delete pods -l "$milvus_selector" --wait=false' in config_patch
+    assert "--request-timeout" not in config_patch
     assert 'delete pods -l "$milvus_selector" --wait=true' not in config_patch
     assert "rollout_deadline_epoch=$(( $(date +%s) + 600 ))" in config_patch
-    assert '--request-timeout=5s get pods -l "$milvus_selector" -o json' in config_patch
+    assert (
+        "timeout 5s kubectl -n {{workflow.parameters.milvus-namespace}} get pods"
+        in config_patch
+    )
     assert 'condition.get("type") == "Ready"' in config_patch
     assert 'condition.get("status") == "True"' in config_patch
     assert 'wait --for=condition=Ready pod -l "$milvus_selector"' not in config_patch
