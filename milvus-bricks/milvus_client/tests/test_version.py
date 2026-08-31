@@ -90,6 +90,7 @@ def test_image_is_immutable_treats_digest_pinned_images_as_immutable():
         "harbor.milvus.io/milvusdb/milvus:3.0-20260817-beb93ec2",
         "harbor.milvus.io/milvusdb/milvus:3.0-20260805-ad3ba1ea-amd64",
         "harbor.milvus.io/milvusdb/milvus:3.0-20260817-beb93ec2@sha256:" + "b" * 64,
+        "harbor.milvus.io/manta/milvus:3.0-20260831-b746822@sha256:" + "c" * 64,
     ],
 )
 def test_is_daily_build_image_matches_daily_build_tags(image):
@@ -102,6 +103,7 @@ def test_is_daily_build_image_matches_daily_build_tags(image):
         "harbor.milvus.io/milvusdb/milvus:v3.0.0",
         "harbor.milvus.io/milvusdb/milvus:3.0-latest-placeholder",
         "harbor.milvus.io/milvusdb/milvus:master-latest",
+        "harbor.milvus.io/manta/milvus:3.0-20260831-b74682",
     ],
 )
 def test_is_daily_build_image_rejects_release_and_mutable_tags(image):
