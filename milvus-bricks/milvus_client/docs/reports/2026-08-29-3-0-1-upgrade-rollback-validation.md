@@ -16,8 +16,8 @@
 
 - 测试时段：2026-08-29，Asia/Shanghai；最后一个 Workflow 于 19:05:39 结束
 - 初始代码基线：`origin/main@df4b74257130884d480385b3ef2760dfa9a76ad0`
-- 最终 E2E revision：`8400590bc20df4754fdf7237155d549654acb4fb`
-- post-E2E review 功能修复 revision：`25582ec932d6d51b8e7be33b79f9a2a6cbd13a2b`；该 revision 完成单测、Ruff、Argo lint 和 shell syntax 验证，但未重跑完整 20 条业务 Workflow 矩阵
+- 完整 20-gate 业务矩阵最终 E2E revision：`8400590bc20df4754fdf7237155d549654acb4fb`
+- 最终 post-E2E 功能 revision：`a2be2665f23d4c657587d07cf61317103a8cc34b`；从 `8400590` 到该 revision 的证据边界在“测试框架问题与已实现修复”和“post-E2E 当前 head 代表性实集群验证”中逐项记录；不宣称完整 20 条业务 Workflow 已在该 revision 上重跑
 - 3.0/3.0.1 candidate：`harbor.milvus.io/milvusdb/milvus:3.0-20260829-257a535b@sha256:d3a0d1d64368139ab59a28989392bcffdefaaa0f724596b870ed7c0b16d15c20`
 - 2.6 latest rollback：`harbor.milvus.io/milvusdb/milvus:2.6-20260829-3b859656@sha256:989e085e45c44f513387f361c0c6b326a434a0828964798a459728460ebe04b6`
 - 2.6.18 baseline：`harbor.milvus.io/milvusdb/milvus:v2.6.18@sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6`
@@ -111,8 +111,22 @@
 | `b946b5e` | schema evolution flush/load 和 phase best-effort load 仍可能无界等待 | 增加客户端 timeout 且禁止无 timeout fallback；post-E2E 静态验证 |
 | `282ad18` | standalone RBAC 缺少 Pod delete、Ready 轮询聚合上界接近 30 分钟、新集合 load 超时后立即验证可能假失败 | 增加最小 `pods/delete` 权限；用统一 600 秒 wall-clock deadline 和非阻塞 Ready 查询；新集合复用有界 visibility retry；完整回归 628 passed |
 | `25582ec` | standalone Pod recycle 的旧 UID snapshot 和异步 delete 请求仍可能因 apiserver/网络异常无界等待 | 两个 standalone 模板的 image/config 四条路径均增加 `--request-timeout=5s`，并补充回归断言；完整回归 628 passed |
+| `cd3b126` | milvus-dev-cli 标准 7 位 short-SHA 日构建 tag 被候选版本解析器误拒绝 | 接受标准 short-SHA candidate tag，保留版本下限断言；完整回归 631 passed |
+| `ca321c3` | `fouram:2.1` 内 kubectl 使用 `--request-timeout=5s` 时会丢失 in-cluster 配置并回退到 `localhost:8080` | 两个 standalone 模板的 image/config 四条路径改用外层 `/usr/bin/timeout 5s kubectl ...`，保留非阻塞 delete 和 600 秒收敛上界；完整回归 631 passed |
+| `a2be266` | visibility retry 只在 validator 返回后检查 120 秒 deadline，count/PK/upsert/deleted-PK query 未设 PyMilvus timeout，单次 RPC 卡住可绕过总上界 | `_wait_for_validation` 向 existing/new callback 传入剩余 RPC 预算，每个 query 前重新计算并透传 `timeout`；sleep 也限制在剩余预算内；新增 existing/new 两条路径和 common validator 回归，完整回归 635 passed |
 
-截至 `8400590` 的测试框架修复都从固定 SHA 推送后完成业务 Workflow 重跑；旧 SHA 卡住的临时 workflow 被显式 terminate，不计为产品结果。`240fff3`、`b946b5e`、`282ad18` 和 `25582ec` 是最终业务矩阵之后的 review 修复，本报告不声称 20 条 Workflow 已在这些 revision 上重跑；它们的证据范围是定向回归、完整 pytest、Ruff、Argo lint 和 shell syntax。后续如果把当前 PR head 应用到 live WorkflowTemplate，应先做一条 same-image standalone config rollout 和一条 phase DML/DQL 新集合路径的代表性 E2E。
+截至 `8400590` 的测试框架修复都从固定 SHA 推送后完成业务 Workflow 重跑；旧 SHA 卡住的临时 workflow 被显式 terminate，不计为产品结果。`240fff3`、`b946b5e`、`282ad18`、`25582ec`、`cd3b126`、`ca321c3` 和 `a2be266` 是最终 20-gate 业务矩阵之后的 review 修复，本报告不声称 20 条 Workflow 已在这些 revision 上重跑。它们的基础证据范围是定向回归、完整 pytest、CI 范围 Ruff、Argo lint 和 shell syntax；当前 head 的代表性 live E2E 另见下节，不外推为全矩阵证据。
+
+### post-E2E 当前 head 代表性实集群验证
+
+2026-09-01 使用功能 revision `a2be2665f23d4c657587d07cf61317103a8cc34b` 在 4am 提交一条隔离的 current-head standalone E2E：[Workflow `pr46-a2be-st-lhz5v`](https://argo-workflows.zilliz.cc/workflows/qa/pr46-a2be-st-lhz5v)，场景为 `standalone-3-0-1-vortex-disable-rollback`。运行由隔离 WorkflowTemplate `milvus-standalone-3-0-upgrade-rollback-pr46-a2be266` 启动，没有覆盖共享 WorkflowTemplate。base、target 和 rollback 都使用本报告固定的同一 `3.0.1` `tag@digest`；target 打开 LoonFFI/Vortex，rollback 关闭两者，所有阶段使用 `debug` 日志，`keep-milvus=false`。
+
+- 终态：`Succeeded 63/63`，2026-09-01 11:09:25Z 到 12:14:27Z，共 3902 秒；`gate-final-status` 通过，无 Failed/Error 节点。这只是当前 head 的代表性 standalone 证据，不代表 20 条业务矩阵重跑。
+- same-image Pod recycle：`patch-upgrade` 14 秒、`patch-rollback` 23 秒。两次日志都显示外层 `timeout 5s kubectl get`、`timeout 5s kubectl delete --wait=false` 执行，并分别收敛到新 Ready UID `668ac403-3b71-49d9-a245-725be735461e` 和 `e86a6a72-ff3e-41ac-88a2-1830b9678295`。
+- upgrade phase DML/DQL：JSON 结果 `passed`，无 failure；11 个 existing + 11 个 new collection，22 个 reload 零失败，66 次 search、88 次 scalar-index query。`scalar_autoindex_formats_rollback_safe` existing visibility 实际用了 2 次 attempt 后收敛，证明新的有界 retry 不只是单测覆盖。
+- rollback phase DML/DQL：JSON 结果 `passed`，无 failure；11 个 existing + 11 个 new + 11 个 carried collection，upgrade phase checkpoint 验证通过，33 个 reload 零失败，99 次 search、132 次 scalar-index query。
+- 服务可用性与压力：upgrade/rollback/forward rollback serviceability 都在首次 attempt 通过；228 个 pressure sample 中 209 个直接通过，19 个失败都落在声明的 rollout/reload maintenance window 并按合同排除，最终无 gated failure/warning。steady state 共 977106/977106 次操作成功；upgrade rollout 有 4 次 delete 短暂失败，rollback rollout 有 4 次 query 短暂失败，与当前接受升级/回滚 maintenance window 内短暂不可用的合同一致，在此显式记录而不隐藏。
+- 清理：onExit 完成后 Milvus CR 和依赖均不存在。已额外精确删除卡住 `pvc-protection` 的 63 个已结束 Workflow Pod、2Gi checkpoint PVC 和隔离 WorkflowTemplate；`qa`/`qa-milvus` 中按 Workflow 名称、label 和前缀复核无残留。Argo Workflow 对象、节点状态和 S3 artifacts 保留。
 
 ### QA 控制面无效轮次
 
@@ -137,7 +151,7 @@
 
 ## 静态验证
 
-- `PYTHONPATH=. python3 -m pytest milvus_client/tests -q`：`628 passed in 53.12s`（post-E2E review 功能 revision `25582ec`）
+- `PYTHONPATH=. python3 -m pytest milvus_client/tests -q`：`635 passed in 50.97s`（post-E2E review 功能 revision `a2be266`）
 - 修改文件 Ruff check：通过
 - 修改文件 Ruff format check：通过
 - `git diff --check`：通过
