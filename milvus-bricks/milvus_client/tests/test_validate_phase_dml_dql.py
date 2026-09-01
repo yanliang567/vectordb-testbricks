@@ -703,6 +703,63 @@ def test_new_phase_retries_visibility_after_best_effort_load_timeout():
     assert metrics["reload_succeeded"]
 
 
+def _query_calls_before_first_search(client):
+    first_search = next(
+        index for index, call in enumerate(client.calls) if call[0] == "search"
+    )
+    return [payload for name, payload in client.calls[:first_search] if name == "query"]
+
+
+def test_existing_phase_visibility_queries_use_remaining_rpc_deadline():
+    client = PhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        _dense_spec(),
+        "qa_dense",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=5,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    visibility_queries = _query_calls_before_first_search(client)
+    assert report.passed
+    assert metrics["visibility_attempts"] == 1
+    assert len(visibility_queries) == 5
+    assert all(0 < call["timeout"] <= 5 for call in visibility_queries)
+
+
+def test_new_phase_visibility_queries_use_remaining_rpc_deadline():
+    client = PhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_new_collection_dml_dql(
+        client,
+        _dense_spec(),
+        "qa_after_upgrade_dense",
+        rows=4,
+        batch_size=2,
+        start_id=60_000_000,
+        seed=24,
+        drop_if_exists=False,
+        report=report,
+        visibility_timeout_sec=5,
+        visibility_interval_sec=0,
+    )
+
+    visibility_queries = _query_calls_before_first_search(client)
+    assert report.passed
+    assert metrics["visibility_attempts"] == 1
+    assert len(visibility_queries) == 3
+    assert all(0 < call["timeout"] <= 5 for call in visibility_queries)
+
+
 def test_existing_phase_reload_revalidates_vector_search():
     client = CorruptAfterReloadPhaseClient(corrupt_vector=True)
     report = ValidationReport()
@@ -1002,13 +1059,14 @@ def test_phase_bm25_search_requires_observable_score():
 def test_wait_for_validation_retries_until_dml_becomes_visible(monkeypatch):
     attempts = 0
 
-    def validate(report):
+    def validate(report, rpc_timeout):
         nonlocal attempts
+        assert rpc_timeout() > 0
         attempts += 1
         if attempts < 2:
             report.fail("COUNT_DRIFT", "DML is not visible yet")
 
-    times = iter([0.0, 0.1])
+    times = iter([0.0, 0.1, 0.2, 0.3, 0.4])
     monkeypatch.setattr(validate_phase_dml_dql, "monotonic", lambda: next(times))
     monkeypatch.setattr(validate_phase_dml_dql, "sleep", lambda _: None)
 

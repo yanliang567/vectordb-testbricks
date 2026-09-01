@@ -20,9 +20,24 @@ class FakeMilvusClient:
         self.rows = rows
         self.query_calls = []
 
-    def query(self, collection_name, filter="", output_fields=None, limit=None, offset=0):
+    def query(
+        self,
+        collection_name,
+        filter="",
+        output_fields=None,
+        limit=None,
+        offset=0,
+        timeout=None,
+    ):
         del collection_name
-        self.query_calls.append({"filter": filter, "limit": limit, "offset": offset})
+        self.query_calls.append(
+            {
+                "filter": filter,
+                "limit": limit,
+                "offset": offset,
+                "timeout": timeout,
+            }
+        )
         matched = self._match_filter(filter)
         if output_fields == ["count(*)"]:
             return [{"count(*)": len(matched)}]
@@ -75,7 +90,9 @@ def test_checkpoint_count_ignores_pressure_rows_outside_pk_range():
 
 
 def test_checkpoint_count_reports_baseline_drift():
-    client = FakeMilvusClient([{"id": 0, "category": 0}, {"id": 10_000_000, "category": 99}])
+    client = FakeMilvusClient(
+        [{"id": 0, "category": 0}, {"id": 10_000_000, "category": 99}]
+    )
     report = ValidationReport()
 
     validate_collection_count(
@@ -90,6 +107,24 @@ def test_checkpoint_count_reports_baseline_drift():
     assert not report.passed
     assert report.failures[0]["type"] == COUNT_DRIFT
     assert report.failures[0]["actual"] == 1
+
+
+def test_validate_collection_count_forwards_query_timeout():
+    client = FakeMilvusClient([{"id": 0, "category": 0}])
+    report = ValidationReport()
+
+    validate_collection_count(
+        client,
+        "qa_dense",
+        1,
+        report,
+        timeout=7.5,
+    )
+
+    assert report.passed
+    assert client.query_calls == [
+        {"filter": "", "limit": None, "offset": 0, "timeout": 7.5}
+    ]
 
 
 def test_scalar_checksum_queries_checkpoint_rows():
@@ -118,7 +153,10 @@ def test_scalar_checksum_queries_checkpoint_rows():
     assert report.passed
     assert report.metrics["qa_dense.checksum_rows"] == 3
     assert [call["offset"] for call in client.query_calls] == [0, 0]
-    assert [call["filter"] for call in client.query_calls] == ["id >= 0 && id <= 1", "id >= 2 && id <= 2"]
+    assert [call["filter"] for call in client.query_calls] == [
+        "id >= 0 && id <= 1",
+        "id >= 2 && id <= 2",
+    ]
 
 
 def test_scalar_checksum_reports_mismatch():
@@ -150,6 +188,24 @@ def test_validate_pk_samples_quotes_string_primary_keys():
     assert client.query_calls[0]["filter"] == 'pk == "pk_00000000000000000007"'
 
 
+def test_validate_pk_samples_refreshes_query_timeout_for_each_rpc():
+    client = FakeMilvusClient([{"id": 1}, {"id": 2}])
+    report = ValidationReport()
+    timeouts = iter([7.5, 6.25])
+
+    validate_pk_samples(
+        client,
+        "qa_dense",
+        "id",
+        [1, 2],
+        report,
+        timeout=lambda: next(timeouts),
+    )
+
+    assert report.passed
+    assert [call["timeout"] for call in client.query_calls] == [7.5, 6.25]
+
+
 def test_query_rows_by_pk_range_formats_generated_string_primary_keys():
     class CapturingClient:
         def __init__(self):
@@ -173,7 +229,10 @@ def test_query_rows_by_pk_range_formats_generated_string_primary_keys():
     )
 
     assert rows == [{"pk": "pk_00000000000000000007"}]
-    assert client.query_calls[0]["filter"] == 'pk >= "pk_00000000000000000007" && pk <= "pk_00000000000000000008"'
+    assert (
+        client.query_calls[0]["filter"]
+        == 'pk >= "pk_00000000000000000007" && pk <= "pk_00000000000000000008"'
+    )
 
 
 def test_transient_serviceability_failure_classifies_channel_unavailable_errors():
@@ -189,4 +248,6 @@ def test_transient_serviceability_failure_classifies_channel_unavailable_errors(
             "error": "lag(10m7.228s) max(3s): channel tsafe stalled[channel=dml_0]",
         }
     )
-    assert not is_transient_serviceability_failure({"type": COUNT_DRIFT, "error": "channel not available"})
+    assert not is_transient_serviceability_failure(
+        {"type": COUNT_DRIFT, "error": "channel not available"}
+    )
