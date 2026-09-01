@@ -143,6 +143,67 @@ def test_bm25_function_output_search_uses_text_query():
     assert client.search_calls[0]["search_params"]["metric_type"] == "BM25"
 
 
+def test_bm25_function_output_search_skips_null_and_empty_input_probes():
+    spec = SchemaSpec(
+        name="nullable_bm25",
+        version="3.0",
+        fields=[
+            FieldSpec(name="id", dtype="INT64", primary=True),
+            FieldSpec(
+                name="text",
+                dtype="TEXT",
+                nullable=True,
+                value_profile="text_lob_boundary",
+            ),
+            FieldSpec(name="sparse_bm25", dtype="SPARSE_FLOAT_VECTOR"),
+        ],
+        functions=[
+            FunctionSpec(
+                name="text_bm25",
+                function_type="BM25",
+                input_fields=["text"],
+                output_fields=["sparse_bm25"],
+            )
+        ],
+        indexes=[
+            IndexSpec(
+                field="sparse_bm25",
+                index_type="SPARSE_INVERTED_INDEX",
+                metric_type="BM25",
+            )
+        ],
+    )
+
+    class SearchClient:
+        def __init__(self):
+            self.search_calls = []
+
+        def search(self, **kwargs):
+            self.search_calls.append(kwargs)
+            return [[{"id": 2}]]
+
+    client = SearchClient()
+
+    op, count = run_operation(
+        client,
+        spec,
+        "qa_nullable_bm25",
+        "search",
+        7,
+        10,
+        0,
+        baseline_start_id=0,
+        baseline_rows_per_collection=10,
+    )
+
+    assert op == "search"
+    assert count == 1
+    assert client.search_calls[0]["data"] == [
+        "Milvus Unicode compatibility: 中文 日本語 한국어"
+    ]
+    assert client.search_calls[0]["filter"] == "id == 2"
+
+
 def test_minhash_function_output_search_uses_text_query():
     spec = SchemaSpec(
         name="minhash",

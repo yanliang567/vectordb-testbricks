@@ -48,9 +48,8 @@ def is_transient_serviceability_error(error: str) -> bool:
 
 
 def is_transient_serviceability_failure(failure: dict[str, Any]) -> bool:
-    return (
-        failure.get("type") == QUERY_FAILED
-        and is_transient_serviceability_error(str(failure.get("error", "")))
+    return failure.get("type") == QUERY_FAILED and is_transient_serviceability_error(
+        str(failure.get("error", ""))
     )
 
 
@@ -58,8 +57,24 @@ def pk_range_filter(primary_field: str, min_pk: Any, max_pk: Any) -> str:
     return f"{primary_field} >= {format_filter_value(min_pk)} && {primary_field} <= {format_filter_value(max_pk)}"
 
 
-def query_count(client: Any, collection_name: str, filter_expr: str = "") -> int:
-    result = client.query(collection_name=collection_name, filter=filter_expr, output_fields=["count(*)"])
+def query_count(
+    client: Any,
+    collection_name: str,
+    filter_expr: str = "",
+    consistency_level: str | None = None,
+    timeout: float | None = None,
+) -> int:
+    query_kwargs = {}
+    if consistency_level is not None:
+        query_kwargs["consistency_level"] = consistency_level
+    if timeout is not None:
+        query_kwargs["timeout"] = timeout
+    result = client.query(
+        collection_name=collection_name,
+        filter=filter_expr,
+        output_fields=["count(*)"],
+        **query_kwargs,
+    )
     if not result:
         return 0
     return int(result[0].get("count(*)", 0))
@@ -72,11 +87,23 @@ def validate_collection_count(
     report: ValidationReport,
     filter_expr: str = "",
     metric_suffix: str = "count",
+    timeout: float | Callable[[], float] | None = None,
 ) -> None:
     try:
-        actual_count = query_count(client, collection_name, filter_expr=filter_expr)
+        query_timeout = timeout() if callable(timeout) else timeout
+        actual_count = query_count(
+            client,
+            collection_name,
+            filter_expr=filter_expr,
+            timeout=query_timeout,
+        )
     except Exception as exc:
-        report.fail(QUERY_FAILED, "count query failed", collection=collection_name, error=str(exc))
+        report.fail(
+            QUERY_FAILED,
+            "count query failed",
+            collection=collection_name,
+            error=str(exc),
+        )
         return
     report.metrics[f"{collection_name}.{metric_suffix}"] = actual_count
     if actual_count != expected_count:
@@ -96,20 +123,37 @@ def validate_pk_samples(
     primary_field: str,
     sample_pks: list[Any],
     report: ValidationReport,
+    timeout: float | Callable[[], float] | None = None,
 ) -> None:
     for pk in sample_pks:
         try:
+            query_timeout = timeout() if callable(timeout) else timeout
+            query_kwargs = {}
+            if query_timeout is not None:
+                query_kwargs["timeout"] = query_timeout
             rows = client.query(
                 collection_name=collection_name,
                 filter=f"{primary_field} == {format_filter_value(pk)}",
                 output_fields=[primary_field],
                 limit=1,
+                **query_kwargs,
             )
         except Exception as exc:
-            report.fail(QUERY_FAILED, "pk query failed", collection=collection_name, pk=pk, error=str(exc))
+            report.fail(
+                QUERY_FAILED,
+                "pk query failed",
+                collection=collection_name,
+                pk=pk,
+                error=str(exc),
+            )
             continue
         if not rows:
-            report.fail(MISSING_PK, "expected primary key is missing", collection=collection_name, pk=pk)
+            report.fail(
+                MISSING_PK,
+                "expected primary key is missing",
+                collection=collection_name,
+                pk=pk,
+            )
 
 
 def query_rows_by_pk_range(
@@ -132,7 +176,9 @@ def query_rows_by_pk_range(
         end_pk = min(start_pk + batch_size - 1, max_pk)
         batch = client.query(
             collection_name=collection_name,
-            filter=pk_range_filter(primary_field, pk_value_fn(start_pk), pk_value_fn(end_pk)),
+            filter=pk_range_filter(
+                primary_field, pk_value_fn(start_pk), pk_value_fn(end_pk)
+            ),
             output_fields=output_fields,
             limit=batch_size,
         )
@@ -201,10 +247,17 @@ def validate_scalar_checksum(
                 pk_value_fn=pk_value_fn,
             )
     except Exception as exc:
-        report.fail(QUERY_FAILED, "checksum query failed", collection=collection_name, error=str(exc))
+        report.fail(
+            QUERY_FAILED,
+            "checksum query failed",
+            collection=collection_name,
+            error=str(exc),
+        )
         return
 
-    actual_checksum = stable_checksum(rows, fields=checksum_fields, primary_field=primary_field)
+    actual_checksum = stable_checksum(
+        rows, fields=checksum_fields, primary_field=primary_field
+    )
     report.metrics[f"{collection_name}.checksum_rows"] = len(rows)
     report.metrics[f"{collection_name}.checksum"] = actual_checksum
     if actual_checksum != expected_checksum:

@@ -5,6 +5,7 @@ import json
 import math
 import sys
 from time import monotonic, sleep
+from collections.abc import Callable
 from typing import Any
 
 from milvus_client.common.args import build_common_parser, parse_bool
@@ -73,6 +74,9 @@ PHASE_CHECKPOINT_TARGET_ONLY_COLLECTION_PRESENT = (
 CHECKPOINT_NOT_FOUND = "CHECKPOINT_NOT_FOUND"
 PHASE_CHECKPOINT_NOT_FOUND = "PHASE_CHECKPOINT_NOT_FOUND"
 DEFAULT_RELOAD_TIMEOUT_SEC = 120.0
+DEFAULT_FLUSH_TIMEOUT_SEC = 10.0
+DEFAULT_LOAD_TIMEOUT_SEC = 10.0
+MIN_VISIBILITY_RPC_TIMEOUT_SEC = 0.001
 _EXPECTED_PK_UNSET = object()
 
 
@@ -243,12 +247,33 @@ def _call_best_effort(method: Any, *args, **kwargs) -> str:
 
 
 def _flush_and_load_best_effort(client: Any, target_collection: str) -> dict[str, str]:
+    flush = getattr(client, "flush", None)
+    if flush is None:
+        flush_result = "not_available"
+    else:
+        try:
+            flush(target_collection, timeout=DEFAULT_FLUSH_TIMEOUT_SEC)
+            flush_result = "done"
+        except Exception as exc:
+            # Continuous pressure can keep a collection growing indefinitely. A
+            # best-effort flush must therefore have a hard client-side deadline;
+            # visibility and reload checks below remain the actual assertions.
+            flush_result = f"failed: {exc}"
+    load = getattr(client, "load_collection", None)
+    if load is None:
+        load_result = "not_available"
+    else:
+        try:
+            load(target_collection, timeout=DEFAULT_LOAD_TIMEOUT_SEC)
+            load_result = "done"
+        except Exception as exc:
+            # PyMilvus waits for loading to reach 100%; timeout=None loops without
+            # a deadline. Keep this best-effort preparation bounded and let the
+            # visibility and strict reload validators determine pass/fail.
+            load_result = f"failed: {exc}"
     return {
-        "flush": _call_best_effort(getattr(client, "flush", None), target_collection),
-        "load": _call_best_effort(
-            getattr(client, "load_collection", None),
-            target_collection,
-        ),
+        "flush": flush_result,
+        "load": load_result,
     }
 
 
@@ -262,10 +287,22 @@ def _wait_for_validation(
     while True:
         attempts += 1
         current = ValidationReport()
-        validator(current)
-        if current.passed or monotonic() >= deadline:
+
+        def remaining_rpc_timeout() -> float:
+            remaining = deadline - monotonic()
+            if remaining > 0:
+                return remaining
+            if attempts == 1:
+                # Preserve the existing timeout=0 meaning of one immediate
+                # validation attempt, but keep every RPC in that attempt bounded.
+                return MIN_VISIBILITY_RPC_TIMEOUT_SEC
+            raise TimeoutError("visibility validation deadline exhausted")
+
+        validator(current, remaining_rpc_timeout)
+        remaining = deadline - monotonic()
+        if current.passed or remaining <= 0:
             return current, attempts
-        sleep(max(0.0, interval_sec))
+        sleep(min(max(0.0, interval_sec), remaining))
 
 
 def _create_new_collection(
@@ -330,6 +367,7 @@ def _validate_deleted_pk_values(
     primary_name: str,
     pk_values: list[Any],
     report: ValidationReport,
+    rpc_timeout: Callable[[], float] | None = None,
 ) -> None:
     if not pk_values:
         return
@@ -342,6 +380,7 @@ def _validate_deleted_pk_values(
                 primary_name,
                 batch,
                 [primary_name],
+                timeout=rpc_timeout() if rpc_timeout is not None else None,
             )
         except Exception as exc:
             report.fail(
@@ -368,15 +407,20 @@ def _query_rows_by_pk_values(
     primary_name: str,
     pk_values: list[Any],
     output_fields: list[str],
+    timeout: float | None = None,
 ) -> list[dict[str, Any]]:
     if not pk_values:
         return []
     values = ", ".join(format_filter_value(value) for value in pk_values)
+    query_kwargs = {}
+    if timeout is not None:
+        query_kwargs["timeout"] = timeout
     return client.query(
         collection_name=target_collection,
         filter=f"{primary_name} in [{values}]",
         output_fields=output_fields,
         limit=len(pk_values),
+        **query_kwargs,
     )
 
 
@@ -386,6 +430,7 @@ def _validate_pk_values_present_strict(
     primary_name: str,
     pk_values: list[Any],
     report: ValidationReport,
+    rpc_timeout: Callable[[], float] | None = None,
 ) -> None:
     if not pk_values:
         return
@@ -399,6 +444,7 @@ def _validate_pk_values_present_strict(
                 primary_name,
                 batch,
                 [primary_name],
+                timeout=rpc_timeout() if rpc_timeout is not None else None,
             )
         except Exception as exc:
             report.fail(
@@ -770,6 +816,7 @@ def _validate_upserted_values(
     sample_offsets: list[int],
     seed: int,
     report: ValidationReport,
+    rpc_timeout: Callable[[], float] | None = None,
 ) -> None:
     validation_field = update_projection_field(spec)
     if validation_field is None:
@@ -787,11 +834,15 @@ def _validate_upserted_values(
     ]
     values = ", ".join(format_filter_value(value) for value in sample_values)
     try:
+        query_kwargs = {}
+        if rpc_timeout is not None:
+            query_kwargs["timeout"] = rpc_timeout()
         rows = client.query(
             collection_name=target_collection,
             filter=f"{primary_name} in [{values}]",
             output_fields=[primary_name, validation_field],
             limit=len(sample_values),
+            **query_kwargs,
         )
     except Exception as exc:
         report.fail(
@@ -1052,7 +1103,10 @@ def _run_existing_collection_dml_dql(
 
     validation_failures_before = len(report.failures)
 
-    def validate_visibility(current: ValidationReport) -> None:
+    def validate_visibility(
+        current: ValidationReport,
+        rpc_timeout: Callable[[], float],
+    ) -> None:
         if auto_id_enabled(spec):
             _validate_pk_values_present_strict(
                 client,
@@ -1060,6 +1114,7 @@ def _run_existing_collection_dml_dql(
                 primary_name,
                 metrics["remaining_values"],
                 current,
+                rpc_timeout=rpc_timeout,
             )
         else:
             validate_collection_count(
@@ -1073,6 +1128,7 @@ def _run_existing_collection_dml_dql(
                     metrics["remaining_max_pk"],
                 ),
                 metric_suffix="phase_existing_dml_count",
+                timeout=rpc_timeout,
             )
             validate_pk_samples(
                 client,
@@ -1080,6 +1136,7 @@ def _run_existing_collection_dml_dql(
                 primary_name,
                 metrics["remaining_values"],
                 current,
+                timeout=rpc_timeout,
             )
             _validate_upserted_values(
                 client,
@@ -1090,6 +1147,7 @@ def _run_existing_collection_dml_dql(
                 [metrics["deleted"], rows - 1],
                 seed,
                 current,
+                rpc_timeout=rpc_timeout,
             )
         _validate_deleted_pk_values(
             client,
@@ -1097,6 +1155,7 @@ def _run_existing_collection_dml_dql(
             primary_name,
             deleted_values,
             current,
+            rpc_timeout=rpc_timeout,
         )
 
     visibility_report, visibility_attempts = _wait_for_validation(
@@ -1192,6 +1251,8 @@ def _run_new_collection_dml_dql(
     drop_if_exists: bool,
     report: ValidationReport,
     *,
+    visibility_timeout_sec: int = 120,
+    visibility_interval_sec: float = 2.0,
     reload_timeout_sec: float = DEFAULT_RELOAD_TIMEOUT_SEC,
     reload_maintenance_label: str = "phase-dml-dql-reload",
     server_version: str | None = None,
@@ -1220,6 +1281,7 @@ def _run_new_collection_dml_dql(
         "search_probe_data_pk": None,
         "search_probe_pk": None,
         "search_probe_seed": None,
+        "visibility_attempts": 0,
     }
     inserted_ids: list[Any] = []
     try:
@@ -1252,40 +1314,69 @@ def _run_new_collection_dml_dql(
         )
         return metrics
 
-    validation_failures_before = len(report.failures)
     if auto_id_enabled(spec):
-        validate_collection_count(
-            client,
-            target_collection,
-            rows,
-            report,
-            metric_suffix="phase_new_collection_count",
-        )
-        _validate_pk_values_present_strict(
-            client, target_collection, primary_name, inserted_ids, report
-        )
         metrics["sample_values"] = list(inserted_ids[:3])
     else:
         min_pk = generate_primary_key_value(primary, start_id)
         max_pk = generate_primary_key_value(primary, start_id + rows - 1)
         metrics["min_pk"] = min_pk
         metrics["max_pk"] = max_pk
+        metrics["sample_values"] = [
+            generate_primary_key_value(primary, start_id),
+            generate_primary_key_value(primary, start_id + rows - 1),
+        ]
+
+    def validate_visibility(
+        current: ValidationReport,
+        rpc_timeout: Callable[[], float],
+    ) -> None:
         validate_collection_count(
             client,
             target_collection,
             rows,
-            report,
-            filter_expr=pk_range_filter(primary_name, min_pk, max_pk),
+            current,
+            filter_expr=(
+                ""
+                if auto_id_enabled(spec)
+                else pk_range_filter(
+                    primary_name,
+                    metrics["min_pk"],
+                    metrics["max_pk"],
+                )
+            ),
             metric_suffix="phase_new_collection_count",
+            timeout=rpc_timeout,
         )
-        sample_values = [
-            generate_primary_key_value(primary, start_id),
-            generate_primary_key_value(primary, start_id + rows - 1),
-        ]
-        metrics["sample_values"] = sample_values
-        validate_pk_samples(
-            client, target_collection, primary_name, sample_values, report
-        )
+        if auto_id_enabled(spec):
+            _validate_pk_values_present_strict(
+                client,
+                target_collection,
+                primary_name,
+                inserted_ids,
+                current,
+                rpc_timeout=rpc_timeout,
+            )
+        else:
+            validate_pk_samples(
+                client,
+                target_collection,
+                primary_name,
+                metrics["sample_values"],
+                current,
+                timeout=rpc_timeout,
+            )
+
+    validation_failures_before = len(report.failures)
+    visibility_report, visibility_attempts = _wait_for_validation(
+        validate_visibility,
+        visibility_timeout_sec,
+        visibility_interval_sec,
+    )
+    metrics["visibility_attempts"] = visibility_attempts
+    report.metrics.update(visibility_report.metrics)
+    if not visibility_report.passed:
+        report.passed = False
+        report.failures.extend(visibility_report.failures)
     if rows <= 0:
         return metrics
     search_probe_seed = seed
@@ -2576,6 +2667,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.seed + 17,
                 args.drop_new_collections_if_exist,
                 report,
+                visibility_timeout_sec=args.visibility_timeout_sec,
+                visibility_interval_sec=args.visibility_interval_sec,
                 reload_timeout_sec=args.reload_timeout_sec,
                 reload_maintenance_label=f"phase-dml-dql-reload-{args.phase}",
                 server_version=server_version,

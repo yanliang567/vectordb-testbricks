@@ -1,6 +1,8 @@
 import json
 import re
 
+import pytest
+
 from milvus_client.common.schema import (
     FieldSpec,
     FunctionSpec,
@@ -8,7 +10,79 @@ from milvus_client.common.schema import (
     SchemaSpec,
     StructArraySpec,
 )
+from milvus_client.requests import schema_evolution_workload
 from milvus_client.requests.schema_evolution_workload import run_schema_evolution
+
+
+def test_prepare_collection_for_read_uses_bounded_timeouts():
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def flush(self, *args, **kwargs):
+            self.calls.append(("flush", args, kwargs))
+
+        def load_collection(self, *args, **kwargs):
+            self.calls.append(("load_collection", args, kwargs))
+
+    client = Client()
+
+    schema_evolution_workload._prepare_collection_for_read(
+        client, "qa_schema", flush=True
+    )
+
+    assert client.calls == [
+        (
+            "flush",
+            (),
+            {
+                "collection_name": "qa_schema",
+                "timeout": schema_evolution_workload.DEFAULT_PREPARE_TIMEOUT_SEC,
+            },
+        ),
+        (
+            "load_collection",
+            (),
+            {
+                "collection_name": "qa_schema",
+                "timeout": schema_evolution_workload.DEFAULT_PREPARE_TIMEOUT_SEC,
+            },
+        ),
+    ]
+
+
+@pytest.mark.parametrize("flush", [True, False])
+def test_prepare_collection_for_read_does_not_fallback_to_unbounded_call(flush):
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def flush(self, *args, **kwargs):
+            self.calls.append(("flush", args, kwargs))
+            raise TypeError("unsupported timeout")
+
+        def load_collection(self, *args, **kwargs):
+            self.calls.append(("load_collection", args, kwargs))
+            raise TypeError("unsupported timeout")
+
+    client = Client()
+
+    with pytest.raises(TypeError, match="unsupported timeout"):
+        schema_evolution_workload._prepare_collection_for_read(
+            client, "qa_schema", flush=flush
+        )
+
+    expected_operation = "flush" if flush else "load_collection"
+    assert client.calls == [
+        (
+            expected_operation,
+            (),
+            {
+                "collection_name": "qa_schema",
+                "timeout": schema_evolution_workload.DEFAULT_PREPARE_TIMEOUT_SEC,
+            },
+        )
+    ]
 
 
 class FakeClient:
@@ -52,7 +126,7 @@ class FakeClient:
             ids.append(inserted_id)
         return {"ids": ids}
 
-    def query(self, collection_name, filter, output_fields, limit=None):
+    def query(self, collection_name, filter, output_fields, limit=None, **kwargs):
         self.calls.append(
             ("query", collection_name, filter, tuple(output_fields), limit)
         )
@@ -126,13 +200,34 @@ class FakeClient:
 
 
 class EmptyEvolutionReadClient(FakeClient):
-    def query(self, collection_name, filter, output_fields, limit=None):
+    def query(self, collection_name, filter, output_fields, limit=None, **kwargs):
         self.calls.append(
             ("query", collection_name, filter, tuple(output_fields), limit)
         )
         if output_fields == ["count(*)"]:
             return [{"count(*)": 0}]
         return []
+
+
+class StaleBoundedCountClient(FakeClient):
+    def __init__(self):
+        super().__init__()
+        self.query_consistency_levels = []
+        self.search_consistency_levels = []
+
+    def query(self, collection_name, filter, output_fields, limit=None, **kwargs):
+        consistency_level = kwargs.get("consistency_level")
+        self.query_consistency_levels.append(consistency_level)
+        result = super().query(collection_name, filter, output_fields, limit)
+        if output_fields != ["count(*)"]:
+            return result
+        if consistency_level != "Strong" and result:
+            return [{"count(*)": max(0, result[0]["count(*)"] - 1)}]
+        return result
+
+    def search(self, *args, **kwargs):
+        self.search_consistency_levels.append(kwargs.get("consistency_level"))
+        return super().search(*args, **kwargs)
 
 
 class IrrelevantSearchHitClient(FakeClient):
@@ -574,6 +669,24 @@ def test_schema_evolution_fails_when_evolved_rows_are_not_queryable():
 
     assert metrics["failed_total"] == 1
     assert "expected 2 evolved rows" in metrics["collections"][0]["error"]
+
+
+def test_schema_evolution_uses_strong_consistency_for_post_write_count():
+    client = StaleBoundedCountClient()
+
+    metrics = run_schema_evolution(
+        client,
+        [_baseline_bm25_spec()],
+        collection_prefix="qa",
+        rows_per_collection=2,
+        batch_size=2,
+        start_id=5000,
+        seed=7,
+    )
+
+    assert metrics["failed_total"] == 0
+    assert set(client.query_consistency_levels) == {"Strong"}
+    assert set(client.search_consistency_levels) == {"Strong"}
 
 
 def test_schema_evolution_fails_when_search_returns_unrelated_primary_key():

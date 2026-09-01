@@ -1299,6 +1299,12 @@ def main(argv: list[str] | None = None) -> int:
             index_checkpoint,
             args.phase,
         ).items():
+            print(
+                "index compatibility "
+                f"phase={args.phase} collection={collection} "
+                f"rebuild_index={args.rebuild_index}",
+                flush=True,
+            )
             schema_name = meta["schema_name"]
             spec = specs.get(schema_name)
             if spec is None:
@@ -1327,9 +1333,9 @@ def main(argv: list[str] | None = None) -> int:
             if indexed_fields:
                 metrics["collections_with_index"] += 1
             try:
-                _flush_collection(client, collection, args.timeout_sec)
                 release_status = "not_requested"
                 if args.rebuild_index:
+                    _flush_collection(client, collection, args.timeout_sec)
                     release_status = _release_collection_best_effort(
                         client,
                         collection,

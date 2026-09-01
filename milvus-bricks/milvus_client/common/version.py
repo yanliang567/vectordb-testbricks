@@ -13,7 +13,7 @@ HEX_SUFFIX = re.compile(r"[0-9a-fA-F]{1,32}")
 # A daily/branch build tag such as `3.0-20260817-beb93ec2` or
 # `3.0-20260805-ad3ba1ea-amd64`. These are release candidates for the next
 # patch version, so their server version may still report the base patch.
-DAILY_BUILD_TAG = re.compile(r"^v?\d+\.\d+-\d{8}-[0-9a-fA-F]{8,40}(?:-[a-zA-Z0-9]+)?$")
+DAILY_BUILD_TAG = re.compile(r"^v?\d+\.\d+-\d{8}-[0-9a-fA-F]{7,40}(?:-[a-zA-Z0-9]+)?$")
 
 
 def version_family(value: str) -> str:

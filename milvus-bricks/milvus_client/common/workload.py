@@ -309,9 +309,18 @@ def _search_operation(
             return current_probe_pk + 1
 
         if vector_field.name in function_outputs:
-            query_vector = function_input_query_value(
-                spec, vector_field.name, probe_pk, seed
-            )
+            query_vector = None
+            for _ in range(10):
+                query_vector = function_input_query_value(
+                    spec, vector_field.name, probe_pk, seed
+                )
+                if query_vector is not None and query_vector != "":
+                    break
+                probe_pk = advance_probe_pk(probe_pk)
+            if query_vector is None or query_vector == "":
+                raise AssertionError(
+                    f"{collection}.{field_name}: no non-empty function input probe"
+                )
         elif (struct_array := struct_array_for_field(spec, field_name)) is not None:
             probe = None
             for _ in range(10):
