@@ -606,7 +606,14 @@ def is_collection_reload_unavailable_failure(
     text = json.dumps(failure, sort_keys=True).lower()
     if error_type != "MilvusException" and "milvusexception" not in text:
         return False
-    return "collection not loaded" in text or "collection is not loaded" in text
+    return (
+        "collection not loaded" in text
+        or "collection is not loaded" in text
+        or (
+            "delegator closed during wait tsafe" in text
+            and "channel not available" in text
+        )
+    )
 
 
 def failure_entry(path: Path | str, result: dict[str, Any]) -> dict[str, Any]:

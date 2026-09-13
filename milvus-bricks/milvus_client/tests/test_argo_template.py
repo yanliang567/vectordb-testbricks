@@ -1656,6 +1656,65 @@ def test_pressure_maintenance_classifier_excludes_collection_not_loaded_during_r
     assert entry["maintenance_window"]["collection"] == "qa_struct_array"
 
 
+def test_pressure_maintenance_classifier_excludes_delegator_closed_during_reload():
+    result = {
+        "status": "failed",
+        "brick": "query_iterator_scan",
+        "started_at": "2026-09-13T04:23:36+00:00",
+        "finished_at": "2026-09-13T04:23:47+00:00",
+        "metrics": {"requests_failed": 2, "failed_query_iterator": 2},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "query_iterator",
+                "collection": "qa_struct_array",
+                "started_at": "2026-09-13T04:23:37+00:00",
+                "finished_at": "2026-09-13T04:23:46+00:00",
+                "error_type": "MilvusException",
+                "error": (
+                    "failed to query: failed to search/query delegator 8 for "
+                    "channel by-dev-rootcoord-dml_13_123v0: fail to Query on "
+                    "QueryNode 8: delegator closed during wait tsafe: channel "
+                    "not available[channel=by-dev-rootcoord-dml_13_123v0]"
+                ),
+                "connectivity_transient": False,
+            },
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "query_iterator",
+                "collection": "qa_struct_array",
+                "started_at": "2026-09-13T04:23:37+00:00",
+                "finished_at": "2026-09-13T04:23:46+00:00",
+                "error_type": "MilvusException",
+                "error": (
+                    "failed to query: delegator closed during wait tsafe: "
+                    "channel not available[channel=by-dev-rootcoord-dml_13_123v0]"
+                ),
+                "connectivity_transient": False,
+            },
+        ],
+    }
+    windows = [
+        {
+            "kind": "collection-reload",
+            "label": "phase-dml-dql-reload-after-upgrade",
+            "source": "validate_phase_dml_dql",
+            "collection": "qa_struct_array",
+            "started_at": "2026-09-13T04:23:37+00:00",
+            "finished_at": "2026-09-13T04:23:47+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result(
+        "query_iterator_scan.json", result, windows
+    )
+
+    assert classification == "excluded"
+    assert entry["status"] == "maintenance_window_excluded"
+    assert entry["maintenance_window"]["kind"] == "collection-reload"
+    assert entry["maintenance_window"]["collection"] == "qa_struct_array"
+
+
 @pytest.mark.parametrize(
     "failure_timestamps",
     [
