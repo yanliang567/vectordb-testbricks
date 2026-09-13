@@ -1006,6 +1006,7 @@ def _run_existing_collection_dml_dql(
         "upsert_samples": {"field": None, "samples": []},
         "searches": 0,
         "scalar_index_queries": 0,
+        "scalar_index_visibility_attempts": 0,
         "reload_attempted": False,
         "reload_operations_succeeded": False,
         "reload_succeeded": False,
@@ -1196,13 +1197,18 @@ def _run_existing_collection_dml_dql(
         apply_update=not auto_id_enabled(spec),
         diskann_max_sim_bug=diskann_max_sim_bug,
     )
-    metrics["scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
+    (
+        metrics["scalar_index_queries"],
+        metrics["scalar_index_visibility_attempts"],
+    ) = _wait_for_phase_scalar_index_queries(
         client,
         spec,
         metrics,
         search_probe_seed,
         report,
         existing=True,
+        timeout_sec=visibility_timeout_sec,
+        interval_sec=visibility_interval_sec,
         server_version=server_version,
     )
     if len(report.failures) > validation_failures_before:
@@ -1273,6 +1279,7 @@ def _run_new_collection_dml_dql(
         "max_pk": None,
         "searches": 0,
         "scalar_index_queries": 0,
+        "scalar_index_visibility_attempts": 0,
         "reload_attempted": False,
         "reload_operations_succeeded": False,
         "reload_succeeded": False,
@@ -1400,13 +1407,18 @@ def _run_new_collection_dml_dql(
         expected_pk=search_probe_pk,
         diskann_max_sim_bug=diskann_max_sim_bug,
     )
-    metrics["scalar_index_queries"] = _validate_phase_checkpoint_scalar_indexes(
+    (
+        metrics["scalar_index_queries"],
+        metrics["scalar_index_visibility_attempts"],
+    ) = _wait_for_phase_scalar_index_queries(
         client,
         spec,
         metrics,
         search_probe_seed,
         report,
         existing=False,
+        timeout_sec=visibility_timeout_sec,
+        interval_sec=visibility_interval_sec,
         server_version=server_version,
     )
     if len(report.failures) > validation_failures_before:
@@ -1779,6 +1791,40 @@ def _validate_phase_checkpoint_scalar_indexes(
         probe_overrides=_phase_upsert_scalar_probe_overrides(spec, checkpoint),
         server_version=server_version,
     )
+
+
+def _wait_for_phase_scalar_index_queries(
+    client: Any,
+    spec: SchemaSpec,
+    checkpoint: dict[str, Any],
+    seed: int,
+    report: ValidationReport,
+    *,
+    existing: bool,
+    timeout_sec: int,
+    interval_sec: float,
+    server_version: str | None = None,
+) -> tuple[int, int]:
+    queries = 0
+
+    def validate(current: ValidationReport, _rpc_timeout: Callable[[], float]) -> None:
+        nonlocal queries
+        queries = _validate_phase_checkpoint_scalar_indexes(
+            client,
+            spec,
+            checkpoint,
+            seed,
+            current,
+            existing=existing,
+            server_version=server_version,
+        )
+
+    current, attempts = _wait_for_validation(validate, timeout_sec, interval_sec)
+    report.metrics.update(current.metrics)
+    if not current.passed:
+        report.passed = False
+        report.failures.extend(current.failures)
+    return queries, attempts
 
 
 def _phase_upsert_scalar_probe_overrides(
