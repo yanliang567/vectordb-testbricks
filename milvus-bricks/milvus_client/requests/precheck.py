@@ -6,6 +6,7 @@ from milvus_client.common.args import build_common_parser
 from milvus_client.common.client import create_client, get_server_version
 from milvus_client.common.result import FAILED, PASSED, result_from_args
 from milvus_client.common.version import (
+    digest_pinned_release_matches_branch_build,
     is_daily_build_image,
     matching_pinned_image_build_tag,
     version_at_least,
@@ -88,6 +89,18 @@ def main(argv: list[str] | None = None) -> int:
                         "release_candidate_build"
                     )
                     result.metrics["candidate_server_version"] = server_version
+                elif digest_pinned_release_matches_branch_build(
+                    args.expected_server_image,
+                    args.expected_server_version,
+                    server_version,
+                ):
+                    result.metrics["server_version_validation_mode"] = (
+                        "digest_pinned_release_build"
+                    )
+                    result.metrics["release_image_version"] = (
+                        args.expected_server_version
+                    )
+                    result.metrics["release_server_build_version"] = server_version
                 else:
                     result.mark_failed(
                         "SERVER_VERSION_TOO_OLD",
