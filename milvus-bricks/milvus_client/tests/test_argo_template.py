@@ -2124,6 +2124,12 @@ def _pressure_maintenance_window(label="upgrade-rollout"):
             "fieldDatas length 0, expected 1 (numGroupingKeys=0, numAggs=1): "
             "service internal error>"
         ),
+        (
+            "<MilvusException: failed to search/query delegator 8: rpc error: "
+            "code = Unknown desc = node not match[expectedNodeID=8]"
+            "[actualNodeID=12]>"
+        ),
+        ("<MilvusException: failed to search/query delegator 12: node not found>"),
     ],
     ids=[
         "channel-distribution-unavailable",
@@ -2132,6 +2138,8 @@ def _pressure_maintenance_window(label="upgrade-rollout"):
         "empty-mixcoord-grpc-client",
         "legacy-count-result-shape",
         "aggregate-count-result-shape",
+        "querynode-id-changed",
+        "querynode-removed",
     ],
 )
 def test_pressure_maintenance_classifier_excludes_each_rollout_service_switch_pattern(
@@ -2185,6 +2193,20 @@ def test_pressure_maintenance_classifier_keeps_wrong_error_type_strict():
 
     assert classification == "failed"
     assert entry["failures"][0]["error_type"] == "AssertionError"
+
+
+def test_pressure_maintenance_classifier_keeps_rollout_node_rotation_failure_for_dml():
+    result = _rollout_service_switch_result(
+        "<MilvusException: failed to search/query delegator 8: node not found>"
+    )
+    result["metrics"] = {"requests_failed": 1, "failed_upsert": 1}
+    result["failures"][0]["operation"] = "upsert"
+    windows = _pressure_maintenance_window()
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"][0]["operation"] == "upsert"
 
 
 def test_pressure_maintenance_classifier_keeps_rollout_service_switch_failure_strict_in_schema_window():

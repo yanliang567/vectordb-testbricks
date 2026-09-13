@@ -42,6 +42,13 @@ ROLLOUT_WINDOW_LABELS = {
     "rollback-rollout",
 }
 
+ROLLOUT_NODE_ROTATION_OPERATIONS = {
+    "search",
+    "query",
+    "query_iterator",
+    "count",
+}
+
 COLLECTION_RELOAD_WINDOW_KIND = "collection-reload"
 
 COLLECTION_RELOAD_WINDOW_LABELS = {
@@ -568,6 +575,13 @@ def is_rollout_service_switch_failure(
     text = json.dumps(failure, sort_keys=True).lower()
     if error_type != "MilvusException" and "milvusexception" not in text:
         return False
+
+    operation = str(failure.get("operation") or "")
+    if operation in ROLLOUT_NODE_ROTATION_OPERATIONS:
+        if "node not match[expectednodeid=" in text and "][actualnodeid=" in text:
+            return True
+        if "failed to search/query delegator" in text and "node not found" in text:
+            return True
 
     if "channel not available" in text and (
         "channel distribution is not serviceable" in text
