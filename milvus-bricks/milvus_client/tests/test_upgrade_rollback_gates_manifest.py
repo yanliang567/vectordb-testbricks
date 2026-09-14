@@ -73,7 +73,13 @@ def test_manifest_v2_contract_migration_preserves_existing_execution_paths():
     expected = yaml.safe_load(EXECUTION_PATH_FIXTURE.read_text())
 
     assert len(expected) == 26
-    assert _execution_path_signatures(_manifest()) == expected
+    actual = _execution_path_signatures(_manifest())
+    new_2_6_24_paths = {
+        "standalone-2-6-18-to-2-6-24-rollback-2-6-18",
+        "cluster-2-6-18-to-2-6-24-rollback-2-6-18",
+    }
+    assert {key: value for key, value in actual.items() if key not in new_2_6_24_paths} == expected
+    assert new_2_6_24_paths <= set(actual)
 
 
 @pytest.mark.parametrize(
@@ -390,7 +396,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 10
+    assert len(cluster_scenarios) == 11
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest"][
@@ -835,6 +841,7 @@ def test_manifest_references_are_centralized():
     manifest = _manifest()
     assert set(manifest["image_aliases"]) == {
         "milvus-2-6-18",
+        "milvus-2-6-24-candidate",
         "milvus-2-6-latest",
         "milvus-3-0-baseline",
         "milvus-3-0-latest",
@@ -845,6 +852,10 @@ def test_manifest_references_are_centralized():
     assert manifest["image_aliases"]["milvus-3-0-1"] == {
         "image": "harbor.milvus.io/milvusdb/milvus:v3.0.1-placeholder",
         "version": "3.0.1",
+    }
+    assert manifest["image_aliases"]["milvus-2-6-24-candidate"] == {
+        "image": "harbor.milvus.io/milvusdb/milvus:2.6-20260913-bd47ba6a@sha256:6d12a10e9c18790780be7f2eadd8a817846a4db0ca1d96a2ece973c574e9fae9",
+        "version": "2.6.24",
     }
     assert manifest["image_aliases"]["milvus-3-0-baseline"] == {
         "image": MILVUS_3_0_BASELINE_IMAGE,

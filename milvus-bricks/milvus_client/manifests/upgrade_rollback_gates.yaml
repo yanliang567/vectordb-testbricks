@@ -48,6 +48,9 @@ image_aliases:
   milvus-2-6-18:
     image: harbor.milvus.io/milvusdb/milvus:v2.6.18@sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6
     version: "2.6.18"
+  milvus-2-6-24-candidate:
+    image: harbor.milvus.io/milvusdb/milvus:2.6-20260913-bd47ba6a@sha256:6d12a10e9c18790780be7f2eadd8a817846a4db0ca1d96a2ece973c574e9fae9
+    version: "2.6.24"
   milvus-2-6-latest:
     image: harbor.milvus.io/milvusdb/milvus:2.6-latest-placeholder
     version: "2.6.0"
@@ -157,6 +160,71 @@ scenarios:
     forbidden_after_upgrade:
       - storage_v3
       - vortex
+
+  - id: standalone-2-6-18-to-2-6-24-rollback-2-6-18
+    description: "2.6.18 baseline to the 2.6.24 release candidate and rollback to the same 2.6.18 baseline; 2.6-compatible schemas only."
+    mode: standalone
+    classification: gate
+    support_status: supported
+    workflow_template_ref: standalone_2_6
+    deploy_profile_ref: standalone
+    schema_matrix_ref: "2.6"
+    collection_prefix: qa_gate_2624_standalone
+    forward_workload_enabled: false
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: false
+    base:
+      image_ref: milvus-2-6-18
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-2-6-24-candidate
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    rollback:
+      image_ref: milvus-2-6-18
+      json_shredding_enabled: false
+      vortex_enabled: false
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: cluster-2-6-18-to-2-6-24-rollback-2-6-18
+    description: "Cluster-mode 2.6.18 baseline to the 2.6.24 release candidate and rollback to the same 2.6.18 baseline; 2.6-compatible schemas only."
+    mode: cluster
+    classification: gate
+    support_status: supported
+    submit_generate_name: c2624-
+    workflow_template_ref: cluster
+    deploy_profile_ref: cluster_pulsar_1cu
+    schema_matrix_ref: "2.6"
+    collection_prefix: qa_gate_2624_cluster
+    forward_workload_enabled: false
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_forward_validation_enabled: false
+    base:
+      image_ref: milvus-2-6-18
+      json_shredding_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-2-6-24-candidate
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    rollback:
+      image_ref: milvus-2-6-18
+      json_shredding_enabled: false
+      vortex_enabled: false
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
 
   - id: standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline
     description: "3.0 branch gate: baseline to latest 3.0 and rollback to the same 3.0 baseline."
