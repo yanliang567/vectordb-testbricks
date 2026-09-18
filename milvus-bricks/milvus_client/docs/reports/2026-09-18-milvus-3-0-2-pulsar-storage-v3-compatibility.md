@@ -156,7 +156,8 @@ Woodpecker 旧 metadata recovery：**不兼容，根因已定位**。
 ## 可复核代码与提交
 
 - test branch：`test/3-0-2-upgrade-compat-validation`
-- latest commit：`464c193 test: wait for storage version conversion to converge`
+- validation code commit：`464c193 test: wait for storage version conversion to converge`
+- report commit：`dd7cf15 docs: record final pulsar storage v3 gate evidence`
 - storage validator：`milvus-bricks/milvus_client/requests/validate_storage_v3_compaction.py`
 - Pulsar profile：`milvus-bricks/milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml`
 - report generator：`milvus-bricks/milvus_client/requests/generate_workflow_report.py`
