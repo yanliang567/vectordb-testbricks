@@ -640,6 +640,15 @@ def render_argo_parameters(
                 scenario["target"].get("json_shredding_enabled", False),
             )
         ),
+        "post-upgrade-loon-ffi-enabled": _bool_str(
+            scenario.get(
+                "post_upgrade_loon_ffi_enabled",
+                scenario["target"].get("loon_ffi_enabled", False),
+            )
+        ),
+        "storage-v3-compaction-validation-enabled": _bool_str(
+            scenario.get("storage_v3_compaction_validation_enabled", False)
+        ),
         "forward-workload-enabled": _bool_str(
             scenario.get("forward_workload_enabled", False)
         ),
@@ -1239,6 +1248,8 @@ def _validate_scenario_bool_fields(scenario: dict[str, Any], *, source: str) -> 
     scenario_bool_fields = {
         "post_upgrade_config_toggle_enabled",
         "post_upgrade_json_shredding_enabled",
+        "post_upgrade_loon_ffi_enabled",
+        "storage_v3_compaction_validation_enabled",
         "forward_workload_enabled",
         "rollback_enabled",
         "rollback_forward_validation_enabled",

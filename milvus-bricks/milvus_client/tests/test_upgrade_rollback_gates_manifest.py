@@ -78,8 +78,25 @@ def test_manifest_v2_contract_migration_preserves_existing_execution_paths():
         "standalone-2-6-18-to-2-6-24-rollback-2-6-18",
         "cluster-2-6-18-to-2-6-24-rollback-2-6-18",
     }
-    assert {key: value for key, value in actual.items() if key not in new_2_6_24_paths} == expected
-    assert new_2_6_24_paths <= set(actual)
+    new_paths = new_2_6_24_paths | {
+        "cluster-2-6-22-to-3-0-2-storage-v3-compaction"
+    }
+    legacy_only = {
+        "post-upgrade-loon-ffi-enabled",
+        "storage-v3-compaction-validation-enabled",
+    }
+    assert {
+        key: {name: value for name, value in values.items() if name not in legacy_only}
+        for key, values in actual.items()
+        if key not in new_paths
+    } == expected
+    assert new_paths <= set(actual)
+    assert actual["cluster-2-6-22-to-3-0-2-storage-v3-compaction"][
+        "post-upgrade-loon-ffi-enabled"
+    ] == "true"
+    assert actual["cluster-2-6-22-to-3-0-2-storage-v3-compaction"][
+        "storage-v3-compaction-validation-enabled"
+    ] == "true"
 
 
 @pytest.mark.parametrize(
@@ -396,7 +413,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 11
+    assert len(cluster_scenarios) == 12
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest"][
@@ -841,11 +858,13 @@ def test_manifest_references_are_centralized():
     manifest = _manifest()
     assert set(manifest["image_aliases"]) == {
         "milvus-2-6-18",
+        "milvus-2-6-22",
         "milvus-2-6-24-candidate",
         "milvus-2-6-latest",
         "milvus-3-0-baseline",
         "milvus-3-0-latest",
         "milvus-3-0-1",
+        "milvus-3-0-1-release",
         "milvus-3-0-vortex-candidate-baseline",
         "milvus-3-0-vortex-candidate-target",
     }
