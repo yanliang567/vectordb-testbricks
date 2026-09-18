@@ -280,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
             "collections_checked": 0,
             "compact_jobs": 0,
             "compaction_plans": 0,
+            "already_storage_v3_collections": 0,
             "storage_v3_persistent_collections": 0,
             "storage_v3_loaded_collections": 0,
             "query_collections": 0,
@@ -299,7 +300,19 @@ def main(argv: list[str] | None = None) -> int:
             metrics["collections_checked"] += 1
             try:
                 before = _checkpoint_snapshot(client, collection)
-                if before["storage_versions"] != [args.expected_before_storage_version]:
+                before_primary_keys = _query_primary_key_set(
+                    client, collection, spec, meta
+                )[1]
+                already_storage_v3 = before["storage_versions"] == [
+                    args.expected_storage_version
+                ]
+                if already_storage_v3:
+                    metrics["already_storage_v3_collections"] += 1
+                    job_id = None
+                    state = "AlreadyStorageV3"
+                    plans = []
+                    after_persisted = before
+                elif before["storage_versions"] != [args.expected_before_storage_version]:
                     report.fail(
                         STORAGE_VERSION_MISMATCH,
                         "pre-compaction persistent segments are not all storage-v2",
@@ -308,47 +321,51 @@ def main(argv: list[str] | None = None) -> int:
                         actual=before["storage_versions"],
                     )
                     continue
-                _, before_primary_keys = _query_primary_key_set(
-                    client, collection, spec, meta
-                )
-                job_id = client.compact(collection_name=collection, timeout=args.timeout_sec)
-                metrics["compact_jobs"] += 1
-                state, plans = _wait_for_compaction(
-                    client,
-                    collection,
-                    int(job_id),
-                    args.timeout_sec,
-                    args.poll_interval_sec,
-                )
-                if state not in {"Completed", "Cleaned"}:
-                    report.fail(
-                        COMPACTION_FAILED,
-                        "compact job finished in a failed state",
-                        collection=collection,
-                        job_id=job_id,
-                        state=state,
+                else:
+                    job_id = client.compact(
+                        collection_name=collection, timeout=args.timeout_sec
                     )
-                    continue
-                metrics["compaction_plans"] += len(plans)
-                after_persisted = _checkpoint_snapshot(client, collection)
-                before_ids = set(before["active"])
-                after_ids = set(after_persisted["active"])
-                plan_targets = {plan["target"] for plan in plans}
-                plan_sources = {
-                    source for plan in plans for source in plan["sources"]
-                }
-                if not plans or not plan_targets.intersection(after_ids) or not plan_sources.intersection(before_ids):
-                    report.fail(
-                        COMPACTION_LINEAGE_FAILED,
-                        "compact job has no observable source-to-target segment transition",
-                        collection=collection,
-                        job_id=job_id,
-                        plans=plans,
-                        before_active=sorted(before_ids),
-                        after_active=sorted(after_ids),
+                    metrics["compact_jobs"] += 1
+                    state, plans = _wait_for_compaction(
+                        client,
+                        collection,
+                        int(job_id),
+                        args.timeout_sec,
+                        args.poll_interval_sec,
                     )
+                    if state not in {"Completed", "Cleaned"}:
+                        report.fail(
+                            COMPACTION_FAILED,
+                            "compact job finished in a failed state",
+                            collection=collection,
+                            job_id=job_id,
+                            state=state,
+                        )
+                        continue
+                    metrics["compaction_plans"] += len(plans)
+                    after_persisted = _checkpoint_snapshot(client, collection)
+                    before_ids = set(before["active"])
+                    after_ids = set(after_persisted["active"])
+                    plan_targets = {plan["target"] for plan in plans}
+                    plan_sources = {
+                        source for plan in plans for source in plan["sources"]
+                    }
+                    if (
+                        not plans
+                        or not plan_targets.intersection(after_ids)
+                        or not plan_sources.intersection(before_ids)
+                    ):
+                        report.fail(
+                            COMPACTION_LINEAGE_FAILED,
+                            "compact job has no observable source-to-target segment transition",
+                            collection=collection,
+                            job_id=job_id,
+                            plans=plans,
+                            before_active=sorted(before_ids),
+                            after_active=sorted(after_ids),
+                        )
                 _release_and_load(client, collection, args.timeout_sec)
-                serving = _wait_for_storage_checkpoint(
+                after_loaded = _wait_for_storage_checkpoint(
                     client,
                     collection,
                     None,
@@ -358,9 +375,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 metrics["storage_v3_persistent_collections"] += 1
                 metrics["storage_v3_loaded_collections"] += 1
-                loaded_storage_versions = sorted(
-                    {segment["storage_version"] for segment in serving.values()}
-                )
+                loaded_storage_versions = after_loaded["serving_storage_versions"]
                 query_evidence = _query_primary_keys(
                     client,
                     collection,
@@ -391,11 +406,11 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 evidence["collections"][collection] = {
                     "before": before,
-                    "job_id": int(job_id),
+                    "job_id": int(job_id) if job_id is not None else None,
                     "state": state,
                     "plans": plans,
                     "after_persisted": after_persisted,
-                    "after_loaded": serving,
+                    "after_loaded": after_loaded,
                     "loaded_storage_versions": loaded_storage_versions,
                     "loaded_storage_version_observability": (
                         "querycoord_omitted"
