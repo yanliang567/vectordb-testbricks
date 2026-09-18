@@ -186,6 +186,39 @@ def _wait_for_storage_checkpoint(
     )
 
 
+def _wait_for_storage_version_convergence(
+    client: Any,
+    collection: str,
+    expected_before_storage_version: int,
+    expected_storage_version: int,
+    timeout_sec: float,
+    poll_interval_sec: float,
+) -> tuple[dict[str, Any], bool]:
+    """Wait for LoonFFI's asynchronous conversion to leave one version only.
+
+    A collection can temporarily expose both v2 and v3 persistent segments
+    while automatic StorageVersionUpgrade compactions are draining.  That is
+    not a failed compatibility result and should not be mistaken for a
+    completed manual compact.  Return the converged checkpoint and whether it
+    is already v3.
+    """
+    deadline = monotonic() + timeout_sec
+    last_checkpoint: dict[str, Any] = {}
+    while monotonic() < deadline:
+        checkpoint = _checkpoint_snapshot(client, collection)
+        last_checkpoint = checkpoint
+        versions = checkpoint["storage_versions"]
+        if versions == [expected_before_storage_version]:
+            return checkpoint, False
+        if versions == [expected_storage_version]:
+            return checkpoint, True
+        sleep(min(poll_interval_sec, max(0.0, deadline - monotonic())))
+    raise TimeoutError(
+        f"collection={collection} storage versions did not converge: "
+        f"last_checkpoint={last_checkpoint}"
+    )
+
+
 def _query_primary_key_set(
     client: Any,
     collection: str,
@@ -299,13 +332,17 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             metrics["collections_checked"] += 1
             try:
-                before = _checkpoint_snapshot(client, collection)
+                before, already_storage_v3 = _wait_for_storage_version_convergence(
+                    client,
+                    collection,
+                    args.expected_before_storage_version,
+                    args.expected_storage_version,
+                    args.timeout_sec,
+                    args.poll_interval_sec,
+                )
                 before_primary_keys = _query_primary_key_set(
                     client, collection, spec, meta
                 )[1]
-                already_storage_v3 = before["storage_versions"] == [
-                    args.expected_storage_version
-                ]
                 if already_storage_v3:
                     metrics["already_storage_v3_collections"] += 1
                     job_id = None

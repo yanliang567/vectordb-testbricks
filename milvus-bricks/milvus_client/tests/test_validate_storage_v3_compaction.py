@@ -125,3 +125,30 @@ def test_wait_for_storage_checkpoint_accepts_querycoord_omitted_loaded_version(
 
     assert checkpoint["storage_versions"] == [3]
     assert checkpoint["serving_storage_versions"] == [0]
+
+
+def test_wait_for_storage_version_convergence_allows_transient_mixed_versions(
+    monkeypatch,
+):
+    client = FakeStorageClient()
+    client.persistent = [
+        [segment(21, 100, 2), segment(22, 100, 3)],
+        [segment(21, 100, 3), segment(22, 100, 3)],
+    ]
+    client.loaded = [
+        [segment(21, 100, 0), segment(22, 100, 0)],
+        [segment(21, 100, 0), segment(22, 100, 0)],
+    ]
+    monkeypatch.setattr(validator, "sleep", lambda _: None)
+
+    checkpoint, already_storage_v3 = validator._wait_for_storage_version_convergence(
+        client,
+        "coll",
+        expected_before_storage_version=2,
+        expected_storage_version=3,
+        timeout_sec=1,
+        poll_interval_sec=0,
+    )
+
+    assert already_storage_v3 is True
+    assert checkpoint["storage_versions"] == [3]
