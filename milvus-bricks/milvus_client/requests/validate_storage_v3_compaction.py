@@ -144,7 +144,9 @@ def _wait_for_storage_checkpoint(
         serving = checkpoint["serving"]
         active_ids = set(active)
         serving_ids = set(serving)
-        ready = bool(active) and checkpoint["active_rows"] == expected_rows
+        ready = bool(active) and (
+            expected_rows is None or checkpoint["active_rows"] == expected_rows
+        )
         ready = ready and checkpoint["storage_versions"] == [expected_storage_version]
         ready = ready and active_ids == serving_ids
         ready = ready and all(
@@ -172,12 +174,12 @@ def _wait_for_storage_checkpoint(
     )
 
 
-def _query_primary_keys(
+def _query_primary_key_set(
     client: Any,
     collection: str,
     spec: Any,
     meta: dict[str, Any],
-) -> dict[str, Any]:
+) -> tuple[str, set[Any]]:
     primary = next(field for field in spec.fields if field.primary)
     primary_name = meta.get("primary_field") or primary.name
     iterator = client.query_iterator(
@@ -199,16 +201,31 @@ def _query_primary_keys(
         if close is not None:
             close()
 
-    expected = set()
-    if auto_id_enabled(spec):
-        expected.update(meta.get("pk_values") or [])
-    else:
-        data_min = int(meta["data_min_pk"])
-        data_max = int(meta["data_max_pk"])
-        expected.update(
-            generate_primary_key_value(primary, number)
-            for number in range(data_min, data_max + 1)
-        )
+    return primary_name, actual
+
+
+def _query_primary_keys(
+    client: Any,
+    collection: str,
+    spec: Any,
+    meta: dict[str, Any],
+    expected_keys: set[Any] | None = None,
+) -> dict[str, Any]:
+    primary = next(field for field in spec.fields if field.primary)
+    primary_name, actual = _query_primary_key_set(client, collection, spec, meta)
+
+    expected = expected_keys
+    if expected is None:
+        expected = set()
+        if auto_id_enabled(spec):
+            expected.update(meta.get("pk_values") or [])
+        else:
+            data_min = int(meta["data_min_pk"])
+            data_max = int(meta["data_max_pk"])
+            expected.update(
+                generate_primary_key_value(primary, number)
+                for number in range(data_min, data_max + 1)
+            )
     missing = sorted(expected - actual, key=str)
     unexpected = sorted(actual - expected, key=str)
     return {
@@ -279,6 +296,9 @@ def main(argv: list[str] | None = None) -> int:
                         actual=before["storage_versions"],
                     )
                     continue
+                _, before_primary_keys = _query_primary_key_set(
+                    client, collection, spec, meta
+                )
                 job_id = client.compact(collection_name=collection, timeout=args.timeout_sec)
                 metrics["compact_jobs"] += 1
                 state, plans = _wait_for_compaction(
@@ -319,14 +339,20 @@ def main(argv: list[str] | None = None) -> int:
                 serving = _wait_for_storage_checkpoint(
                     client,
                     collection,
-                    int(meta["expected_count"]),
+                    None,
                     args.expected_storage_version,
                     args.timeout_sec,
                     args.poll_interval_sec,
                 )
                 metrics["storage_v3_persistent_collections"] += 1
                 metrics["storage_v3_loaded_collections"] += 1
-                query_evidence = _query_primary_keys(client, collection, spec, meta)
+                query_evidence = _query_primary_keys(
+                    client,
+                    collection,
+                    spec,
+                    meta,
+                    expected_keys=before_primary_keys,
+                )
                 metrics["query_collections"] += 1
                 if query_evidence["missing_sample"] or query_evidence["unexpected_sample"] or query_evidence["actual_count"] != query_evidence["expected_count"]:
                     report.fail(
@@ -355,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
                     "plans": plans,
                     "after_persisted": after_persisted,
                     "after_loaded": serving,
+                    "before_live_pk_count": len(before_primary_keys),
                     "query": query_evidence,
                     "searches": search_count,
                 }

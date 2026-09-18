@@ -69,3 +69,30 @@ def test_wait_for_storage_checkpoint_proves_loaded_storage_v3_is_stable(monkeypa
     assert checkpoint["storage_versions"] == [3]
     assert checkpoint["active"] == checkpoint["serving"]
     assert checkpoint["serving"][21]["storage_version"] == 3
+
+
+def test_wait_for_storage_checkpoint_can_ignore_stale_baseline_row_count(monkeypatch):
+    client = FakeStorageClient()
+    client.persistent = [
+        [segment(21, 100, 2)],
+        [segment(21, 120, 3)],
+        [segment(21, 120, 3)],
+    ]
+    client.loaded = [
+        [segment(21, 100, 2)],
+        [segment(21, 120, 3)],
+        [segment(21, 120, 3)],
+    ]
+    monkeypatch.setattr(validator, "sleep", lambda _: None)
+
+    checkpoint = validator._wait_for_storage_checkpoint(
+        client,
+        "coll",
+        expected_rows=None,
+        expected_storage_version=3,
+        timeout_sec=1,
+        poll_interval_sec=0,
+    )
+
+    assert checkpoint["active_rows"] == 120
+    assert checkpoint["storage_versions"] == [3]
