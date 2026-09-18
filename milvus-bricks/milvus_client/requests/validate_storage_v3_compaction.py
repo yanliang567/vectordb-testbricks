@@ -92,6 +92,9 @@ def _checkpoint_snapshot(client: Any, collection: str) -> dict[str, Any]:
             {segment["storage_version"] for segment in active.values()}
         ),
         "active_rows": sum(segment["num_rows"] for segment in active.values()),
+        "serving_storage_versions": sorted(
+            {segment["storage_version"] for segment in serving.values()}
+        ),
     }
 
 
@@ -153,10 +156,19 @@ def _wait_for_storage_checkpoint(
             segment["state"] in STABLE_SEGMENT_STATES and segment["is_sorted"]
             for segment in active.values()
         )
-        ready = ready and all(
-            segment["storage_version"] == expected_storage_version
-            for segment in serving.values()
+        # QueryCoord's GetLoadSegmentInfo response currently omits
+        # StorageVersion when it merges the per-node segment metadata. The
+        # SDK therefore exposes 0 for loaded segments even though QueryNode
+        # receives the real storage version in SetLoadInfo. Treat 0 as
+        # "not observable through this API"; a reported non-zero mismatch
+        # remains a hard failure.
+        serving_versions = checkpoint["serving_storage_versions"]
+        serving_version_valid = serving_versions in (
+            [0],
+            [expected_storage_version],
+            [0, expected_storage_version],
         )
+        ready = ready and serving_version_valid
         signature = json.dumps(checkpoint, sort_keys=True)
         if ready and signature == last_signature:
             stable_polls += 1
@@ -346,6 +358,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 metrics["storage_v3_persistent_collections"] += 1
                 metrics["storage_v3_loaded_collections"] += 1
+                loaded_storage_versions = sorted(
+                    {segment["storage_version"] for segment in serving.values()}
+                )
                 query_evidence = _query_primary_keys(
                     client,
                     collection,
@@ -381,6 +396,12 @@ def main(argv: list[str] | None = None) -> int:
                     "plans": plans,
                     "after_persisted": after_persisted,
                     "after_loaded": serving,
+                    "loaded_storage_versions": loaded_storage_versions,
+                    "loaded_storage_version_observability": (
+                        "querycoord_omitted"
+                        if 0 in loaded_storage_versions
+                        else "reported"
+                    ),
                     "before_live_pk_count": len(before_primary_keys),
                     "query": query_evidence,
                     "searches": search_count,

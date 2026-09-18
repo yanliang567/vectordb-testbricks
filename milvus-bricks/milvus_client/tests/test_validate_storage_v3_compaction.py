@@ -96,3 +96,32 @@ def test_wait_for_storage_checkpoint_can_ignore_stale_baseline_row_count(monkeyp
 
     assert checkpoint["active_rows"] == 120
     assert checkpoint["storage_versions"] == [3]
+
+
+def test_wait_for_storage_checkpoint_accepts_querycoord_omitted_loaded_version(
+    monkeypatch,
+):
+    client = FakeStorageClient()
+    client.persistent = [
+        [segment(21, 100, 2)],
+        [segment(21, 100, 3)],
+        [segment(21, 100, 3)],
+    ]
+    client.loaded = [
+        [segment(21, 100, 0)],
+        [segment(21, 100, 0)],
+        [segment(21, 100, 0)],
+    ]
+    monkeypatch.setattr(validator, "sleep", lambda _: None)
+
+    checkpoint = validator._wait_for_storage_checkpoint(
+        client,
+        "coll",
+        expected_rows=None,
+        expected_storage_version=3,
+        timeout_sec=1,
+        poll_interval_sec=0,
+    )
+
+    assert checkpoint["storage_versions"] == [3]
+    assert checkpoint["serving_storage_versions"] == [0]
