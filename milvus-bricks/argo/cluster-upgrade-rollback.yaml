@@ -557,7 +557,7 @@ spec:
                     --function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}
 
           - name: patch-post-upgrade-config
-            dependencies: [schema-evolution-existing, pressure-daemon]
+            dependencies: [stop-pressure-daemon]
             template: patch-milvus-config
             arguments:
               parameters:
@@ -589,6 +589,10 @@ spec:
               parameters:
                 - name: phase
                   value: post-upgrade-config
+
+          - name: stop-pressure-daemon
+            dependencies: [schema-evolution-existing, strict-pressure-after-upgrade]
+            template: stop-pressure-daemon
 
           - name: assert-post-upgrade-storage-config
             dependencies: [snapshot-post-upgrade-config, pressure-daemon]
@@ -2631,6 +2635,19 @@ spec:
                 sleep "{{workflow.parameters.pressure-interval-sec}}"
               done
             done
+
+    - name: stop-pressure-daemon
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        args:
+          - |
+            set -eux
+            kubectl -n "{{workflow.namespace}}" create configmap "{{workflow.name}}-pressure-stop" \
+              --from-literal=reason=storage-v3-compaction-validation \
+              --dry-run=client -o yaml | kubectl apply -f -
+            # The daemon checks the stop ConfigMap between 10-second pressure rounds.
+            sleep 15
 
     - name: run-pressure-suite
       inputs:
