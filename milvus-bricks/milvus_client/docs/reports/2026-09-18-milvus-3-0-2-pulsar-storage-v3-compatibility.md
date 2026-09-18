@@ -2,7 +2,7 @@
 
 日期：2026-09-18  
 范围：QA 4am Kubernetes，cluster 模式，最多 3 个并发测试集群  
-测试仓库：`yanliang567/vectordb-testbricks`，revision `a9b86f4`
+测试仓库：`yanliang567/vectordb-testbricks`，revision `464c193e34909a32681d2aa458979482771a1b3d`
 
 ## 结论摘要
 
@@ -18,7 +18,7 @@ Milvus 3.0.2 candidate / storage v2
 Milvus 3.0.2 / Storage v3
 ```
 
-Pulsar 路径已完成端到端验证；Storage v3 验证不是只看配置开关，而是执行了手动 `compact`、核对 source→target segment lineage、release/load、QueryNode 加载版本、query 和 vector search。验证器结果为 **11/11 collections、11 个 compact jobs、24 个 compaction plans、11/11 持久化为 storage v3、11/11 load 后 query、33 次 search，PASS**。
+Pulsar 路径已完成端到端验证；Storage v3 验证不是只看配置开关，而是执行了手动 `compact`、核对 source→target segment lineage、release/load、QueryNode 加载版本、query 和 vector search。最终验证器结果为 **11/11 collections、7 个手动 compact jobs、20 个 compaction plans、4 个异步自动转换为 v3、11/11 持久化为 storage v3、11/11 load 后 query、33 次 search，PASS**。
 
 当前 candidate 的发布建议仍为 **NO-GO**，原因不是 Pulsar 或 Storage v3 数据路径失败，而是已确认的共享 Milvus debug count panic（v3.0.1 与 candidate 都存在）。本报告同时记录一个 Milvus QueryCoord 观测缺陷：SDK 的 loaded segment API 对已由 QueryNode 实际加载的 storage v3 segment 返回 `storage_version=0`，不能据此判定 Storage v3 未生效。
 
@@ -40,7 +40,7 @@ LoonFFI 是 Storage v3 的控制路径；Vortex 与本场景无直接关系，�
 
 Workflow 使用 cluster profile，先在 v2.6.22 创建 schema、写入存量数据并完成 baseline checkpoint，再升级到 candidate。升级前后均执行 serviceability、schema/data、index compatibility、DML/DQL 和持续 pressure 验证。升级后切换 LoonFFI 配置，等待配置生效，再进入 Storage v3 验证。
 
-最终干净重跑 workflow：[`c2622-pulsar-final-zdrdd`](https://argo-workflows.zilliz.cc/workflows/qa/c2622-pulsar-final-zdrdd)。前一轮主验证 [`c2622-pulsar-rerun-nsblk`](https://argo-workflows.zilliz.cc/workflows/qa/c2622-pulsar-rerun-nsblk) 的业务验证已通过，但 onExit 报告生成器因参数解析缺失退出 2；该 test-bricks bug 已在 `a9b86f4` 修复并由干净重跑复核。
+最终干净重跑 workflow：[`c2622-pulsar-final-b27pp`](https://argo-workflows.zilliz.cc/workflows/qa/c2622-pulsar-final-b27pp)，Argo `Succeeded`。前一轮主验证 [`c2622-pulsar-rerun-nsblk`](https://argo-workflows.zilliz.cc/workflows/qa/c2622-pulsar-rerun-nsblk) 的业务验证已通过，但 onExit 报告生成器因参数解析缺失退出 2；该 test-bricks bug 已在 `a9b86f4` 修复，Storage v3 混合版本收敛问题随后在 `464c193` 修复，最终 workflow 的 `generate-final-report` 和 `gate-final-status` 均成功。
 
 ### 2. 手动 compact 与存量 segment 转换
 
@@ -64,19 +64,19 @@ state=Completed
 5 个 mergeInfos 均为 source→target，所有计划为 CompactionTaskStateCleaned
 ```
 
-最终重跑的 validator stdout 给出：
+最终 workflow `c2622-pulsar-final-b27pp` 的 validator stdout 给出：
 
 ```json
 {
   "status": "passed",
   "collections_checked": 11,
-  "compact_jobs": 11,
-  "compaction_plans": 24,
+  "compact_jobs": 7,
+  "compaction_plans": 20,
+  "already_storage_v3_collections": 4,
   "storage_v3_persistent_collections": 11,
   "storage_v3_loaded_collections": 11,
   "query_collections": 11,
   "searches_total": 33,
-  "already_storage_v3_collections": 0,
   "failures": []
 }
 ```
@@ -156,7 +156,7 @@ Woodpecker 旧 metadata recovery：**不兼容，根因已定位**。
 ## 可复核代码与提交
 
 - test branch：`test/3-0-2-upgrade-compat-validation`
-- latest commit：`a9b86f4 fix: unblock cluster pressure shutdown and workflow report`
+- latest commit：`464c193 test: wait for storage version conversion to converge`
 - storage validator：`milvus-bricks/milvus_client/requests/validate_storage_v3_compaction.py`
 - Pulsar profile：`milvus-bricks/milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml`
 - report generator：`milvus-bricks/milvus_client/requests/generate_workflow_report.py`
