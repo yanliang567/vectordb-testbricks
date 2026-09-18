@@ -4116,7 +4116,6 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     ]
     assert tasks["schema-evolution-existing"]["dependencies"] == [
         "strict-pressure-after-upgrade",
-        "pressure-daemon",
     ]
     post_config_args = {
         parameter["name"]: parameter["value"]

@@ -556,6 +556,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rollback-target-scalar-index-version", type=int, default=-1)
     parser.add_argument("--post-upgrade-config-toggle-enabled", default="false")
     parser.add_argument("--post-upgrade-json-shredding-enabled", default="false")
+    parser.add_argument("--post-upgrade-loon-ffi-enabled", default="false")
+    parser.add_argument("--storage-v3-compaction-validation-enabled", default="false")
     parser.add_argument("--forward-workload-enabled", default="false")
     parser.add_argument("--forward-schema-matrix", default="")
     parser.add_argument("--rollback-enabled", default="true")

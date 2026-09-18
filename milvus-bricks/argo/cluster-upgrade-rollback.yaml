@@ -535,7 +535,10 @@ spec:
                     --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: schema-evolution-existing
-            dependencies: [strict-pressure-after-upgrade, pressure-daemon]
+            # This optional task must be allowed to skip while the pressure
+            # daemon is still running; otherwise stop-pressure-daemon waits
+            # for this task and the DAG deadlocks when the task is disabled.
+            dependencies: [strict-pressure-after-upgrade]
             template: optional-run-brick
             arguments:
               parameters:
