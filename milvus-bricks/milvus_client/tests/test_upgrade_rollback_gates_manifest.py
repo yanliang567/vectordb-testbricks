@@ -92,12 +92,18 @@ def test_manifest_v2_contract_migration_preserves_existing_execution_paths():
         if key not in new_paths
     } == expected
     assert new_paths <= set(actual)
-    assert actual["cluster-2-6-22-to-3-0-2-storage-v3-compaction"][
-        "post-upgrade-loon-ffi-enabled"
-    ] == "true"
-    assert actual["cluster-2-6-22-to-3-0-2-storage-v3-compaction"][
-        "storage-v3-compaction-validation-enabled"
-    ] == "true"
+    assert (
+        actual["cluster-2-6-22-to-3-0-2-storage-v3-compaction"][
+            "post-upgrade-loon-ffi-enabled"
+        ]
+        == "true"
+    )
+    assert (
+        actual["cluster-2-6-22-to-3-0-2-storage-v3-compaction"][
+            "storage-v3-compaction-validation-enabled"
+        ]
+        == "true"
+    )
 
 
 def test_2622_storage_v3_woodpecker_known_limitation_uses_pulsar_gate_by_default():

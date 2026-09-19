@@ -634,7 +634,10 @@ def test_upgrade_rollback_templates_assert_storage_config_before_phase_validatio
             expected_forward_dependencies.insert(
                 1, "validate-storage-v3-compaction-after-upgrade"
             )
-        assert tasks["create-forward-schema"]["dependencies"] == expected_forward_dependencies
+        assert (
+            tasks["create-forward-schema"]["dependencies"]
+            == expected_forward_dependencies
+        )
         assert tasks["assert-after-rollback-storage-config"]["dependencies"] == [
             "snapshot-after-rollback-config",
             "pressure-daemon",
@@ -2640,9 +2643,9 @@ def test_upgrade_rollback_templates_retry_only_idempotent_read_bricks(filename):
         "milvus_client.requests.seed_data",
         "milvus_client.requests.validate_phase_dml_dql",
         "milvus_client.requests.validate_schema_features",
-            "milvus_client.requests.schema_evolution_workload",
-            "milvus_client.requests.drop_schema_matrix",
-            "milvus_client.requests.validate_storage_v3_compaction",
+        "milvus_client.requests.schema_evolution_workload",
+        "milvus_client.requests.drop_schema_matrix",
+        "milvus_client.requests.validate_storage_v3_compaction",
     }
 
     for task in tasks.values():
@@ -4073,6 +4076,8 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     final_command = templates["generate-final-report"]["container"]["args"][0]
     assert "--scenario-id" in final_command
     assert "--deploy-profile" in final_command
+    assert "--post-upgrade-loon-ffi-enabled" in final_command
+    assert "--storage-v3-compaction-validation-enabled" in final_command
     assert "--index-compatibility-validation-enabled" in final_command
     assert "--phase-dml-dql-validation-enabled" in final_command
     assert "--phase-new-collection-rows" in final_command

@@ -25,6 +25,7 @@ SERVING_SEGMENT_MISMATCH = "STORAGE_V3_SERVING_SEGMENT_MISMATCH"
 DATA_QUERY_FAILED = "STORAGE_V3_DATA_QUERY_FAILED"
 DATA_INTEGRITY_FAILED = "STORAGE_V3_DATA_INTEGRITY_FAILED"
 COMPACTION_LINEAGE_FAILED = "STORAGE_V3_COMPACTION_LINEAGE_FAILED"
+CHECKPOINT_EMPTY = "STORAGE_V3_CHECKPOINT_EMPTY"
 
 ACTIVE_SEGMENT_STATES = {"Growing", "Flushed", "Sealed"}
 STABLE_SEGMENT_STATES = {"Flushed", "Sealed"}
@@ -116,7 +117,9 @@ def _wait_for_compaction(
             for plan in getattr(plans, "plans", []) or []:
                 plan_items.append(
                     {
-                        "sources": [int(source) for source in getattr(plan, "sources", [])],
+                        "sources": [
+                            int(source) for source in getattr(plan, "sources", [])
+                        ],
                         "target": int(getattr(plan, "target", -1)),
                     }
                 )
@@ -286,6 +289,13 @@ def _release_and_load(client: Any, collection: str, timeout_sec: float) -> None:
     client.load_collection(collection_name=collection, timeout=timeout_sec)
 
 
+def _checkpoint_collections(seed_checkpoint: dict[str, Any]) -> dict[str, Any]:
+    collections = seed_checkpoint.get("collections")
+    if not isinstance(collections, dict) or not collections:
+        raise ValueError("seed checkpoint contains no collections")
+    return collections
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_common_parser(
         "Compact existing storage-v2 segments into storage-v3 and verify serving reads"
@@ -308,7 +318,10 @@ def main(argv: list[str] | None = None) -> int:
         specs = {spec.name: spec for spec in load_schema_matrix(args.schema_matrix)}
         client = create_client(args.uri, args.token, args.db_name)
         result.capabilities = {"server_version": get_server_version(client)}
-        evidence = {"expected_storage_version": args.expected_storage_version, "collections": {}}
+        evidence = {
+            "expected_storage_version": args.expected_storage_version,
+            "collections": {},
+        }
         metrics = {
             "collections_checked": 0,
             "compact_jobs": 0,
@@ -320,7 +333,17 @@ def main(argv: list[str] | None = None) -> int:
             "searches_total": 0,
         }
 
-        for collection, meta in seed_checkpoint.get("collections", {}).items():
+        try:
+            collections = _checkpoint_collections(seed_checkpoint)
+        except ValueError as exc:
+            report.fail(
+                CHECKPOINT_EMPTY,
+                "seed checkpoint must contain at least one collection",
+                error=str(exc),
+            )
+            collections = {}
+
+        for collection, meta in collections.items():
             spec = specs.get(meta.get("schema_name"))
             if spec is None:
                 report.fail(
@@ -349,7 +372,9 @@ def main(argv: list[str] | None = None) -> int:
                     state = "AlreadyStorageV3"
                     plans = []
                     after_persisted = before
-                elif before["storage_versions"] != [args.expected_before_storage_version]:
+                elif before["storage_versions"] != [
+                    args.expected_before_storage_version
+                ]:
                     report.fail(
                         STORAGE_VERSION_MISMATCH,
                         "pre-compaction persistent segments are not all storage-v2",
@@ -421,7 +446,12 @@ def main(argv: list[str] | None = None) -> int:
                     expected_keys=before_primary_keys,
                 )
                 metrics["query_collections"] += 1
-                if query_evidence["missing_sample"] or query_evidence["unexpected_sample"] or query_evidence["actual_count"] != query_evidence["expected_count"]:
+                if (
+                    query_evidence["missing_sample"]
+                    or query_evidence["unexpected_sample"]
+                    or query_evidence["actual_count"]
+                    != query_evidence["expected_count"]
+                ):
                     report.fail(
                         DATA_INTEGRITY_FAILED,
                         "query iterator did not return the checkpoint primary-key set",

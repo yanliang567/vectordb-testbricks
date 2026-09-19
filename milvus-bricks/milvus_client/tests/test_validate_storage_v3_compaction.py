@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import json
 
 from milvus_client.requests import validate_storage_v3_compaction as validator
 
@@ -152,3 +153,37 @@ def test_wait_for_storage_version_convergence_allows_transient_mixed_versions(
 
     assert already_storage_v3 is True
     assert checkpoint["storage_versions"] == [3]
+
+
+def test_main_rejects_empty_checkpoint(monkeypatch, tmp_path):
+    checkpoint_file = tmp_path / "seed.json"
+    checkpoint_file.write_text(json.dumps({"collections": {}}))
+    output_json = tmp_path / "result.json"
+    checkpoint_dir = tmp_path / "checkpoint"
+    checkpoint_dir.mkdir()
+    monkeypatch.setattr(validator, "load_schema_matrix", lambda _: [])
+    monkeypatch.setattr(validator, "create_client", lambda *args, **kwargs: object())
+    monkeypatch.setattr(validator, "get_server_version", lambda _: "v3")
+
+    code = validator.main(
+        [
+            "--uri",
+            "http://milvus.test",
+            "--collection-prefix",
+            "upgrade_test",
+            "--checkpoint-dir",
+            str(checkpoint_dir),
+            "--output-json",
+            str(output_json),
+            "--schema-matrix",
+            str(tmp_path / "schema.yaml"),
+            "--checkpoint-file",
+            str(checkpoint_file),
+        ]
+    )
+
+    result = json.loads(output_json.read_text())
+    assert code == 1
+    assert result["status"] == "failed"
+    assert result["metrics"]["collections_checked"] == 0
+    assert result["failures"][0]["type"] == "STORAGE_V3_CHECKPOINT_EMPTY"

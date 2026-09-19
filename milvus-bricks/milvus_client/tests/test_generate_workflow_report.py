@@ -113,6 +113,10 @@ def _base_args(tmp_path: Path, *, pressure_fail_on_error: str) -> list[str]:
         "false",
         "--post-upgrade-json-shredding-enabled",
         "true",
+        "--post-upgrade-loon-ffi-enabled",
+        "false",
+        "--storage-v3-compaction-validation-enabled",
+        "false",
         "--forward-workload-enabled",
         "false",
         "--forward-schema-matrix",
@@ -456,6 +460,8 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
         "rollback_target_scalar_index_version": -1,
         "post_upgrade_config_toggle_enabled": False,
         "post_upgrade_json_shredding_enabled": True,
+        "post_upgrade_loon_ffi_enabled": False,
+        "storage_v3_compaction_validation_enabled": False,
         "forward_workload_enabled": False,
         "forward_schema_matrix": "milvus_client/manifests/schema_matrix_3_0.yaml",
         "rollback_enabled": True,
@@ -487,6 +493,8 @@ def test_generate_workflow_report_marks_pressure_failures_as_warning_when_not_st
     assert "- phase new collection rows/schema: `3000`" in markdown
     assert "- base jsonShredding: `True`" in markdown
     assert "- target LoonFFI/storage v3: `False`" in markdown
+    assert "- post-upgrade LoonFFI/storage v3: `False`" in markdown
+    assert "- StorageV3 compaction validation: `False`" in markdown
     assert "- target vortex: `False`" in markdown
     assert "## Validation" in markdown
     assert "## Serviceability Recovery" in markdown
@@ -1121,6 +1129,49 @@ def test_generate_workflow_report_does_not_require_forward_rollback_without_forw
     assert rc == 0
     assert report["status"] == "passed"
     assert "validate_forward_after_rollback" not in report["validation"]["results"]
+
+
+def test_generate_workflow_report_requires_storage_v3_validation_result(tmp_path):
+    _write_successful_upgrade_only_validation(tmp_path)
+    _write_json(
+        tmp_path / "pressure-summary.json",
+        {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "fail_on_error": True,
+            "failed_results": [],
+        },
+    )
+    (tmp_path / "k8s").mkdir()
+
+    rc = generate_workflow_report.main(
+        [
+            *_base_args(tmp_path, pressure_fail_on_error="true"),
+            "--rollback-enabled",
+            "false",
+            "--storage-v3-compaction-validation-enabled",
+            "true",
+            "--post-upgrade-loon-ffi-enabled",
+            "true",
+        ]
+    )
+
+    report = json.loads((tmp_path / "reports" / "orchestrator_report.json").read_text())
+    assert rc == 1
+    assert report["status"] == "failed"
+    assert (
+        report["validation"]["results"]["validate_storage_v3_compaction_after_upgrade"][
+            "status"
+        ]
+        == "missing"
+    )
+    assert (
+        report["parameters"]["config_matrix"][
+            "storage_v3_compaction_validation_enabled"
+        ]
+        is True
+    )
 
 
 def test_generate_workflow_report_allows_strict_upgrade_only_gate_without_rollback_validation(
