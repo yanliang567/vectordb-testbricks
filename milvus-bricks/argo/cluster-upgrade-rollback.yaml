@@ -85,6 +85,10 @@ spec:
         value: "false"
       - name: post-upgrade-json-shredding-enabled
         value: "false"
+      - name: post-upgrade-loon-ffi-enabled
+        value: "false"
+      - name: storage-v3-compaction-validation-enabled
+        value: "false"
       - name: forward-workload-enabled
         value: "false"
       - name: forward-schema-matrix
@@ -531,7 +535,10 @@ spec:
                     --release-gate-eligible {{workflow.parameters.release-gate-eligible}}
 
           - name: schema-evolution-existing
-            dependencies: [strict-pressure-after-upgrade, pressure-daemon]
+            # This optional task must be allowed to skip while the pressure
+            # daemon is still running; otherwise stop-pressure-daemon waits
+            # for this task and the DAG deadlocks when the task is disabled.
+            dependencies: [strict-pressure-after-upgrade]
             template: optional-run-brick
             arguments:
               parameters:
@@ -553,7 +560,7 @@ spec:
                     --function-field-cycle-enabled {{workflow.parameters.target-loon-ffi-enabled}}
 
           - name: patch-post-upgrade-config
-            dependencies: [schema-evolution-existing, pressure-daemon]
+            dependencies: [stop-pressure-daemon]
             template: patch-milvus-config
             arguments:
               parameters:
@@ -562,7 +569,7 @@ spec:
                 - name: json-shredding-enabled
                   value: "{{workflow.parameters.post-upgrade-json-shredding-enabled}}"
                 - name: loon-ffi-enabled
-                  value: "{{workflow.parameters.target-loon-ffi-enabled}}"
+                  value: "{{workflow.parameters.post-upgrade-loon-ffi-enabled}}"
                 - name: vortex-enabled
                   value: "{{workflow.parameters.target-vortex-enabled}}"
                 - name: target-vec-index-version
@@ -586,6 +593,10 @@ spec:
                 - name: phase
                   value: post-upgrade-config
 
+          - name: stop-pressure-daemon
+            dependencies: [schema-evolution-existing, strict-pressure-after-upgrade]
+            template: stop-pressure-daemon
+
           - name: assert-post-upgrade-storage-config
             dependencies: [snapshot-post-upgrade-config, pressure-daemon]
             template: assert-milvus-storage-config
@@ -596,12 +607,34 @@ spec:
                 - name: expected-json-shredding-enabled
                   value: "{{workflow.parameters.post-upgrade-json-shredding-enabled}}"
                 - name: expected-loon-ffi-enabled
-                  value: "{{workflow.parameters.target-loon-ffi-enabled}}"
+                  value: "{{workflow.parameters.post-upgrade-loon-ffi-enabled}}"
                 - name: expected-vortex-enabled
                   value: "{{workflow.parameters.target-vortex-enabled}}"
 
-          - name: create-forward-schema
+          - name: validate-storage-v3-compaction-after-upgrade
             dependencies: [assert-post-upgrade-storage-config, pressure-daemon]
+            when: "{{workflow.parameters.storage-v3-compaction-validation-enabled}} == true"
+            template: optional-run-brick
+            arguments:
+              parameters:
+                - name: enabled
+                  value: "{{workflow.parameters.storage-v3-compaction-validation-enabled}}"
+                - name: brick-name
+                  value: validate_storage_v3_compaction_after_upgrade
+                - name: module
+                  value: milvus_client.requests.validate_storage_v3_compaction
+                - name: collection-prefix
+                  value: "{{workflow.parameters.collection-prefix}}"
+                - name: args
+                  value: >-
+                    --schema-matrix {{workflow.parameters.schema-matrix}}
+                    --checkpoint-file /tmp/milvus-bricks/checkpoints/baseline/seed_data.json
+                    --expected-storage-version 3
+                    --expected-before-storage-version 2
+                    --timeout-sec {{workflow.parameters.rollback-serviceability-timeout-sec}}
+
+          - name: create-forward-schema
+            dependencies: [assert-post-upgrade-storage-config, validate-storage-v3-compaction-after-upgrade, pressure-daemon]
             template: optional-run-brick
             arguments:
               parameters:
@@ -1330,6 +1363,8 @@ spec:
               "rollback_vortex_enabled": "{{workflow.parameters.rollback-vortex-enabled}}",
               "post_upgrade_config_toggle_enabled": "{{workflow.parameters.post-upgrade-config-toggle-enabled}}",
               "post_upgrade_json_shredding_enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
+              "post_upgrade_loon_ffi_enabled": "{{workflow.parameters.post-upgrade-loon-ffi-enabled}}",
+              "storage_v3_compaction_validation_enabled": "{{workflow.parameters.storage-v3-compaction-validation-enabled}}",
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",
               "forward_schema_matrix": "{{workflow.parameters.forward-schema-matrix}}",
               "rollback_enabled": "{{workflow.parameters.rollback-enabled}}",
@@ -1395,6 +1430,8 @@ spec:
               "rollback_vortex_enabled": "{{workflow.parameters.rollback-vortex-enabled}}",
               "post_upgrade_config_toggle_enabled": "{{workflow.parameters.post-upgrade-config-toggle-enabled}}",
               "post_upgrade_json_shredding_enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
+              "post_upgrade_loon_ffi_enabled": "{{workflow.parameters.post-upgrade-loon-ffi-enabled}}",
+              "storage_v3_compaction_validation_enabled": "{{workflow.parameters.storage-v3-compaction-validation-enabled}}",
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",
               "forward_schema_matrix": "{{workflow.parameters.forward-schema-matrix}}",
               "rollback_enabled": "{{workflow.parameters.rollback-enabled}}",
@@ -1516,6 +1553,8 @@ spec:
                 "rollback-target-scalar-index-version": "{{workflow.parameters.rollback-target-scalar-index-version}}",
                 "post-upgrade-config-toggle-enabled": "{{workflow.parameters.post-upgrade-config-toggle-enabled}}",
                 "post-upgrade-json-shredding-enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
+                "post-upgrade-loon-ffi-enabled": "{{workflow.parameters.post-upgrade-loon-ffi-enabled}}",
+                "storage-v3-compaction-validation-enabled": "{{workflow.parameters.storage-v3-compaction-validation-enabled}}",
                 "forward-workload-enabled": "{{workflow.parameters.forward-workload-enabled}}",
                 "forward-schema-matrix": "{{workflow.parameters.forward-schema-matrix}}",
                 "rollback-enabled": "{{workflow.parameters.rollback-enabled}}",
@@ -2600,6 +2639,19 @@ spec:
               done
             done
 
+    - name: stop-pressure-daemon
+      container:
+        image: "{{workflow.parameters.client-image}}"
+        command: [sh, -c]
+        args:
+          - |
+            set -eux
+            kubectl -n "{{workflow.namespace}}" create configmap "{{workflow.name}}-pressure-stop" \
+              --from-literal=reason=storage-v3-compaction-validation \
+              --dry-run=client -o yaml | kubectl apply -f -
+            # The daemon checks the stop ConfigMap between 10-second pressure rounds.
+            sleep 15
+
     - name: run-pressure-suite
       inputs:
         parameters:
@@ -3135,6 +3187,8 @@ spec:
               --rollback-target-scalar-index-version "{{workflow.parameters.rollback-target-scalar-index-version}}" \
               --post-upgrade-config-toggle-enabled "{{workflow.parameters.post-upgrade-config-toggle-enabled}}" \
               --post-upgrade-json-shredding-enabled "{{workflow.parameters.post-upgrade-json-shredding-enabled}}" \
+              --post-upgrade-loon-ffi-enabled "{{workflow.parameters.post-upgrade-loon-ffi-enabled}}" \
+              --storage-v3-compaction-validation-enabled "{{workflow.parameters.storage-v3-compaction-validation-enabled}}" \
               --forward-workload-enabled "{{workflow.parameters.forward-workload-enabled}}" \
               --forward-schema-matrix "{{workflow.parameters.forward-schema-matrix}}" \
               --rollback-enabled "{{workflow.parameters.rollback-enabled}}" \
@@ -3420,6 +3474,8 @@ spec:
               "rollback_vortex_enabled": "{{workflow.parameters.rollback-vortex-enabled}}",
               "post_upgrade_config_toggle_enabled": "{{workflow.parameters.post-upgrade-config-toggle-enabled}}",
               "post_upgrade_json_shredding_enabled": "{{workflow.parameters.post-upgrade-json-shredding-enabled}}",
+              "post_upgrade_loon_ffi_enabled": "{{workflow.parameters.post-upgrade-loon-ffi-enabled}}",
+              "storage_v3_compaction_validation_enabled": "{{workflow.parameters.storage-v3-compaction-validation-enabled}}",
               "forward_workload_enabled": "{{workflow.parameters.forward-workload-enabled}}",
               "forward_schema_matrix": "{{workflow.parameters.forward-schema-matrix}}",
               "rollback_enabled": "{{workflow.parameters.rollback-enabled}}",

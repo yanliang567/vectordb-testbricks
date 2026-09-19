@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 import ast
 import json
@@ -1043,6 +1044,7 @@ def validate_scalar_index_queries(
     report: ValidationReport,
     probe_overrides: dict[str, tuple[int, Any, str]] | None = None,
     server_version: str | None = None,
+    rpc_timeout: Callable[[], float] | None = None,
 ) -> int:
     primary = _primary_field(spec)
     primary_name = meta.get("primary_field") or (
@@ -1097,13 +1099,21 @@ def validate_scalar_index_queries(
             f"({scalar_filter_expr}) && "
             f"{primary_name} == {format_filter_value(expected_pk)}"
         )
-        try:
-            scalar_rows = client.query(
+
+        def query_rows(query_filter: str) -> list[dict[str, Any]]:
+            query_kwargs = {}
+            if rpc_timeout is not None:
+                query_kwargs["timeout"] = rpc_timeout()
+            return client.query(
                 collection_name=collection,
-                filter=scalar_filter_expr,
+                filter=query_filter,
                 output_fields=[primary_name],
                 limit=1,
+                **query_kwargs,
             )
+
+        try:
+            scalar_rows = query_rows(scalar_filter_expr)
             if not scalar_rows:
                 report.fail(
                     INDEX_SCALAR_QUERY_FAILED,
@@ -1114,12 +1124,7 @@ def validate_scalar_index_queries(
                     data_pk=data_pk_number,
                     expected_pk=expected_pk,
                 )
-            rows = client.query(
-                collection_name=collection,
-                filter=filter_expr,
-                output_fields=[primary_name],
-                limit=1,
-            )
+            rows = query_rows(filter_expr)
             actual_pks = [row.get(primary_name) for row in rows]
             if expected_pk not in actual_pks:
                 report.fail(

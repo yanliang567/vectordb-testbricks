@@ -268,6 +268,24 @@ class DelayedNewCollectionVisibilityPhaseClient(PhaseClient):
         return super().query(**kwargs)
 
 
+class DelayedScalarIndexPhaseClient(PhaseClient):
+    def __init__(self):
+        super().__init__()
+        self.scalar_probe_failures = 1
+
+    def query(self, **kwargs):
+        filter_expr = kwargs.get("filter", "")
+        if (
+            self.scalar_probe_failures > 0
+            and "category" in filter_expr
+            and "&&" in filter_expr
+        ):
+            self.calls.append(("query", kwargs))
+            self.scalar_probe_failures -= 1
+            return []
+        return super().query(**kwargs)
+
+
 def test_best_effort_flush_and_load_use_bounded_timeouts_without_fallback():
     class RejectTimeoutClient:
         def __init__(self):
@@ -758,6 +776,63 @@ def test_new_phase_visibility_queries_use_remaining_rpc_deadline():
     assert metrics["visibility_attempts"] == 1
     assert len(visibility_queries) == 3
     assert all(0 < call["timeout"] <= 5 for call in visibility_queries)
+
+
+def test_existing_phase_waits_for_async_scalar_index_visibility():
+    client = DelayedScalarIndexPhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        _dense_spec(),
+        "qa_dense",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=1,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    assert report.passed
+    assert metrics["scalar_index_visibility_attempts"] == 2
+    assert metrics["scalar_index_queries"] == 1
+
+
+def test_existing_phase_scalar_index_visibility_timeout_fails_closed():
+    client = DelayedScalarIndexPhaseClient()
+    report = ValidationReport()
+
+    metrics = validate_phase_dml_dql._run_existing_collection_dml_dql(
+        client,
+        _dense_spec(),
+        "qa_dense",
+        rows=4,
+        delete_rows=1,
+        batch_size=2,
+        start_id=50_000_000,
+        seed=7,
+        visibility_timeout_sec=0,
+        visibility_interval_sec=0,
+        report=report,
+    )
+
+    assert not report.passed
+    assert metrics["scalar_index_visibility_attempts"] == 1
+    assert any(
+        failure["type"] == "INDEX_SCALAR_QUERY_FAILED"
+        and failure.get("field") == "category"
+        for failure in report.failures
+    )
+    scalar_calls = [
+        call[1]
+        for call in client.calls
+        if call[0] == "query" and "category" in call[1].get("filter", "")
+    ]
+    assert scalar_calls
+    assert all(0 < call["timeout"] <= 1 for call in scalar_calls)
 
 
 def test_existing_phase_reload_revalidates_vector_search():
@@ -1820,6 +1895,7 @@ def test_phase_checkpoint_queries_scalar_indexes_after_reload(monkeypatch, tmp_p
         report,
         probe_overrides=None,
         server_version=None,
+        rpc_timeout=None,
     ):
         observed.append((collection, meta, seed, probe_overrides))
         return 2

@@ -1,5 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
+import json
 
 import pytest
 import yaml
@@ -17,6 +18,8 @@ from milvus_client.common.schema import load_schema_matrix
 
 ROOT = Path(__file__).resolve().parents[1]
 GATES = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
+RELEASE_ARTIFACT_ROOT = ROOT.parent / "artifacts" / "3-0-2-upgrade-compatibility"
+RELEASE_SCHEDULER = RELEASE_ARTIFACT_ROOT / "scheduler-r2.sh"
 EXECUTION_PATH_FIXTURE = (
     ROOT / "tests" / "fixtures" / "upgrade_rollback_execution_paths_v1.yaml"
 )
@@ -73,7 +76,96 @@ def test_manifest_v2_contract_migration_preserves_existing_execution_paths():
     expected = yaml.safe_load(EXECUTION_PATH_FIXTURE.read_text())
 
     assert len(expected) == 26
-    assert _execution_path_signatures(_manifest()) == expected
+    actual = _execution_path_signatures(_manifest())
+    new_2_6_24_paths = {
+        "standalone-2-6-18-to-2-6-24-rollback-2-6-18",
+        "cluster-2-6-18-to-2-6-24-rollback-2-6-18",
+    }
+    new_paths = new_2_6_24_paths | {
+        "cluster-2-6-22-to-3-0-2-storage-v3-compaction",
+        "cluster-2-6-22-to-3-0-2-storage-v3-compaction-pulsar",
+    }
+    legacy_only = {
+        "post-upgrade-loon-ffi-enabled",
+        "storage-v3-compaction-validation-enabled",
+    }
+    assert {
+        key: {name: value for name, value in values.items() if name not in legacy_only}
+        for key, values in actual.items()
+        if key not in new_paths
+    } == expected
+    assert new_paths <= set(actual)
+    assert (
+        actual["cluster-2-6-22-to-3-0-2-storage-v3-compaction"][
+            "post-upgrade-loon-ffi-enabled"
+        ]
+        == "true"
+    )
+    assert (
+        actual["cluster-2-6-22-to-3-0-2-storage-v3-compaction"][
+            "storage-v3-compaction-validation-enabled"
+        ]
+        == "true"
+    )
+
+
+def test_2622_storage_v3_woodpecker_known_limitation_uses_pulsar_gate_by_default():
+    manifest = _manifest()
+    woodpecker = resolve_gate_scenario(
+        manifest, "cluster-2-6-22-to-3-0-2-storage-v3-compaction"
+    )
+    pulsar = resolve_gate_scenario(
+        manifest, "cluster-2-6-22-to-3-0-2-storage-v3-compaction-pulsar"
+    )
+
+    assert woodpecker["classification"] == "known_limitation"
+    assert woodpecker["support_status"] == "unsupported"
+    assert "woodpecker#216" in woodpecker["description"]
+    assert (
+        render_argo_parameters(woodpecker, manifest, allow_placeholder=True)[
+            "release-gate-eligible"
+        ]
+        == "false"
+    )
+
+    assert pulsar["classification"] == "gate"
+    assert pulsar["support_status"] == "supported"
+    assert pulsar["deploy_profile"].endswith(
+        "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
+    )
+    assert (
+        render_argo_parameters(pulsar, manifest, allow_placeholder=True)[
+            "release-gate-eligible"
+        ]
+        == "true"
+    )
+
+
+def test_release_scheduler_covers_every_rendered_scenario_and_pulsar_storage_v3_gate():
+    scheduler = RELEASE_SCHEDULER.read_text()
+    rendered = {
+        json.loads(path.read_text())["scenario_id"]
+        for path in (RELEASE_ARTIFACT_ROOT / "rendered").glob("*.json")
+    }
+
+    assert rendered
+    assert all(f"  {scenario}\n" in scheduler for scenario in rendered)
+    pulsar = "cluster-2-6-22-to-3-0-2-storage-v3-compaction-pulsar"
+    pulsar_artifact = RELEASE_ARTIFACT_ROOT / "rendered" / f"{pulsar}.json"
+    assert pulsar_artifact.exists()
+    assert (RELEASE_ARTIFACT_ROOT / "rendered" / f"{pulsar}.args").exists()
+    pulsar_parameters = json.loads(pulsar_artifact.read_text())["parameters"]
+    assert pulsar_parameters["base-version"] == "2.6.22"
+    assert pulsar_parameters["target-version"] == "3.0.2"
+    assert pulsar_parameters["deploy-profile"].endswith(
+        "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
+    )
+    assert pulsar_parameters["post-upgrade-loon-ffi-enabled"] == "true"
+    assert pulsar_parameters["storage-v3-compaction-validation-enabled"] == "true"
+    assert "expected_total=$(( ${#standalone_queue[@]} + ${#cluster_queue[@]} ))" in (
+        scheduler
+    )
+    assert "if ((total >= expected_total && running == 0)); then" in scheduler
 
 
 @pytest.mark.parametrize(
@@ -390,7 +482,7 @@ def test_cluster_gate_scenarios_use_cluster_workflow_and_deploy_profile():
         if scenario["classification"] == "gate" and scenario["mode"] == "cluster"
     ]
 
-    assert len(cluster_scenarios) == 10
+    assert len(cluster_scenarios) == 12
     by_id = {scenario["id"]: scenario for scenario in cluster_scenarios}
     assert (
         by_id["cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest"][
@@ -835,16 +927,23 @@ def test_manifest_references_are_centralized():
     manifest = _manifest()
     assert set(manifest["image_aliases"]) == {
         "milvus-2-6-18",
+        "milvus-2-6-22",
+        "milvus-2-6-24-candidate",
         "milvus-2-6-latest",
         "milvus-3-0-baseline",
         "milvus-3-0-latest",
         "milvus-3-0-1",
+        "milvus-3-0-1-release",
         "milvus-3-0-vortex-candidate-baseline",
         "milvus-3-0-vortex-candidate-target",
     }
     assert manifest["image_aliases"]["milvus-3-0-1"] == {
         "image": "harbor.milvus.io/milvusdb/milvus:v3.0.1-placeholder",
         "version": "3.0.1",
+    }
+    assert manifest["image_aliases"]["milvus-2-6-24-candidate"] == {
+        "image": "harbor.milvus.io/milvusdb/milvus:2.6-20260913-bd47ba6a@sha256:6d12a10e9c18790780be7f2eadd8a817846a4db0ca1d96a2ece973c574e9fae9",
+        "version": "2.6.24",
     }
     assert manifest["image_aliases"]["milvus-3-0-baseline"] == {
         "image": MILVUS_3_0_BASELINE_IMAGE,

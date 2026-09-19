@@ -85,6 +85,10 @@ spec:
         value: "false"
       - name: post-upgrade-json-shredding-enabled
         value: "false"
+      - name: post-upgrade-loon-ffi-enabled
+        value: "false"
+      - name: storage-v3-compaction-validation-enabled
+        value: "false"
       - name: forward-workload-enabled
         value: "false"
       - name: forward-schema-matrix

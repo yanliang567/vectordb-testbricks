@@ -44,6 +44,8 @@ def _required_validation_names(config_matrix: dict[str, Any]) -> list[str]:
         required.append("validate_phase_dml_dql_after_upgrade")
     if config_matrix["schema_evolution_existing_enabled"]:
         required.append("validate_schema_evolution_existing_after_upgrade")
+    if config_matrix["storage_v3_compaction_validation_enabled"]:
+        required.append("validate_storage_v3_compaction_after_upgrade")
     if (
         config_matrix["forward_workload_enabled"]
         and config_matrix["schema_evolution_forward_enabled"]
@@ -131,6 +133,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "post_upgrade_json_shredding_enabled": parse_bool(
             args.post_upgrade_json_shredding_enabled
+        ),
+        "post_upgrade_loon_ffi_enabled": parse_bool(args.post_upgrade_loon_ffi_enabled),
+        "storage_v3_compaction_validation_enabled": parse_bool(
+            args.storage_v3_compaction_validation_enabled
         ),
         "forward_workload_enabled": parse_bool(args.forward_workload_enabled),
         "forward_schema_matrix": args.forward_schema_matrix,
@@ -422,6 +428,8 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- rollback vortex: `{config_matrix.get('rollback_vortex_enabled')}`",
         f"- post-upgrade config toggle: `{config_matrix.get('post_upgrade_config_toggle_enabled')}`",
         f"- post-upgrade jsonShredding: `{config_matrix.get('post_upgrade_json_shredding_enabled')}`",
+        f"- post-upgrade LoonFFI/storage v3: `{config_matrix.get('post_upgrade_loon_ffi_enabled')}`",
+        f"- StorageV3 compaction validation: `{config_matrix.get('storage_v3_compaction_validation_enabled')}`",
         f"- forward workload: `{config_matrix.get('forward_workload_enabled')}`",
         f"- forward schema matrix: `{config_matrix.get('forward_schema_matrix')}`",
         f"- rollback enabled: `{config_matrix.get('rollback_enabled')}`",
@@ -556,6 +564,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rollback-target-scalar-index-version", type=int, default=-1)
     parser.add_argument("--post-upgrade-config-toggle-enabled", default="false")
     parser.add_argument("--post-upgrade-json-shredding-enabled", default="false")
+    parser.add_argument("--post-upgrade-loon-ffi-enabled", default="false")
+    parser.add_argument("--storage-v3-compaction-validation-enabled", default="false")
     parser.add_argument("--forward-workload-enabled", default="false")
     parser.add_argument("--forward-schema-matrix", default="")
     parser.add_argument("--rollback-enabled", default="true")

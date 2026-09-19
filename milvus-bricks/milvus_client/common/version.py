@@ -14,6 +14,7 @@ HEX_SUFFIX = re.compile(r"[0-9a-fA-F]{1,32}")
 # `3.0-20260805-ad3ba1ea-amd64`. These are release candidates for the next
 # patch version, so their server version may still report the base patch.
 DAILY_BUILD_TAG = re.compile(r"^v?\d+\.\d+-\d{8}-[0-9a-fA-F]{7,40}(?:-[a-zA-Z0-9]+)?$")
+RELEASE_TAG = re.compile(r"^v?\d+\.\d+\.\d+$")
 
 
 def version_family(value: str) -> str:
@@ -124,6 +125,26 @@ def is_daily_build_image(image: str) -> bool:
     if tag is None:
         return False
     return DAILY_BUILD_TAG.fullmatch(tag) is not None
+
+
+def digest_pinned_release_matches_branch_build(
+    image: str, expected_version: str, actual_version: str
+) -> bool:
+    """Validate release images whose API keeps the branch-build version string."""
+    image_value = str(image).strip()
+    if SHA256_DIGEST.search(image_value) is None:
+        return False
+    tag = image_tag(image_value)
+    if tag is None or RELEASE_TAG.fullmatch(tag) is None:
+        return False
+    if DAILY_BUILD_TAG.fullmatch(str(actual_version).strip()) is None:
+        return False
+    try:
+        return version_core(tag) == version_core(expected_version) and version_family(
+            actual_version
+        ) == version_family(expected_version)
+    except ValueError:
+        return False
 
 
 def diskann_max_sim_cached_distance_bug(expected_server_image: str) -> bool:

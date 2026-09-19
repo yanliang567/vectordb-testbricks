@@ -141,6 +141,88 @@ def test_precheck_accepts_dev_cli_short_sha_candidate_for_higher_patch(
     assert result["metrics"]["candidate_server_version"] == ("3.0-20260831-b746822265b")
 
 
+def test_precheck_accepts_digest_pinned_release_with_branch_build_api_version(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        precheck,
+        "create_client",
+        lambda *args: PrecheckClient("3.0-20260902-658cbd1689"),
+    )
+
+    code = precheck.main(
+        _args(
+            tmp_path,
+            "3.0.1",
+            "--expected-server-image",
+            "harbor.milvus.io/milvusdb/milvus:v3.0.1@sha256:" + "9" * 64,
+            "--release-gate-eligible",
+            "true",
+        )
+    )
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 0
+    assert result["status"] == "passed"
+    assert result["metrics"]["server_version_validation_mode"] == (
+        "digest_pinned_release_build"
+    )
+    assert result["metrics"]["release_image_version"] == "3.0.1"
+    assert result["metrics"]["release_server_build_version"] == (
+        "3.0-20260902-658cbd1689"
+    )
+
+
+def test_precheck_rejects_release_build_when_image_tag_does_not_match_expected_patch(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        precheck,
+        "create_client",
+        lambda *args: PrecheckClient("3.0-20260902-658cbd1689"),
+    )
+
+    code = precheck.main(
+        _args(
+            tmp_path,
+            "3.0.1",
+            "--expected-server-image",
+            "harbor.milvus.io/milvusdb/milvus:v3.0.0@sha256:" + "9" * 64,
+            "--release-gate-eligible",
+            "true",
+        )
+    )
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 1
+    assert result["failures"][0]["type"] == "SERVER_VERSION_TOO_OLD"
+
+
+def test_precheck_rejects_unpinned_release_with_branch_build_api_version(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        precheck,
+        "create_client",
+        lambda *args: PrecheckClient("3.0-20260902-658cbd1689"),
+    )
+
+    code = precheck.main(
+        _args(
+            tmp_path,
+            "3.0.1",
+            "--expected-server-image",
+            "harbor.milvus.io/milvusdb/milvus:v3.0.1",
+            "--release-gate-eligible",
+            "true",
+        )
+    )
+
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert code == 1
+    assert result["failures"][0]["type"] == "SERVER_VERSION_TOO_OLD"
+
+
 def test_precheck_rejects_release_tag_for_higher_patch(monkeypatch, tmp_path):
     monkeypatch.setattr(
         precheck, "create_client", lambda *args: PrecheckClient("v3.0.0")

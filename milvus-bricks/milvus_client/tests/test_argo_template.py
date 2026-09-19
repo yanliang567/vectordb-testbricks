@@ -606,6 +606,11 @@ def test_upgrade_rollback_templates_assert_storage_config_before_phase_validatio
             "snapshot-post-upgrade-config",
             "pressure-daemon",
         ]
+        expected_post_upgrade_loon = (
+            "{{workflow.parameters.post-upgrade-loon-ffi-enabled}}"
+            if template_path.name == "cluster-upgrade-rollback.yaml"
+            else "{{workflow.parameters.target-loon-ffi-enabled}}"
+        )
         assert {
             parameter["name"]: parameter["value"]
             for parameter in tasks["assert-post-upgrade-storage-config"]["arguments"][
@@ -616,17 +621,23 @@ def test_upgrade_rollback_templates_assert_storage_config_before_phase_validatio
             "expected-json-shredding-enabled": (
                 "{{workflow.parameters.post-upgrade-json-shredding-enabled}}"
             ),
-            "expected-loon-ffi-enabled": (
-                "{{workflow.parameters.target-loon-ffi-enabled}}"
-            ),
+            "expected-loon-ffi-enabled": expected_post_upgrade_loon,
             "expected-vortex-enabled": (
                 "{{workflow.parameters.target-vortex-enabled}}"
             ),
         }
-        assert tasks["create-forward-schema"]["dependencies"] == [
+        expected_forward_dependencies = [
             "assert-post-upgrade-storage-config",
             "pressure-daemon",
         ]
+        if template_path.name == "cluster-upgrade-rollback.yaml":
+            expected_forward_dependencies.insert(
+                1, "validate-storage-v3-compaction-after-upgrade"
+            )
+        assert (
+            tasks["create-forward-schema"]["dependencies"]
+            == expected_forward_dependencies
+        )
         assert tasks["assert-after-rollback-storage-config"]["dependencies"] == [
             "snapshot-after-rollback-config",
             "pressure-daemon",
@@ -1656,6 +1667,65 @@ def test_pressure_maintenance_classifier_excludes_collection_not_loaded_during_r
     assert entry["maintenance_window"]["collection"] == "qa_struct_array"
 
 
+def test_pressure_maintenance_classifier_excludes_delegator_closed_during_reload():
+    result = {
+        "status": "failed",
+        "brick": "query_iterator_scan",
+        "started_at": "2026-09-13T04:23:36+00:00",
+        "finished_at": "2026-09-13T04:23:47+00:00",
+        "metrics": {"requests_failed": 2, "failed_query_iterator": 2},
+        "failures": [
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "query_iterator",
+                "collection": "qa_struct_array",
+                "started_at": "2026-09-13T04:23:37+00:00",
+                "finished_at": "2026-09-13T04:23:46+00:00",
+                "error_type": "MilvusException",
+                "error": (
+                    "failed to query: failed to search/query delegator 8 for "
+                    "channel by-dev-rootcoord-dml_13_123v0: fail to Query on "
+                    "QueryNode 8: delegator closed during wait tsafe: channel "
+                    "not available[channel=by-dev-rootcoord-dml_13_123v0]"
+                ),
+                "connectivity_transient": False,
+            },
+            {
+                "type": "PRESSURE_OPERATION_FAILED",
+                "operation": "query_iterator",
+                "collection": "qa_struct_array",
+                "started_at": "2026-09-13T04:23:37+00:00",
+                "finished_at": "2026-09-13T04:23:46+00:00",
+                "error_type": "MilvusException",
+                "error": (
+                    "failed to query: delegator closed during wait tsafe: "
+                    "channel not available[channel=by-dev-rootcoord-dml_13_123v0]"
+                ),
+                "connectivity_transient": False,
+            },
+        ],
+    }
+    windows = [
+        {
+            "kind": "collection-reload",
+            "label": "phase-dml-dql-reload-after-upgrade",
+            "source": "validate_phase_dml_dql",
+            "collection": "qa_struct_array",
+            "started_at": "2026-09-13T04:23:37+00:00",
+            "finished_at": "2026-09-13T04:23:47+00:00",
+        }
+    ]
+
+    classification, entry = classify_pressure_result(
+        "query_iterator_scan.json", result, windows
+    )
+
+    assert classification == "excluded"
+    assert entry["status"] == "maintenance_window_excluded"
+    assert entry["maintenance_window"]["kind"] == "collection-reload"
+    assert entry["maintenance_window"]["collection"] == "qa_struct_array"
+
+
 @pytest.mark.parametrize(
     "failure_timestamps",
     [
@@ -2065,6 +2135,12 @@ def _pressure_maintenance_window(label="upgrade-rollout"):
             "fieldDatas length 0, expected 1 (numGroupingKeys=0, numAggs=1): "
             "service internal error>"
         ),
+        (
+            "<MilvusException: failed to search/query delegator 8: rpc error: "
+            "code = Unknown desc = node not match[expectedNodeID=8]"
+            "[actualNodeID=12]>"
+        ),
+        ("<MilvusException: failed to search/query delegator 12: node not found>"),
     ],
     ids=[
         "channel-distribution-unavailable",
@@ -2073,6 +2149,8 @@ def _pressure_maintenance_window(label="upgrade-rollout"):
         "empty-mixcoord-grpc-client",
         "legacy-count-result-shape",
         "aggregate-count-result-shape",
+        "querynode-id-changed",
+        "querynode-removed",
     ],
 )
 def test_pressure_maintenance_classifier_excludes_each_rollout_service_switch_pattern(
@@ -2126,6 +2204,20 @@ def test_pressure_maintenance_classifier_keeps_wrong_error_type_strict():
 
     assert classification == "failed"
     assert entry["failures"][0]["error_type"] == "AssertionError"
+
+
+def test_pressure_maintenance_classifier_keeps_rollout_node_rotation_failure_for_dml():
+    result = _rollout_service_switch_result(
+        "<MilvusException: failed to search/query delegator 8: node not found>"
+    )
+    result["metrics"] = {"requests_failed": 1, "failed_upsert": 1}
+    result["failures"][0]["operation"] = "upsert"
+    windows = _pressure_maintenance_window()
+
+    classification, entry = classify_pressure_result("mixed.json", result, windows)
+
+    assert classification == "failed"
+    assert entry["failures"][0]["operation"] == "upsert"
 
 
 def test_pressure_maintenance_classifier_keeps_rollout_service_switch_failure_strict_in_schema_window():
@@ -2553,6 +2645,7 @@ def test_upgrade_rollback_templates_retry_only_idempotent_read_bricks(filename):
         "milvus_client.requests.validate_schema_features",
         "milvus_client.requests.schema_evolution_workload",
         "milvus_client.requests.drop_schema_matrix",
+        "milvus_client.requests.validate_storage_v3_compaction",
     }
 
     for task in tasks.values():
@@ -3983,6 +4076,8 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     final_command = templates["generate-final-report"]["container"]["args"][0]
     assert "--scenario-id" in final_command
     assert "--deploy-profile" in final_command
+    assert "--post-upgrade-loon-ffi-enabled" in final_command
+    assert "--storage-v3-compaction-validation-enabled" in final_command
     assert "--index-compatibility-validation-enabled" in final_command
     assert "--phase-dml-dql-validation-enabled" in final_command
     assert "--phase-new-collection-rows" in final_command
@@ -4026,7 +4121,6 @@ def test_cluster_upgrade_rollback_template_uses_cluster_deploy_profile_and_share
     ]
     assert tasks["schema-evolution-existing"]["dependencies"] == [
         "strict-pressure-after-upgrade",
-        "pressure-daemon",
     ]
     post_config_args = {
         parameter["name"]: parameter["value"]
