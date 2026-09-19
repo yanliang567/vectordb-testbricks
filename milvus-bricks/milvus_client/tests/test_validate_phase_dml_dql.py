@@ -826,6 +826,13 @@ def test_existing_phase_scalar_index_visibility_timeout_fails_closed():
         and failure.get("field") == "category"
         for failure in report.failures
     )
+    scalar_calls = [
+        call[1]
+        for call in client.calls
+        if call[0] == "query" and "category" in call[1].get("filter", "")
+    ]
+    assert scalar_calls
+    assert all(0 < call["timeout"] <= 1 for call in scalar_calls)
 
 
 def test_existing_phase_reload_revalidates_vector_search():
@@ -1888,6 +1895,7 @@ def test_phase_checkpoint_queries_scalar_indexes_after_reload(monkeypatch, tmp_p
         report,
         probe_overrides=None,
         server_version=None,
+        rpc_timeout=None,
     ):
         observed.append((collection, meta, seed, probe_overrides))
         return 2

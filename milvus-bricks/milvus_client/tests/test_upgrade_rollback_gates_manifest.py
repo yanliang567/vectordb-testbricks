@@ -1,5 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
+import json
 
 import pytest
 import yaml
@@ -17,6 +18,8 @@ from milvus_client.common.schema import load_schema_matrix
 
 ROOT = Path(__file__).resolve().parents[1]
 GATES = ROOT / "manifests" / "upgrade_rollback_gates.yaml"
+RELEASE_ARTIFACT_ROOT = ROOT.parent / "artifacts" / "3-0-2-upgrade-compatibility"
+RELEASE_SCHEDULER = RELEASE_ARTIFACT_ROOT / "scheduler-r2.sh"
 EXECUTION_PATH_FIXTURE = (
     ROOT / "tests" / "fixtures" / "upgrade_rollback_execution_paths_v1.yaml"
 )
@@ -136,6 +139,33 @@ def test_2622_storage_v3_woodpecker_known_limitation_uses_pulsar_gate_by_default
         ]
         == "true"
     )
+
+
+def test_release_scheduler_covers_every_rendered_scenario_and_pulsar_storage_v3_gate():
+    scheduler = RELEASE_SCHEDULER.read_text()
+    rendered = {
+        json.loads(path.read_text())["scenario_id"]
+        for path in (RELEASE_ARTIFACT_ROOT / "rendered").glob("*.json")
+    }
+
+    assert rendered
+    assert all(f"  {scenario}\n" in scheduler for scenario in rendered)
+    pulsar = "cluster-2-6-22-to-3-0-2-storage-v3-compaction-pulsar"
+    pulsar_artifact = RELEASE_ARTIFACT_ROOT / "rendered" / f"{pulsar}.json"
+    assert pulsar_artifact.exists()
+    assert (RELEASE_ARTIFACT_ROOT / "rendered" / f"{pulsar}.args").exists()
+    pulsar_parameters = json.loads(pulsar_artifact.read_text())["parameters"]
+    assert pulsar_parameters["base-version"] == "2.6.22"
+    assert pulsar_parameters["target-version"] == "3.0.2"
+    assert pulsar_parameters["deploy-profile"].endswith(
+        "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
+    )
+    assert pulsar_parameters["post-upgrade-loon-ffi-enabled"] == "true"
+    assert pulsar_parameters["storage-v3-compaction-validation-enabled"] == "true"
+    assert "expected_total=$(( ${#standalone_queue[@]} + ${#cluster_queue[@]} ))" in (
+        scheduler
+    )
+    assert "if ((total >= expected_total && running == 0)); then" in scheduler
 
 
 @pytest.mark.parametrize(

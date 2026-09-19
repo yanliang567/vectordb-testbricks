@@ -1777,6 +1777,7 @@ def _validate_phase_checkpoint_scalar_indexes(
     *,
     existing: bool,
     server_version: str | None = None,
+    rpc_timeout: Callable[[], float] | None = None,
 ) -> int:
     meta = _phase_checkpoint_index_meta(spec, checkpoint, existing=existing)
     if meta is None:
@@ -1790,6 +1791,7 @@ def _validate_phase_checkpoint_scalar_indexes(
         report,
         probe_overrides=_phase_upsert_scalar_probe_overrides(spec, checkpoint),
         server_version=server_version,
+        rpc_timeout=rpc_timeout,
     )
 
 
@@ -1807,7 +1809,7 @@ def _wait_for_phase_scalar_index_queries(
 ) -> tuple[int, int]:
     queries = 0
 
-    def validate(current: ValidationReport, _rpc_timeout: Callable[[], float]) -> None:
+    def validate(current: ValidationReport, rpc_timeout: Callable[[], float]) -> None:
         nonlocal queries
         queries = _validate_phase_checkpoint_scalar_indexes(
             client,
@@ -1817,6 +1819,7 @@ def _wait_for_phase_scalar_index_queries(
             current,
             existing=existing,
             server_version=server_version,
+            rpc_timeout=rpc_timeout,
         )
 
     current, attempts = _wait_for_validation(validate, timeout_sec, interval_sec)

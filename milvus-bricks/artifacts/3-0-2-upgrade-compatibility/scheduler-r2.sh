@@ -11,6 +11,10 @@ export ARGO_NAMESPACE=qa
 out_dir='artifacts/3-0-2-upgrade-compatibility/rendered'
 label='release-validation=milvus-3-0-2-20260913-r2'
 standalone_queue=(
+  standalone-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest
+  standalone-3-0-baseline-to-3-0-latest-rollback-3-0-baseline
+  standalone-3-0-index-v10-v4-upgrade-rollback
+  standalone-3-0-index-v11-v4-upgrade-rollback
   standalone-3-0-1-vortex-self-compat-upgrade-rollback
   standalone-3-0-0-to-3-0-1-vortex-enable-rollback
   standalone-3-0-1-json-shredding-vortex-rollback
@@ -19,6 +23,9 @@ standalone_queue=(
   standalone-3-0-1-vortex-disable-keep-loon-rollback
 )
 cluster_queue=(
+  cluster-2-6-18-to-3-0-latest-target-only-features-rollback-2-6-latest
+  cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline
+  cluster-3-0-index-v10-v4-upgrade-rollback
   cluster-3-0-index-v11-v4-upgrade-rollback
   cluster-3-0-1-vortex-self-compat-upgrade-rollback
   cluster-3-0-0-to-3-0-1-vortex-enable-rollback
@@ -26,7 +33,9 @@ cluster_queue=(
   cluster-3-0-1-loon-ffi-rollback
   cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline
   cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline
+  cluster-2-6-22-to-3-0-2-storage-v3-compaction-pulsar
 )
+expected_total=$(( ${#standalone_queue[@]} + ${#cluster_queue[@]} ))
 
 submit_scenario() {
   local scenario="$1" prefix="$2" json="$out_dir/$scenario.json"
@@ -75,7 +84,7 @@ while true; do
   failed="$(jq '[.[] | select(.status.phase=="Failed" or .status.phase=="Error")] | length' <<<"$listing")"
   printf '%s SUMMARY total=%s active=%s standalone=%s cluster=%s succeeded=%s failed=%s\n' \
     "$(date '+%F %T')" "$total" "$running" "$active_st" "$active_cl" "$succeeded" "$failed"
-  if ((total >= 20 && running == 0)); then
+  if ((total >= expected_total && running == 0)); then
     jq -r '.[] | [[.spec.arguments.parameters[]? | select(.name=="scenario-id") | .value][0], .metadata.name, .status.phase, .status.startedAt, .status.finishedAt] | @tsv' <<<"$listing" | sort
     exit 0
   fi
