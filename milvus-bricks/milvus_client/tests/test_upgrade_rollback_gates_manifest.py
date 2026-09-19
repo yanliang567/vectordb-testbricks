@@ -79,7 +79,8 @@ def test_manifest_v2_contract_migration_preserves_existing_execution_paths():
         "cluster-2-6-18-to-2-6-24-rollback-2-6-18",
     }
     new_paths = new_2_6_24_paths | {
-        "cluster-2-6-22-to-3-0-2-storage-v3-compaction"
+        "cluster-2-6-22-to-3-0-2-storage-v3-compaction",
+        "cluster-2-6-22-to-3-0-2-storage-v3-compaction-pulsar",
     }
     legacy_only = {
         "post-upgrade-loon-ffi-enabled",
@@ -97,6 +98,38 @@ def test_manifest_v2_contract_migration_preserves_existing_execution_paths():
     assert actual["cluster-2-6-22-to-3-0-2-storage-v3-compaction"][
         "storage-v3-compaction-validation-enabled"
     ] == "true"
+
+
+def test_2622_storage_v3_woodpecker_known_limitation_uses_pulsar_gate_by_default():
+    manifest = _manifest()
+    woodpecker = resolve_gate_scenario(
+        manifest, "cluster-2-6-22-to-3-0-2-storage-v3-compaction"
+    )
+    pulsar = resolve_gate_scenario(
+        manifest, "cluster-2-6-22-to-3-0-2-storage-v3-compaction-pulsar"
+    )
+
+    assert woodpecker["classification"] == "known_limitation"
+    assert woodpecker["support_status"] == "unsupported"
+    assert "woodpecker#216" in woodpecker["description"]
+    assert (
+        render_argo_parameters(woodpecker, manifest, allow_placeholder=True)[
+            "release-gate-eligible"
+        ]
+        == "false"
+    )
+
+    assert pulsar["classification"] == "gate"
+    assert pulsar["support_status"] == "supported"
+    assert pulsar["deploy_profile"].endswith(
+        "milvus_client/manifests/deploy_profiles/cluster-pulsar-1cu.yaml"
+    )
+    assert (
+        render_argo_parameters(pulsar, manifest, allow_placeholder=True)[
+            "release-gate-eligible"
+        ]
+        == "true"
+    )
 
 
 @pytest.mark.parametrize(

@@ -5,11 +5,11 @@ This guide explains the code-managed Argo upgrade/rollback gates under
 
 ## Current scenario set
 
-The manifest currently registers 26 scenarios:
+The manifest currently registers 30 scenarios:
 
-- 20 promoted gate scenarios
+- 23 promoted gate scenarios
 - 2 pre-release candidate scenarios
-- 3 known-limitation scenarios
+- 4 known-limitation scenarios
 - 1 negative coverage scenario
 
 Every explicit dependency image in a release-gate deploy profile is pinned by
@@ -26,6 +26,8 @@ the rendered gate cannot silently consume different bits after review.
 | `cluster-3-0-baseline-to-3-0-latest-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` | LoonFFI/storage v3 and Vortex disabled; target-created 3.0 collections and indexes are validated before and after rollback. |
 | `cluster-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | #52341 reader recovery is gated with Woodpecker v0.1.38 and the nine-schema constrained matrix; the two #52768 nested scalar AutoIndex schemas remain isolated in their own tracker. |
 | `cluster-3-0-baseline-to-3-0-latest-woodpecker-2cu-ha-rollback-3-0-baseline` | cluster | gate | `3.0 baseline -> 3.0 latest -> 3.0 baseline` on Woodpecker 2CU | Proxy, QueryNode, DataNode, and StreamingNode must each keep at least two replicas. |
+| `cluster-2-6-22-to-3-0-2-storage-v3-compaction` | cluster | known limitation | `2.6.22 storage v2 -> 3.0.2 storage v2 -> LoonFFI/storage v3` on Woodpecker | Tracked by [woodpecker#216](https://github.com/zilliztech/woodpecker/issues/216); legacy quorum metadata falls back to `127.0.0.1`, so it is excluded from the default release gate. |
+| `cluster-2-6-22-to-3-0-2-storage-v3-compaction-pulsar` | cluster | gate | `2.6.22 storage v2 -> 3.0.2 storage v2 -> LoonFFI/storage v3` on Pulsar | Default release-gate path; explicitly compacts existing data and proves StorageV3 persistent and loaded segments are used by query/search. |
 | `standalone-3-0-vortex-candidate-upgrade-rollback` | standalone | candidate | `earlier reviewed 3.0 candidate -> newer reviewed candidate + LoonFFI/Vortex -> earlier candidate + LoonFFI/Vortex` | Pre-release evidence for the v3.0.1 contract; not a release gate. |
 | `cluster-3-0-vortex-candidate-upgrade-rollback` | cluster | candidate | `earlier reviewed 3.0 candidate -> newer reviewed candidate + LoonFFI/Vortex -> earlier candidate + LoonFFI/Vortex` | Distributed pre-release evidence; not a release gate. |
 | `standalone-3-0-baseline-to-3-0-latest-json-shredding-rollback-3-0-baseline` | standalone | known limitation | `3.0 baseline -> 3.0 latest + JSON Shredding -> 3.0 baseline + JSON Shredding` | JSON-heavy forward data and JSON path indexes remain required after rollback. |

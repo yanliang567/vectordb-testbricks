@@ -1005,15 +1005,54 @@ scenarios:
       gate_allow_warning: false
 
   - id: cluster-2-6-22-to-3-0-2-storage-v3-compaction
-    description: "Cluster v2.6.22 storage-v2 baseline -> v3.0.2 image with storage-v2 -> post-upgrade LoonFFI storage-v3; compact all existing collections and prove storage-v3 loaded segments are used by query/search."
+    description: "Known limitation tracked by zilliztech/woodpecker#216: the v2.6.22 Woodpecker service-mode recovery path cannot read legacy segment metadata without endpoint-bearing QuorumInfo and falls back to 127.0.0.1; keep this scenario out of the default release gate until the compatibility fix lands."
     mode: cluster
-    classification: gate
-    support_status: supported
+    classification: known_limitation
+    support_status: unsupported
     submit_generate_name: c2622-sv3-
     workflow_template_ref: cluster
     deploy_profile_ref: cluster_woodpecker_1cu
     schema_matrix_ref: "2.6"
     collection_prefix: qa_gate_cluster_2622_to_302_storage_v3
+    forward_workload_enabled: false
+    schema_evolution_existing_enabled: false
+    schema_evolution_forward_enabled: false
+    rollback_enabled: false
+    rollback_forward_validation_enabled: false
+    post_upgrade_config_toggle_enabled: true
+    post_upgrade_loon_ffi_enabled: true
+    storage_v3_compaction_validation_enabled: true
+    base:
+      image_ref: milvus-2-6-22
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    target:
+      image_ref: milvus-3-0-latest
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    rollback:
+      image_ref: milvus-3-0-latest
+      json_shredding_enabled: false
+      loon_ffi_enabled: false
+      vortex_enabled: false
+    validation_policy:
+      data_integrity: strict
+      serviceability: strict
+      pressure_fail_on_error: true
+      gate_allow_warning: false
+
+  - id: cluster-2-6-22-to-3-0-2-storage-v3-compaction-pulsar
+    description: "Cluster v2.6.22 storage-v2 baseline -> v3.0.2 image with storage-v2 -> post-upgrade LoonFFI storage-v3 over Pulsar; compact all existing collections and prove storage-v3 loaded segments are used by query/search."
+    mode: cluster
+    classification: gate
+    support_status: supported
+    submit_generate_name: c2622-pulsar-sv3-
+    workflow_template_ref: cluster
+    deploy_profile_ref: cluster_pulsar_1cu
+    schema_matrix_ref: "2.6"
+    collection_prefix: qa_gate_cluster_2622_to_302_storage_v3_pulsar
     forward_workload_enabled: false
     schema_evolution_existing_enabled: false
     schema_evolution_forward_enabled: false
